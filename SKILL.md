@@ -1,6 +1,6 @@
 ---
 name: target-company-sde-scanner
-description: Use this whenever the user wants to find currently open Software Engineer / SDE roles requiring roughly 1-3 years of experience (SDE II, SDE-2, Software Engineer II, mid-level, L2/L3, "1-3 years") across target MNCs, Indian startups, and the expanded employer pool in the bundled reference. Also use it when the user asks to tailor their resume for one or more of these roles. Trigger on "scan my target companies," "check my company list for jobs," "any SDE-2 openings," "find mid-level roles at [company]," "run my job search," "update my target list job search," "tailor my resume for these roles," or a bare "more" / "check for new jobs" once this search has been established. Use direct employer application pages and verify each listing still exists before returning it.
+description: Use this whenever the user wants to find currently open Software Engineer / SDE roles requiring roughly 1-3 years of experience (SDE II, SDE-2, Software Engineer II, mid-level, L2/L3, "1-3 years") across target MNCs, Indian startups, and the expanded employer pool in the bundled reference. Also use it when the user asks to tailor their resume for one or more of these roles. Trigger on "scan my target companies," "check my company list for jobs," "any SDE-2 openings," "find mid-level roles at [company]," "run my job search," "search LinkedIn/Naukri/Instahyre/Indeed," "update my target list job search," "tailor my resume for these roles," or a bare "more" / "check for new jobs" once this search has been established. Search LinkedIn, Naukri, Instahyre, and Indeed as discovery sources; prefer verified employer application pages and clearly label any verified board-only application route.
 ---
 
 # Target-Company SDE Scanner (1-3 YOE)
@@ -54,6 +54,28 @@ site-search, since most companies' real listings live on one of these under the 
 `site:jobs.lever.co "<company>" software engineer`
 `site:myworkdayjobs.com "<company>" software engineer`
 `site:jobs.ashbyhq.com "<company>" software engineer`
+
+### Job-board discovery pass
+
+Use LinkedIn, Naukri, Instahyre, and Indeed to widen discovery after the direct career-site pass,
+or first when the user explicitly asks to search one or more of those services. Use the user’s
+signed-in browser session when it is available; otherwise use public search results. Search by
+company, location, seniority, and current role terms (for example, `Software Engineer II`,
+`backend engineer`, `SDE-2`, or `1-3 years`) and retain the posting URL plus the employer name.
+
+Treat board listings as leads, not proof of an opening:
+
+- **LinkedIn:** Prefer the listing’s employer career-site link. If it only offers Easy Apply,
+  identify it as a LinkedIn application and verify the listing is visibly open in the current run.
+- **Naukri, Instahyre, and Indeed:** Follow an employer-provided apply link when present. If the
+  board is the only application route, return it only when the page visibly shows an active apply
+  action, label it with the board name, and avoid claiming employer-page verification.
+- Never bypass authentication, CAPTCHAs, rate limits, or a board’s access controls. Ask the user
+  to take over if a login, CAPTCHA, or permission prompt is required.
+
+Deduplicate board leads against employer/ATS pages by company, title, and location. Prefer the
+employer page in the final shortlist; retain a board link only as an additional application option
+when it is itself confirmed active.
 
 Open or fetch the actual careers/listings page once found — search snippets alone are often
 stale, missing the experience range, or missing the direct apply link. Prioritize postings that look
@@ -115,8 +137,8 @@ tier, with per listing:
 - Stated experience range (or "implied by title" if not explicit)
 - Direct apply link
 
-State that the roles were verified on the employer page in the current run. Do not say "verified"
-for a role that only has a current-looking search result. For a narrow search, return fewer than the
+State whether each role was verified on the employer page or on the named job board in the current
+run. Do not say "verified" for a role that only has a current-looking search result. For a narrow search, return fewer than the
 requested count rather than padding with stale listings.
 
 End with a short coverage note: which companies in scope came back empty (either nothing open at that
