@@ -145,10 +145,20 @@ Never invent experience, skills, certifications, projects, metrics, employers, d
 authorization. Do not claim proficiency from a keyword alone. Surface material gaps briefly so the
 candidate can decide whether to add truthful context or apply as-is.
 
-Return a short match note and one tailored resume per role. Default to clearly labeled Markdown in
-chat; create separate `.docx` or PDF files only when the user asks for files. Keep the base resume
-and tailored versions private to the conversation and do not store them in this skill or in the
-company list.
+Return a short match note and one tailored resume per role. Default to a separate, ATS-friendly
+PDF for each role; return Markdown only when the user explicitly requests text, and create `.docx`
+only when they request an editable document. Keep the base resume and tailored versions private to
+the conversation and do not store them in this skill or in the company list.
+
+For each PDF, use the PDF workflow to render and visually inspect the final file before delivery.
+Aim for a balanced, professional one-page layout: make good use of the vertical page area without
+inventing filler, excessive whitespace, oversized headings, or artificially inflated margins. If
+the rendered resume leaves a large unused lower portion of the page (roughly a quarter or more of
+the content area), revise the layout before delivery by tightening unnecessary spacing, using a
+compact skills presentation, or restoring truthful, relevant detail from the source resume. Confirm
+that the final PDF is one page unless the source content genuinely requires more, with no clipped,
+overlapping, or unreadably dense text. Use a descriptive per-role filename and do not commit the
+candidate's resume or generated PDF to the skill repository.
 
 ## Notes
 

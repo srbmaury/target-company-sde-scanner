@@ -6,3 +6,6 @@
 # Temporary files
 *.tmp
 *.swp
+
+# Private, generated candidate artifacts
+output/

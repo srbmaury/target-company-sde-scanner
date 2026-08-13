@@ -37,6 +37,8 @@ Keep the instructions actionable and conservative:
 - Do not introduce background monitoring or claims that a listing is evergreen.
 - Preserve factual integrity in resume tailoring: never encourage fabricated skills, metrics,
   credentials, employment history, or dates.
+- Preserve PDF quality: render and inspect tailored resumes, correct large unused page areas or
+  layout defects, and never commit a candidate's resume or generated tailored file.
 
 ## Pull requests
 
