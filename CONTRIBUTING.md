@@ -8,6 +8,7 @@ Contributions should improve one of the following:
 
 - the skill workflow in `SKILL.md`;
 - the company tiers or career-site references in `target-companies.md`; or
+- the evidence-based resume-tailoring workflow; or
 - documentation that makes the skill easier to install or use.
 
 Please avoid adding job postings as persistent data. Specific openings are volatile and must be
@@ -34,6 +35,8 @@ Keep the instructions actionable and conservative:
 - Preserve the 1–3 YOE filter and clearly state assumptions when a title implies level.
 - Prefer direct application URLs over aggregators and search-result snippets.
 - Do not introduce background monitoring or claims that a listing is evergreen.
+- Preserve factual integrity in resume tailoring: never encourage fabricated skills, metrics,
+  credentials, employment history, or dates.
 
 ## Pull requests
 

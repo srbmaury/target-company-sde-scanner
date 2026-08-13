@@ -12,6 +12,8 @@ deduplicated shortlist of roles with direct, verified application links.
 - Verifies that each role is currently open and has an active application path before reporting it.
 - Reports location, experience requirement (or level-based assumption), direct apply link, and
   coverage notes for companies checked without a matching role.
+- Tailors a factual, ATS-conscious resume version for each selected verified role when you provide
+  your resume.
 
 ## Repository contents
 
@@ -31,6 +33,15 @@ Scan my target companies for India-based SDE-2 roles.
 For a quick first pass, the skill defaults to Tier 0 and interprets “1–3 years” as roles whose
 stated requirements overlap that range. You can specify a different tier scope, location, or
 experience interpretation in your request.
+
+To tailor your resume after a scan, attach or paste it and say, for example:
+
+```text
+Tailor my resume for the Stripe and Datadog roles you found.
+```
+
+The skill creates a separate targeted version for each role. It highlights genuine evidence and
+reorders relevant content, but never invents skills, metrics, experience, or credentials.
 
 ## Important behavior
 

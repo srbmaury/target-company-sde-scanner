@@ -1,6 +1,6 @@
 ---
 name: target-company-sde-scanner
-description: Use this whenever the user wants to find currently open Software Engineer / SDE roles requiring roughly 1-3 years of experience (SDE II, SDE-2, Software Engineer II, mid-level, L2/L3, "1-3 years") across target MNCs, Indian startups, and the expanded employer pool in the bundled reference. Trigger on "scan my target companies," "check my company list for jobs," "any SDE-2 openings," "find mid-level roles at [company]," "run my job search," "update my target list job search," or a bare "more" / "check for new jobs" once this search has been established. Use direct employer application pages and verify each listing still exists before returning it.
+description: Use this whenever the user wants to find currently open Software Engineer / SDE roles requiring roughly 1-3 years of experience (SDE II, SDE-2, Software Engineer II, mid-level, L2/L3, "1-3 years") across target MNCs, Indian startups, and the expanded employer pool in the bundled reference. Also use it when the user asks to tailor their resume for one or more of these roles. Trigger on "scan my target companies," "check my company list for jobs," "any SDE-2 openings," "find mid-level roles at [company]," "run my job search," "update my target list job search," "tailor my resume for these roles," or a bare "more" / "check for new jobs" once this search has been established. Use direct employer application pages and verify each listing still exists before returning it.
 ---
 
 # Target-Company SDE Scanner (1-3 YOE)
@@ -124,6 +124,32 @@ level, or search didn't surface anything), so the user knows what wasn't covered
 silence means nothing exists. Offer to continue into the next tier, or re-run later for fresh
 postings.
 
+## Step 5: Tailor resumes when requested
+
+When the user provides a resume and asks for tailoring, first obtain the exact, currently verified
+job postings to target. If the user has not identified them, use the shortlisted postings from the
+current search and ask which roles to prioritize when there are more than three; otherwise tailor
+for every requested role.
+
+For each job, compare the resume against the employer-posted title, responsibilities, and required
+qualifications. Produce a separate, ATS-conscious version that:
+
+- uses the role's terminology only where it truthfully reflects the candidate's background;
+- adjusts the headline, professional summary, skills ordering, and experience-bullet ordering to
+  emphasize the most relevant real evidence;
+- preserves employer names, dates, titles, education, credentials, scope, and measurable outcomes
+  unless the candidate explicitly supplies a factual correction; and
+- keeps the resume concise, readable, and specific to the job instead of merely keyword stuffing.
+
+Never invent experience, skills, certifications, projects, metrics, employers, dates, or work
+authorization. Do not claim proficiency from a keyword alone. Surface material gaps briefly so the
+candidate can decide whether to add truthful context or apply as-is.
+
+Return a short match note and one tailored resume per role. Default to clearly labeled Markdown in
+chat; create separate `.docx` or PDF files only when the user asks for files. Keep the base resume
+and tailored versions private to the conversation and do not store them in this skill or in the
+company list.
+
 ## Notes
 
 - Don't fabricate postings, companies, career-page URLs, or experience ranges. If coverage was thin
@@ -135,3 +161,5 @@ postings.
   work) comes up, weight Tier 0 companies and infra/dev-tools roles (backend, platform, developer
   infra) slightly higher when ranking, but don't exclude other SDE roles just because they're not an
   exact stack match.
+- Resume tailoring improves relevance; it cannot guarantee an interview, ATS outcome, or hiring
+  decision.
