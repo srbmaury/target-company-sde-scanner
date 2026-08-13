@@ -42,7 +42,8 @@ Tailor my resume for the Stripe and Datadog roles you found.
 
 The skill creates a separate targeted PDF for each role. It highlights genuine evidence and
 reorders relevant content, but never invents skills, metrics, experience, or credentials. Each PDF
-is rendered and visually checked for a balanced, readable one-page layout before delivery.
+is rendered and visually checked for a balanced, readable one-page layout before delivery, while
+preserving the source resume's clickable contact, portfolio, project, and coding-profile links.
 
 ## Important behavior
 

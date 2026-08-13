@@ -160,6 +160,11 @@ that the final PDF is one page unless the source content genuinely requires more
 overlapping, or unreadably dense text. Use a descriptive per-role filename and do not commit the
 candidate's resume or generated PDF to the skill repository.
 
+Preserve every usable link from the source resume, including email, LinkedIn, portfolio, project,
+GitHub, and coding-profile URLs. Inspect the source PDF's link annotations when applicable, copy
+the same destinations into the tailored PDF, and reopen the output to confirm every expected
+hyperlink annotation is present and active. Do not replace real URLs with plain-text labels.
+
 ## Notes
 
 - Don't fabricate postings, companies, career-page URLs, or experience ranges. If coverage was thin

@@ -39,6 +39,8 @@ Keep the instructions actionable and conservative:
   credentials, employment history, or dates.
 - Preserve PDF quality: render and inspect tailored resumes, correct large unused page areas or
   layout defects, and never commit a candidate's resume or generated tailored file.
+- Preserve all existing actionable resume links in tailored PDFs and verify their annotations after
+  export; visible text alone is not sufficient.
 
 ## Pull requests
 
