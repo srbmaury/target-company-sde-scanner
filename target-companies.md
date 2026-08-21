@@ -384,6 +384,87 @@ Redwood Software, Diligent, Poshmark, MiQ, Pfizer Digital, HPE, JLL, R1 RCM, Col
 MakeMyTrip, Availity, Alegeus, Surya Digital, Appian, Truveta, Veeva Systems, Minitab, PAR Technology,
 Observe.AI, HackerRank, Imply, Abnormal AI, Cerebras, Ownwell, Salary Finance, and Welo Global.
 
+### Newly discovered employer surfaces
+
+These employers surfaced in verified India/remote engineering searches. Use the listed employer
+board first, then verify the exact posting and its experience band before returning it.
+
+| Company | Official hiring surface | Search focus |
+|---|---|---|
+| AI Squared | `job-boards.greenhouse.io/aisquared` | India Remote; backend / SDE2 |
+| Alif Semiconductor | `jobs.lever.co/alifsemi` | Bangalore; embedded / RTOS; 2–4 years |
+| BJAK | `jobs.ashbyhq.com/bjakcareer` | Remote India; full-stack / fintech / AI |
+| Dialpad | `job-boards.greenhouse.io/dialpad` | Bengaluru; backend / integrations / platform |
+| Dun & Bradstreet | `jobs.lever.co/dnb` | Hyderabad; Java / API / cloud services |
+| HighLevel | `jobs.lever.co/gohighlevel` | India Remote; mobile / backend / platform |
+| Perch Energy | `job-boards.greenhouse.io/perchenergycareers` | Remote India; L2 full-stack |
+| Shield AI | `jobs.lever.co/shieldai` | Bangalore / Delhi; C++ / Python / autonomy |
+| SolarWinds | `solarwinds.com/careers` | Bengaluru; platform engineering / SDE-2 |
+| Workloom (Tetriz) | `jobs.lever.co/epifi` | Bangalore; backend / full-stack / AI systems |
+
+### Additional product and AI companies
+
+Prioritize India-based roles, then remote roles explicitly eligible for candidates in India.
+
+| Company | Official hiring surface | Search focus |
+|---|---|---|
+| Atlan | `atlan.com/careers` | India/remote; data platform / AI / backend |
+| ClickHouse | `job-boards.greenhouse.io/clickhouse` | Remote; databases / cloud infrastructure / C++ |
+| Commure | `commure.com/careers` | India; healthcare platform / data engineering |
+| ElevenLabs | `elevenlabs.io/careers` | Remote; AI audio / developer platform |
+| Glean | `job-boards.greenhouse.io/gleanwork` | Bengaluru; enterprise AI / search / backend |
+| Harvey | `harvey.ai/careers` | India-eligible remote; AI platform / reliability |
+| MishiPay | `mishipay.com/career` | Bengaluru; retail-tech / payments / backend |
+| PostHog | `posthog.com/careers` | India-eligible remote; developer tools / analytics |
+
+### Additional expansion — developer products, data platforms, and India scale-ups
+
+Use this queue after the profile-priority companies and before broad Tier 3 discovery. The career
+surfaces are starting points only: re-check the exact employer-hosted posting and live application
+control before returning a role.
+
+- **Global developer, data, and SaaS**: HubSpot, Shopify, Zendesk, Braze, Amplitude, Mixpanel,
+  Kong, Neo4j, Couchbase, Dataiku, Celonis, Tyk, 6sense, Algonomy
+- **India SaaS and enterprise platforms**: Keka, Capillary Technologies, Vymo, Kissflow,
+  Kapture CX, GreyOrange, Mettl (Mercer), Xoxoday, Exotel, Shiprocket
+- **Consumer, mobility, and commerce**: Ather Energy, OYO, Licious, Purplle, boAt, Wakefit,
+  Pristyn Care, Country Delight
+
+| Company | Official career surface | Search focus |
+|---|---|---|
+| HubSpot | `hubspot.com/careers` | India / remote; backend, platform, data |
+| Shopify | `shopify.com/careers` | Remote India eligibility; backend / infrastructure |
+| Zendesk | `jobs.zendesk.com` | India; SaaS platform / backend |
+| Braze | `braze.com/company/careers` | India / remote; messaging infrastructure |
+| Amplitude | `amplitude.com/careers` | India-eligible remote; product analytics |
+| Mixpanel | `mixpanel.com/careers` | India-eligible remote; data / backend |
+| Kong | `konghq.com/careers` | Bengaluru / remote; API platform / Go |
+| Neo4j | `neo4j.com/careers` | India; databases / distributed systems |
+| Couchbase | `couchbase.com/careers` | Bengaluru; databases / cloud |
+| Dataiku | `dataiku.com/careers` | India; AI platform / full-stack |
+| Celonis | `celonis.com/careers` | India; data platform / backend |
+| Tyk | `tyk.io/careers` | India-eligible remote; API management |
+| 6sense | `6sense.com/careers` | Bengaluru / Pune; data and platform |
+| Algonomy | `algonomy.com/careers` | Bengaluru; decisioning / data platform |
+| Keka | `keka.com/careers` | Hyderabad; SaaS backend / full-stack |
+| Capillary Technologies | `capillarytech.com/careers` | Bengaluru; retail SaaS / Java |
+| Vymo | `vymo.com/careers` | Bengaluru; enterprise mobile / backend |
+| Kissflow | `kissflow.com/careers` | Chennai; workflow SaaS |
+| Kapture CX | `kapturecx.com/careers` | Bengaluru; customer-support SaaS |
+| GreyOrange | `greyorange.com/careers` | Gurgaon / Bengaluru; robotics / platform |
+| Mettl (Mercer) | `mercer.com/careers` | Gurgaon; assessment platform / backend |
+| Xoxoday | `xoxoday.com/careers` | Bengaluru; rewards-platform backend |
+| Exotel | `exotel.com/careers` | Bengaluru; communications platform |
+| Shiprocket | `shiprocket.in/careers` | Delhi / Gurgaon; logistics platform |
+| Ather Energy | `atherenergy.com/careers` | Bengaluru; EV software / platform |
+| OYO | `careers.oyorooms.com` | India; marketplace / backend |
+| Licious | `licious.in/careers` | Bengaluru; commerce / supply-chain systems |
+| Purplle | `purplle.com/careers` | Mumbai / Bengaluru; commerce platform |
+| boAt | `boat-lifestyle.com/careers` | India; consumer-commerce systems |
+| Wakefit | `wakefit.co/careers` | Bengaluru; commerce / data |
+| Pristyn Care | `pristyncare.com/careers` | Gurgaon; health-tech platform |
+| Country Delight | `countrydelight.in/careers` | Gurgaon; consumer / logistics platform |
+
 **ATS query toolkit** (use company name plus the target location/level):
 
 - Greenhouse: `site:job-boards.greenhouse.io "<company>" "Software Engineer" India`
