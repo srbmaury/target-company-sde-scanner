@@ -1,6 +1,6 @@
 ---
 name: target-company-sde-scanner
-description: Use this whenever the user wants to find currently open Software Engineer / SDE roles requiring roughly 1-3 years of experience (SDE II, SDE-2, Software Engineer II, mid-level, L2/L3, "1-3 years") across target MNCs, Indian startups, and the expanded employer pool in the bundled reference. Also use it when the user asks to tailor their resume for one or more of these roles. Trigger on "scan my target companies," "check my company list for jobs," "any SDE-2 openings," "find mid-level roles at [company]," "run my job search," "search LinkedIn/Naukri/Instahyre/Indeed," "update my target list job search," "tailor my resume for these roles," or a bare "more" / "check for new jobs" once this search has been established. Search LinkedIn, Naukri, Instahyre, and Indeed as discovery sources; prefer verified employer application pages and clearly label any verified board-only application route.
+description: Use this whenever the user wants to find currently open Software Engineer / SDE roles requiring roughly 1-3 years of experience (SDE II, SDE-2, Software Engineer II, mid-level, L2/L3, "1-3 years") across target MNCs, Indian startups, and the expanded employer pool in the bundled reference. Also use it when the user asks to tailor their resume for one or more of these roles. Trigger on "scan my target companies," "check my company list for jobs," "any SDE-2 openings," "find mid-level roles at [company]," "run my job search," "search LinkedIn/Naukri/Instahyre/Indeed/Glassdoor," "update my target list job search," "tailor my resume for these roles," or a bare "more" / "check for new jobs" once this search has been established. Search major India, startup, remote, and recruiter sources as discovery inputs; prefer verified employer application pages and clearly label any verified board-only application route.
 ---
 
 # Target-Company SDE Scanner (1-3 YOE)
@@ -14,6 +14,18 @@ runs live web searches each time it's invoked, not a background crawler.
 
 Read `target-companies.md` for the full tiered company list before starting. Don't
 re-type or summarize the whole list back to the user — just use it to drive searches.
+
+## Step 0.5: Prevent repeated results
+
+If `job-search-history.md` exists in the current workspace, read it before searching. Treat every
+listed role as already shown and exclude it from new results unless the user explicitly asks to
+refresh or revisit it. Still re-open any refreshed role to verify that it remains active.
+
+Before delivering any search result, append every role that will be shown to the user — verified
+matches and unverified leads alike — to this log with company, exact title, location, source,
+status, and best available link. Do this even for a partial result or a role later excluded from a
+shortlist. Save the log first, then present the results; never overwrite or remove earlier rows.
+Keep the log private and ignored by Git.
 
 ## Step 1: Scope the run
 
@@ -57,11 +69,14 @@ site-search, since most companies' real listings live on one of these under the 
 
 ### Job-board discovery pass
 
-Use LinkedIn, Naukri, Instahyre, and Indeed to widen discovery after the direct career-site pass,
-or first when the user explicitly asks to search one or more of those services. Use the user’s
-signed-in browser session when it is available; otherwise use public search results. Search by
-company, location, seniority, and current role terms (for example, `Software Engineer II`,
-`backend engineer`, `SDE-2`, or `1-3 years`) and retain the posting URL plus the employer name.
+Use LinkedIn, Naukri, Instahyre, Indeed, Glassdoor, Google job cards, YC Jobs, Wellfound,
+Cutshort, Hirist, Foundit, Unstop, Internshala, and the remote/startup sources in
+`references/job-platforms.md` to widen discovery after the direct career-site pass, or first when the user
+explicitly names one or more of those services. Use the user’s signed-in browser session when it
+is available; otherwise use public search results. Search by company, location, seniority, and
+current role terms (for example, `Software Engineer II`, `backend engineer`, `SDE-2`, or
+`1-3 years`) and retain the posting URL plus the employer name. Consult
+`references/job-platforms.md` for source-specific scope and entry points.
 
 Treat board listings as leads, not proof of an opening:
 
@@ -70,6 +85,16 @@ Treat board listings as leads, not proof of an opening:
 - **Naukri, Instahyre, and Indeed:** Follow an employer-provided apply link when present. If the
   board is the only application route, return it only when the page visibly shows an active apply
   action, label it with the board name, and avoid claiming employer-page verification.
+- **YC Jobs and Wellfound:** Use for startup and remote discovery. Filter for India or explicit
+  global-remote eligibility; do not assume a generic remote listing accepts candidates in India.
+- **Cutshort, Hirist, Foundit, Unstop, and Internshala:** Use primarily for India discovery. Treat
+  compensation, experience, and company metadata as candidate-provided board data until the
+  employer posting confirms them.
+- **CareerHound and similar trackers/aggregators:** Use only to discover a company-hosted URL.
+  Never use their summary or application status as live-listing verification.
+- **Remote, agency, freelance, and social sources:** Follow the eligibility and employment-type rules in
+  `references/job-platforms.md`. Never treat a recruiter, social post, keyword feed, or automated-apply
+  service as proof that a role is live.
 - Never bypass authentication, CAPTCHAs, rate limits, or a board’s access controls. Ask the user
   to take over if a login, CAPTCHA, or permission prompt is required.
 

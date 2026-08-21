@@ -9,3 +9,6 @@
 
 # Private, generated candidate artifacts
 output/
+
+# Private local job-search de-duplication log
+job-search-history.md
