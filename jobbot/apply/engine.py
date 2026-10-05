@@ -27,6 +27,8 @@ CONFIRM_RE = re.compile(
 # Honeypot fields exist to catch bots; filling one gets the application flagged.
 TRAP_RE = re.compile(r"robots? only|for robots|do not (fill|enter)|leave (this )?(field )?(blank|empty)|honeypot", re.I)
 ACCOUNT_STEP_RE = re.compile(r"current step \d+ of \d+\s*\|?\s*create account\s*/\s*sign in", re.I)
+CODE_RE = re.compile(r"verification code|security code|one.?time (pass)?code|\botp\b|enter the \d*.?character code|"
+                     r"code (was )?sent to|confirmation code", re.I)
 CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i confirm|confirm the statement|declare", re.I)
 
 
@@ -125,6 +127,9 @@ class Session:
         self.upload = upload
         self.auto_next = auto_next
         self._consent_approved = False   # one yes covers every consent box in the current application
+        from ..memory import Memory
+
+        self.memory = Memory.for_profile(profile)
         self._pw = None
         self.ctx = None
 
@@ -168,8 +173,10 @@ class Session:
         if resume and self.upload:
             self._upload_resume(page, resume["path"], ats)
 
-        resolver = Resolver(self.profile, self.llm, job=job, resume_key=resume_key, ask=self.ui.ask)
-        self._consent_approved = False
+        resolver = Resolver(self.profile, self.llm, job=job, resume_key=resume_key, ask=self.ui.ask,
+                            memory=self.memory,
+                            auto_drafts=bool(self.profile.get("automation.auto_accept_drafts", True)))
+        self._consent_approved = bool(self.profile.get("automation.auto_consent", False))
         for step in range(1, MAX_PAGES + 1):
             signed_in = self._ensure_signed_in(page, attempts=1) if ats == "workday" else True
             report = self.fill_page(page, resolver) if signed_in else {"filled": [], "skipped": [], "records": []}
@@ -316,6 +323,22 @@ class Session:
                             "expected": str(expected if expected is not None else getattr(ans, "display", "") or ans)})
 
         fields = self._fields(page)
+        code_boxes = [f for f in fields if f["kind"] == "text" and CODE_RE.search(f["label"] or "")]
+        if code_boxes and not all(f["value"] for f in code_boxes):
+            code = self.ui.ask_code(code_boxes[0]["label"])
+            if code:
+                code = re.sub(r"\s+", "", code)
+                single = len(code_boxes) > 1 and all(f.get("maxlength") == 1 for f in code_boxes)
+                if single:
+                    for f, ch in zip(code_boxes, code):
+                        page.locator(f'[data-jobbot-id="{f["id"]}"]').fill(ch)
+                else:
+                    page.locator(f'[data-jobbot-id="{code_boxes[0]["id"]}"]').fill(code)
+                filled.append(("verification code", "entered (you)"))
+            else:
+                skipped.append("verification code from your email")
+        code_ids = {f["id"] for f in code_boxes}
+        fields = [f for f in fields if f["id"] not in code_ids]
         has_dial_picker = any(re.search(r"country|dial|code", x["label"], re.I) and x["kind"] in ("combo", "select", "listbutton")
                               for x in fields)
         for f in fields:
@@ -418,6 +441,10 @@ class Session:
         loc.click()
         page.wait_for_timeout(600)
         options = self._visible_options(page)
+        if not options:
+            loc.press("ArrowDown")  # some menus open only on a key press
+            page.wait_for_timeout(600)
+            options = self._visible_options(page)
         typed = False
         if not options and f["kind"] == "combo":
             # Autocomplete: type first, then read suggestions.

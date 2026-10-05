@@ -67,6 +67,8 @@ class Profile:
 
 def load(path=None):
     path = Path(path or paths.PROFILE)
+    if not path.exists() and path == paths.PROFILE and paths.LEGACY_PROFILE.exists():
+        path = paths.LEGACY_PROFILE
     if not path.exists():
         raise ProfileError(f"No profile at {path}. Run `jobbot init` and edit it.")
     with open(path, encoding="utf-8") as fh:

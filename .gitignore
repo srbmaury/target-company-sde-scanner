@@ -13,6 +13,9 @@ output/
 # Private local job-search de-duplication log
 job-search-history.md
 
+# Your personal jobbot profile: contact details, CTC, learned answers. Never commit it.
+profile.yaml
+
 # Local virtualenv
 .venv/
 __pycache__/
