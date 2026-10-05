@@ -1,6 +1,6 @@
 # jobbot candidate profile.
-# `jobbot init` copies this file to ~/.jobbot/profile.yaml. Edit that copy, not this one:
-# it holds personal data and must never be committed.
+# `jobbot init` copies this file to profile.yaml in the repository folder. Edit that copy, not
+# this one. profile.yaml is git-ignored because it holds personal data: never commit it.
 
 personal:
   first_name: Asha
@@ -73,6 +73,11 @@ resumes:
     path: ~/Documents/Resume/Example_FullStack.pdf
     focus: React, Next.js, Node.js, TypeScript
 
+# How much jobbot does without asking you. Submit always needs your keypress.
+automation:
+  auto_accept_drafts: true   # use the local model's drafts for free-text questions without asking
+  auto_consent: false        # tick privacy/consent boxes without asking (true = no consent prompt)
+
 # Your own fixed answers. `match` is a case-insensitive regex tested against the question text.
 # These win over everything else, including the questions jobbot would normally ask you about.
 answers:
@@ -89,3 +94,6 @@ always_ask:
   - "sanction|export control|cuba|iran|north korea|syria|crimea"
   - "government|debar|security clearance"
   - "non-?compete|conflict of interest|related to (an|any) employee"
+
+# jobbot adds entries below as you answer new questions, and reuses them for similar questions.
+learned_answers: []

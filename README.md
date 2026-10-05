@@ -50,15 +50,15 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 # Optional: local model for ranking and drafting answers (about 5 GB download)
 brew install ollama && brew services start ollama && ollama pull qwen2.5:7b
 
-./jobbot.sh init       # creates ~/.jobbot/profile.yaml from the template
-# edit ~/.jobbot/profile.yaml: your details, resume paths, preferences
+./jobbot.sh init       # creates profile.yaml (git-ignored) from the template
+# edit profile.yaml: your details, resume paths, preferences
 ./jobbot.sh doctor     # checks profile, resumes, browser, and Ollama
 ```
 
 `doctor` should end with every line ticked:
 
 ```text
-✓ profile: /Users/you/.jobbot/profile.yaml
+✓ profile: /Users/you/target-company-sde-scanner/profile.yaml
 ✓ resumes found: backend_platform, fullstack_product, ai_engineer
 ✓ playwright installed
 ✓ ollama running; model qwen2.5:7b: ready
@@ -167,8 +167,9 @@ already marked applied).
 
 ## Your profile
 
-`~/.jobbot/profile.yaml` holds everything jobbot answers with. It is created from
-[`profile.example.yaml`](profile.example.yaml) and stays outside the repository. The main sections:
+`profile.yaml` in the repository folder holds everything jobbot answers with. It is created from
+[`profile.example.yaml`](profile.example.yaml). It is **git-ignored**, because it contains your
+contact details and CTC, so it is never committed. The main sections:
 
 | Section | What it holds |
 | --- | --- |
@@ -182,8 +183,15 @@ already marked applied).
 | `resumes` | each resume variant: a key, the PDF path, and a short focus hint for ranking |
 | `answers` | your fixed answers: a regex matched against the question, and the answer to give |
 | `always_ask` | regexes for questions jobbot must always ask you about |
+| `automation` | `auto_accept_drafts` (use model drafts for free-text questions without asking), `auto_consent` (tick consent boxes without asking) |
+| `learned_answers` | answers you gave during applications, which jobbot fills in itself (see below) |
 
-**Teaching jobbot new answers.** If a question keeps coming up, add a rule under `answers`. These
+**jobbot learns as you go.** When you answer a question in the terminal, jobbot saves it under
+`learned_answers` and reuses it for the same or a very similar question at any company, so you're
+asked once. Answers that name the employer ("Why do you want to join Acme?") are not saved. You
+can edit or delete entries in the file.
+
+**Teaching jobbot new answers by hand.** If a question keeps coming up, add a rule under `answers`. These
 rules take priority over everything else, including `always_ask`:
 
 ```yaml
@@ -238,7 +246,7 @@ rows with `track update`.
 
 | Command | What it does |
 | --- | --- |
-| `init [--force]` | Create `~/.jobbot/profile.yaml` from the template |
+| `init [--force]` | Create `profile.yaml` (git-ignored) from the template |
 | `doctor` | Check profile, resume files, Playwright, Ollama, and the tracker |
 | `scan [--companies A,B] [--exclude C] [--locations REGEX] [--max-yoe N] [--show-all]` | Find matching roles and store new ones |
 | `rank [--limit N] [--rerank] [--llm none] [--model NAME]` | Score unranked roles against your resumes |
@@ -247,15 +255,15 @@ rows with `track update`.
 | `dismiss <n>...` | Hide roles you are not interested in |
 | `track [list\|add\|update\|show\|stats\|export\|import\|import-gmail]` | Manage the application tracker |
 
-Environment variables: `JOBBOT_HOME` (default `~/.jobbot`), `JOBBOT_MODEL` (default `qwen2.5:7b`),
-and `OLLAMA_HOST`.
+Environment variables: `JOBBOT_PROFILE` (default `./profile.yaml`), `JOBBOT_HOME` (default
+`~/.jobbot`), `JOBBOT_MODEL` (default `qwen2.5:7b`), and `OLLAMA_HOST`.
 
 ---
 
 ## Privacy and safety
 
-- **Everything runs on your machine.** Your profile, tracker database (`applications.db`), and
-  browser profile live in `~/.jobbot/`. The only network traffic is to the job boards themselves
+- **Everything runs on your machine.** Your profile (`profile.yaml`, git-ignored) lives in the
+  repository folder. The tracker database (`applications.db`) and browser profile live in `~/.jobbot/`. The only network traffic is to the job boards themselves
   and, if enabled, to Ollama on localhost.
 - **No automatic submits.** The final Submit always needs your keypress.
 - **No passwords.** jobbot never reads, stores, or types passwords, and skips password fields.

@@ -84,7 +84,7 @@ experience phrase it finds.
 If a registry entry errors or returns zero postings for a company that clearly hires, fall back to
 the career-site path and note the stale entry so the registry can be corrected.
 
-If the user has set up jobbot (`~/.jobbot/profile.yaml` exists), prefer `./jobbot.sh scan`,
+If the user has set up jobbot (`profile.yaml` exists in the repository folder), prefer `./jobbot.sh scan`,
 `./jobbot.sh rank`, and `./jobbot.sh jobs --why`: they use the same scanner, skip roles already in
 the user's application tracker, and keep a ranked shortlist between runs. When the user applies
 somewhere, record it with `./jobbot.sh track add` (or `update` for status changes) so the tracker

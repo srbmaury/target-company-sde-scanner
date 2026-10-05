@@ -130,7 +130,7 @@ if __name__ == "__main__":
 class VerifyMatchTest(unittest.TestCase):
     def test_matches(self):
         from jobbot.apply.verify import matches
-        self.assertTrue(matches("+91 7355069174", "73550 69174", "text"))       # sites reformat phones
+        self.assertTrue(matches("+91 9876543210", "98765 43210", "text"))       # sites reformat phones
         self.assertTrue(matches("Male", "Gender Male", "combo"))               # react-select shows label + value
         self.assertFalse(matches("Hyderabad", "", "text"))                     # wiped by the page
         self.assertFalse(matches("No", "", "radio"))
@@ -168,3 +168,33 @@ class AppliedMatchTest(unittest.TestCase):
             self.assertEqual(m(conn, "u3", "Cisco", "Software Engineer")[0], "possible")
             self.assertEqual(m(conn, "u4", "Microsoft", "Software Engineer II", first_seen="2026-10-05")[0], "possible")
             self.assertIsNone(m(conn, "u5", "Sarvam AI", "Frontend Engineer")[0])
+
+
+class MemoryTest(unittest.TestCase):
+    def test_remember_and_reuse(self):
+        from pathlib import Path
+        from jobbot.memory import Memory
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "profile.yaml"
+            path.write_text("# my profile\npersonal:\n  first_name: Asha  # keep this comment\n")
+            m = Memory(path)
+            self.assertTrue(m.remember("Are you comfortable working from our Bangalore office 3 days a week?", "Yes"))
+            self.assertFalse(m.remember("Why do you want to join Acme?", "x", company="Acme"))
+            text = path.read_text()
+            self.assertIn("keep this comment", text)
+            self.assertIn("learned_answers:", text)
+            m.remember("Are you comfortable working from our Bangalore office 3 days a week?", "No")
+            self.assertEqual(path.read_text().count("Bangalore office"), 1)   # replaced, not duplicated
+            m2 = Memory(path, __import__("yaml").safe_load(path.read_text())["learned_answers"])
+            self.assertEqual(m2.lookup("Are you comfortable working from the Bangalore office 3 days a week?"), "No")
+            self.assertIsNone(m2.lookup("What is your expected CTC?"))
+
+    def test_resolver_uses_memory_and_hybrid_rule(self):
+        from jobbot.memory import Memory
+        prof = Profile({**PROFILE, "eligibility": {**PROFILE["eligibility"], "willing_to_relocate": True}}, "x")
+        mem = Memory(items=[{"question": "Do you have experience with Kafka in production?", "answer": "Yes"}])
+        r = Resolver(prof, job={"company": "Acme"}, memory=mem)
+        self.assertEqual(r.resolve("Do you have experience with Kafka in production?", "choice", ["Yes", "No"]).source,
+                         "remembered")
+        q = "Abnormal AI operates a hybrid working model. This role is based in our Bangalore office. Are you okay with that?"
+        self.assertEqual(r.resolve(q, "choice", ["Yes", "No"]).display, "Yes")

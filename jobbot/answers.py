@@ -67,15 +67,17 @@ def yes_no(flag):
 
 
 class Resolver:
-    def __init__(self, profile, llm=None, job=None, resume_key=None, ask=None):
+    def __init__(self, profile, llm=None, job=None, resume_key=None, ask=None, memory=None, auto_drafts=False):
         self.p = profile
         self.llm = llm
         self.job = job or {}
         self.resume_key = resume_key
         self.ask = ask  # callable(question, options, required, suggestion) -> str|int|None
+        self.auto_drafts = auto_drafts  # use model drafts for free-text questions without asking
         self.custom = [(re.compile(r["match"], re.I), r["answer"]) for r in (profile.get("answers") or [])]
         self.always_ask = [re.compile(x, re.I) for x in (profile.get("always_ask") or [])]
         self.rules = self._rules()
+        self.memory = memory
 
     # --- built-in rules: (pattern, function returning the answer or None) -------------
     def _rules(self):
@@ -119,7 +121,15 @@ class Resolver:
             (r"(authori[sz]ed|eligible|right|permit(ted)?) to work|work authori[sz]ation|legally (able|eligible|authori[sz]ed)|documentation establishing your identity",
              lambda: yes_no(bool(g("eligibility.authorized_countries")))),
             (r"legal age|at least 18|over (the age of )?18", lambda: "Yes"),
+            (r"hybrid|in.?office|on.?site|onsite|work (from|in|at) (the|our) .*office|days a week|come (in )?to the office|"
+             r"based in our .* office|office.?based", lambda: yes_no(g("eligibility.willing_to_relocate", True))),
             (r"relocat|work (on a daily basis )?in the (work )?location|able to work from|commute", lambda: yes_no(g("eligibility.willing_to_relocate", True))),
+            (r"currently (based|located|living|residing) in|do you (live|reside) in", lambda: None),
+            (r"notice period.*(negotiable|buy ?out|serve)|can you (join|start) (early|sooner|immediately)|buy ?out", lambda: "Yes"),
+            (r"serving (your )?notice|on notice period|currently on notice", lambda: "No"),
+            (r"willing to (work|take|do).*(shift|weekend|on.?call|night|rotational)", lambda: "Yes"),
+            (r"open to (contract|full.?time|permanent)|employment type|full.?time (role|position)", lambda: "Yes"),
+            (r"(how many|number of) years.*(experience|exp)|years of (hands.?on )?experience (with|in|using)", lambda: str(g("work.total_experience_years", ""))),
             (r"background (check|verification)", lambda: yes_no(g("eligibility.background_check_ok", True))),
             (r"(have you )?(ever |previously )?(worked|been employed) (at|for|by)|former employee|current(ly)? .*employee|employed by .* in the past", worked_here),
             (r"hispanic|latin[oa]", lambda: g("eeo.hispanic_latino")),
@@ -137,6 +147,10 @@ class Resolver:
 
     def _builtin(self, question):
         q = question.strip()
+        m = re.search(r"currently (?:based|located|living|residing) in ([A-Za-z ,/]+)|do you (?:live|reside) in ([A-Za-z ,/]+)", q, re.I)
+        if m:
+            place = (m.group(1) or m.group(2) or "").lower()
+            return yes_no(str(self.p.get("personal.city", "")).lower() in place)
         for pattern, fn in self.rules:
             if re.search(pattern, q, re.I):
                 value = fn()
@@ -155,7 +169,14 @@ class Resolver:
                 return self._fit(value, kind, options, "profile")
 
         if any(p.search(question) for p in self.always_ask):
-            return self._ask(question, kind, options, required, None, reason="needs your confirmation")
+            return self._ask(question, kind, options, required, None, reason="needs your confirmation", learn=False)
+
+        if self.memory and kind != "checkbox":
+            learned = self.memory.lookup(question, options if kind == "choice" else None)
+            if learned is not None:
+                ans = self._fit(learned, kind, options, "remembered")
+                if ans is not None:
+                    return ans
 
         if kind == "checkbox":
             return None  # consent boxes are handled by the review step, never ticked silently
@@ -176,6 +197,8 @@ class Resolver:
                 elif kind in ("text", "textarea") and required:
                     draft = self.llm.draft(question, self.job, self.p.summary(), resume,
                                            max_words=150 if kind == "textarea" else 25)
+                    if self.auto_drafts and draft:
+                        return Answer(draft.strip(), "model")
                     return self._ask(question, kind, options, required, draft, reason="model draft, review it")
             except Exception:
                 pass
@@ -190,7 +213,7 @@ class Resolver:
             return Answer(idx, source, options[idx]) if idx is not None else None
         return Answer(str(value), source)
 
-    def _ask(self, question, kind, options, required, suggestion, reason):
+    def _ask(self, question, kind, options, required, suggestion, reason, learn=True):
         if not self.ask:
             return None
         got = self.ask(question, options, required, suggestion, reason)
@@ -198,7 +221,12 @@ class Resolver:
             return None
         if kind == "choice":
             if isinstance(got, int) and 0 <= got < len(options):
-                return Answer(got, "you", options[got])
-            idx = pick(got, options)
-            return Answer(idx, "you", options[idx]) if idx is not None else None
-        return Answer(str(got), "you")
+                ans = Answer(got, "you", options[got])
+            else:
+                idx = pick(got, options)
+                ans = Answer(idx, "you", options[idx]) if idx is not None else None
+        else:
+            ans = Answer(str(got), "you")
+        if ans and learn and self.memory and got != suggestion:
+            self.memory.remember(question, ans.display or ans.value, company=self.job.get("company"))
+        return ans

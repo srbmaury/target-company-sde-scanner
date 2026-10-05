@@ -1,6 +1,6 @@
 """jobbot command line.
 
-    jobbot init                     create ~/.jobbot/profile.yaml from the example
+    jobbot init                     create profile.yaml (git-ignored) from the example
     jobbot doctor                   check profile, resumes, browser, and Ollama
     jobbot scan [--companies ...]   sweep company job boards; new roles go into the tracker
     jobbot jobs                     list tracked roles you have not applied to, best fit first
@@ -329,7 +329,7 @@ def build_parser():
         sp.add_argument("--llm", choices=("ollama", "none"), default="ollama")
         sp.add_argument("--model", default=llm_mod.DEFAULT_MODEL)
 
-    sp = sub.add_parser("init", help="create your profile")
+    sp = sub.add_parser("init", help="create profile.yaml in the repo folder (git-ignored)")
     sp.add_argument("--force", action="store_true", help="overwrite an existing profile")
     sp.set_defaults(fn=cmd_init)
 
