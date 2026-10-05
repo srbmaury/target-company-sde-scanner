@@ -125,3 +125,14 @@ class RankTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VerifyMatchTest(unittest.TestCase):
+    def test_matches(self):
+        from jobbot.apply.verify import matches
+        self.assertTrue(matches("+91 9876543210", "98765 43210", "text"))       # sites reformat phones
+        self.assertTrue(matches("Male", "Gender Male", "combo"))               # react-select shows label + value
+        self.assertFalse(matches("Hyderabad", "", "text"))                     # wiped by the page
+        self.assertFalse(matches("No", "", "radio"))
+        self.assertTrue(matches("No", "checked", "radio"))
+        self.assertTrue(matches("India +91", "India +91", "combo"))

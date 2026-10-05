@@ -1,9 +1,12 @@
-"""Open an application in a real browser, fill it, and stop for your review.
+"""Open an application in a real browser, fill it, verify it, and stop for your review.
 
-jobbot never submits on its own. After filling a page it prints what it did and
-waits for you to choose: submit, go to the next step, refill, mark done, or quit.
-CAPTCHAs, logins, and anything it could not answer are left to you in the
-browser window.
+Before every Next and Submit, jobbot reads back each value it set and checks the
+page for empty required fields, validation errors, and CAPTCHAs (verify.py).
+
+With `auto_next` (the default) jobbot moves through multi-page forms on its own
+whenever a page passes the check, re-filling once if it does not. It never
+submits on its own: on the final page you choose submit, refill, done, or quit.
+Sign-in pages, verification links, and CAPTCHAs are always left to you.
 """
 
 import re
@@ -12,6 +15,9 @@ import urllib.parse
 from .. import paths, tracker
 from ..answers import Resolver, real_options
 from .fields import BUTTONS_JS, SCAN_JS
+from .verify import check_page
+
+MAX_PAGES = 15
 
 SUBMIT_RE = r"^(submit( (my )?application)?|send application|apply|finish|complete application)$"
 NEXT_RE = r"^(next|continue|save and continue|save & continue|proceed)$"
@@ -67,12 +73,14 @@ def start_url(url, ats, job=None):
 
 
 class Session:
-    def __init__(self, profile, llm, ui, dry_run=False, upload=True):
+    def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True):
         self.profile = profile
         self.llm = llm
         self.ui = ui
         self.dry_run = dry_run
         self.upload = upload
+        self.auto_next = auto_next
+        self._consent_approved = False   # one yes covers every consent box in the current application
         self._pw = None
         self.ctx = None
 
@@ -112,22 +120,41 @@ class Session:
             self._upload_resume(page, resume["path"], ats)
 
         resolver = Resolver(self.profile, self.llm, job=job, resume_key=resume_key, ask=self.ui.ask)
-        while True:
+        self._consent_approved = False
+        for step in range(1, MAX_PAGES + 1):
             signed_in = self._ensure_signed_in(page, attempts=1) if ats == "workday" else True
-            report = self.fill_page(page, resolver) if signed_in else {"filled": [], "skipped": []}
-            self.ui.report(report)
-            choice = self.ui.next_action(
-                can_submit=bool(self._buttons(page, SUBMIT_RE)) and not self.dry_run,
-                can_next=bool(self._buttons(page, NEXT_RE)),
-                dry_run=self.dry_run,
-            )
+            report = self.fill_page(page, resolver) if signed_in else {"filled": [], "skipped": [], "records": []}
+            check = self.verify(page, report)
+            if not check.ok and signed_in:
+                self.ui.info("Check found problems; re-filling once.")
+                report = self._merge(report, self.fill_page(page, resolver))
+                check = self.verify(page, report)
+            self.ui.report(report, check, step)
+
+            can_submit = bool(self._buttons(page, SUBMIT_RE))
+            can_next = bool(self._buttons(page, NEXT_RE))
+            if self.auto_next and check.ok and can_next and not can_submit:
+                self.ui.info("All checks passed; moving to the next step.")
+                choice = "next"
+            else:
+                choice = self.ui.next_action(can_submit=can_submit and not self.dry_run, can_next=can_next,
+                                             dry_run=self.dry_run, check_ok=check.ok)
+            if choice == "submit" and not check.ok and not self.ui.confirm(
+                    "The check still shows problems. Submit anyway?"):
+                continue
+
             if choice == "refill":
                 continue
             if choice == "next":
+                before = page.url, self._step_marker(page)
                 self._click(page, NEXT_RE)
                 page.wait_for_timeout(3500)
                 if ats == "workday":
                     self._workday_settle(page)
+                if (page.url, self._step_marker(page)) == before:
+                    after = check_page(page, [], [], [])
+                    if after.errors:
+                        self.ui.warn("The site kept us on the same step: " + "; ".join(after.lines()[:3]))
                 continue
             if choice == "submit":
                 self._click(page, SUBMIT_RE)
@@ -136,12 +163,33 @@ class Session:
                 if confirmed:
                     self.ui.info(f"Confirmation seen: “{confirmed}”")
                     return "applied", confirmed
+                after = check_page(page, [], [], [])
+                if after.errors or after.captcha:
+                    self.ui.warn("The site did not accept the submission: " + "; ".join(after.lines()[:3]))
+                    continue
                 if self.ui.confirm("No confirmation text detected. Did the application go through?"):
                     return "applied", "submitted; confirmed by you"
                 continue
             if choice == "done":
                 return "applied", "you submitted it in the browser"
             return None, "stopped without submitting"
+        return None, f"stopped after {MAX_PAGES} pages"
+
+    def verify(self, page, report):
+        return check_page(page, report.get("records", []), report.get("skipped", []), self._fields(page))
+
+    @staticmethod
+    def _merge(first, second):
+        return {"filled": first["filled"] + second["filled"], "skipped": second["skipped"],
+                "records": first.get("records", []) + second.get("records", [])}
+
+    @staticmethod
+    def _step_marker(page):
+        try:
+            m = re.search(r"current step \d+ of \d+", page.inner_text("body")[:4000], re.I)
+            return m.group(0) if m else ""
+        except Exception:
+            return ""
 
     # --- steps ---------------------------------------------------------------------
 
@@ -156,7 +204,7 @@ class Session:
                 self._click(page, r"^apply manually$", wait=3000)
             self._workday_settle(page)
             self._ensure_signed_in(page)
-        elif ats == "generic":
+        elif ats == "generic" and not [f for f in self._fields(page) if f["kind"] not in ("listbutton", "file")]:
             self.ui.wait_for_user("Open the application form in the browser window, then press Enter here.")
 
     @staticmethod
@@ -211,7 +259,13 @@ class Session:
         self.ui.info(f"Attached {path.name}")
 
     def fill_page(self, page, resolver):
-        filled, skipped, consents = [], [], []
+        filled, skipped, consents, records = [], [], [], []
+
+        def note(f, label, ans, expected=None, target_id=None, kind=None):
+            filled.append((label, ans))
+            records.append({"id": target_id or f["id"], "kind": kind or f["kind"], "label": label,
+                            "expected": str(expected if expected is not None else getattr(ans, "display", "") or ans)})
+
         fields = self._fields(page)
         has_dial_picker = any(re.search(r"country|dial|code", x["label"], re.I) and x["kind"] in ("combo", "select", "listbutton")
                               for x in fields)
@@ -229,13 +283,13 @@ class Session:
                     if ans:
                         loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
                         if f["type"] in ("number",):
-                            loc.fill(re.sub(r"[^\d.]", "", str(ans.value)) or "0")
+                            value = re.sub(r"[^\d.]", "", str(ans.value)) or "0"
                         elif re.search(r"phone|mobile", label, re.I) and not has_dial_picker:
-                            code = self.profile.get("personal.phone_country_code", "")
-                            loc.fill(f"{code} {ans.value}".strip())
+                            value = f"{self.profile.get('personal.phone_country_code', '')} {ans.value}".strip()
                         else:
-                            loc.fill(str(ans.value))
-                        filled.append((label, ans))
+                            value = str(ans.value)
+                        loc.fill(value)
+                        note(f, label, ans, expected=value)
                     elif f["required"]:
                         skipped.append(label)
                 elif kind == "select":
@@ -245,7 +299,7 @@ class Session:
                     ans = resolver.resolve(label, "choice", options=opts, required=f["required"])
                     if ans:
                         page.locator(f'[data-jobbot-id="{f["id"]}"]').select_option(label=ans.display)
-                        filled.append((label, ans))
+                        note(f, label, ans)
                     elif f["required"]:
                         skipped.append(label)
                 elif kind in ("combo", "listbutton"):
@@ -256,7 +310,7 @@ class Session:
                     if CONSENT_RE.search(label):
                         consents.append(f)
                         continue
-                    if self._fill_dropdown(page, f, resolver, filled):
+                    if self._fill_dropdown(page, f, resolver, note):
                         continue
                     if f["required"]:
                         skipped.append(label)
@@ -270,7 +324,7 @@ class Session:
                     if ans:
                         ids = f["id"].split(",")
                         page.locator(f'[data-jobbot-id="{ids[ans.value]}"]').click(force=True)
-                        filled.append((label, ans))
+                        note(f, label, ans, target_id=ids[ans.value])
                     elif f["required"]:
                         skipped.append(label)
                 elif kind == "checkbox":
@@ -282,12 +336,15 @@ class Session:
                         ans = resolver.resolve(label, "choice", options=["Yes", "No"], required=f["required"])
                         if ans and ans.display == "Yes":
                             page.locator(f'[data-jobbot-id="{f["id"]}"]').click(force=True)
-                            filled.append((label, ans))
+                            note(f, label, ans)
             except Exception as e:  # keep going; the review step lists what is left
                 skipped.append(f"{label} (error: {type(e).__name__})")
 
-        if consents and self.ui.confirm(
-                "Tick these consent boxes?\n  - " + "\n  - ".join(c["label"][:160] for c in consents)):
+        if consents and not self._consent_approved:
+            self._consent_approved = self.ui.confirm(
+                "Tick consent boxes for this application? (applies to every page of it)\n  - "
+                + "\n  - ".join(c["label"][:160] for c in consents))
+        if consents and self._consent_approved:
             for c in consents:
                 page.locator(f'[data-jobbot-id="{c["id"]}"]').click(force=True)
                 if c["kind"] in ("combo", "listbutton"):
@@ -300,10 +357,12 @@ class Session:
                         skipped.append(c["label"][:110])
                         continue
                     opts.nth(idx).click()
-                filled.append((c["label"][:80], "confirmed (you approved)"))
-        return {"filled": filled, "skipped": skipped}
+                    note(c, c["label"][:80], "confirmed (you approved)", expected=texts[idx].strip())
+                else:
+                    note(c, c["label"][:80], "ticked (you approved)", expected="checked", kind="consent")
+        return {"filled": filled, "skipped": skipped, "records": records}
 
-    def _fill_dropdown(self, page, f, resolver, filled):
+    def _fill_dropdown(self, page, f, resolver, note):
         """React-select comboboxes, autocomplete boxes, and Workday listbox buttons."""
         label = f["label"]
         loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
@@ -333,7 +392,7 @@ class Session:
             return False
         page.locator('[role="option"]:visible').nth(ans.value).click()
         page.wait_for_timeout(400)
-        filled.append((label, ans))
+        note(f, label, ans)
         return True
 
     @staticmethod

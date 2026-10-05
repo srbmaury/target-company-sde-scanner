@@ -170,8 +170,9 @@ def cmd_apply(args):
     if not resumes:
         sys.exit("No resume files found; fix `resumes:` in your profile.")
     ui = TerminalUI()
-    with Session(p, model, ui, dry_run=args.dry_run, upload=not args.no_upload) as session:
-        for job in targets:
+    with Session(p, model, ui, dry_run=args.dry_run, upload=not args.no_upload,
+                 auto_next=not args.no_auto_next) as session:
+        for n, job in enumerate(targets, 1):
             if tracker.is_applied(conn, url=job["url"]) and not args.force:
                 print(f"\nAlready applied: {job['company']} — {job['title']} (use --force to reopen)")
                 continue
@@ -179,7 +180,7 @@ def cmd_apply(args):
             if resume_key not in resumes:
                 print(f"Resume '{resume_key}' not found; using {next(iter(resumes))}.")
                 resume_key = next(iter(resumes))
-            print(f"\n=== {job['company']} — {job['title']} ===")
+            print(f"\n=== [{n}/{len(targets)}] {job['company']} — {job['title']} ===")
             try:
                 status, note = session.apply(job, resume_key)
             except KeyboardInterrupt:
@@ -313,6 +314,8 @@ def build_parser():
     sp.add_argument("--dry-run", action="store_true", help="fill forms but never submit or record")
     sp.add_argument("--no-upload", action="store_true", help="do not attach a resume")
     sp.add_argument("--force", action="store_true", help="reopen roles already marked applied")
+    sp.add_argument("--no-auto-next", action="store_true",
+                    help="stop after every page instead of moving on when the check passes")
     sp.set_defaults(fn=cmd_apply)
 
     sp = sub.add_parser("dismiss", help="hide roles you do not want")

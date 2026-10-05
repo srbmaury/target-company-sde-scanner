@@ -41,18 +41,30 @@ class TerminalUI:
         raw = _input("    answer (Enter to skip): ").strip()
         return raw or None
 
-    def report(self, report):
-        print("\n  Filled:")
+    def report(self, report, check=None, step=None):
+        print(f"\n  Page {step} filled:" if step else "\n  Filled:")
         for label, ans in report["filled"]:
             src = getattr(ans, "source", "")
             print(f"    - {label[:70]:70s} → {str(ans)[:60]}  [{src}]")
-        if report["skipped"]:
-            print("  Still needs you (required):")
-            for label in report["skipped"]:
-                print(f"    - {label[:110]}")
+        if check is None:
+            if report["skipped"]:
+                print("  Still needs you (required):")
+                for label in report["skipped"]:
+                    print(f"    - {label[:110]}")
+            return
+        if check.ok:
+            print(f"  ✓ Check passed: {len(report.get('records', []))} values read back correctly, "
+                  "no empty required fields, no errors on the page.")
+        else:
+            print("  ✗ Check found problems:")
+            for line in check.lines():
+                print(f"    - {line}")
 
-    def next_action(self, can_submit, can_next, dry_run):
-        print("\n  Review the browser window, fix anything, solve any CAPTCHA.")
+    def next_action(self, can_submit, can_next, dry_run, check_ok=True):
+        if can_submit and check_ok:
+            print("\n  This is the final step and every check passed. Review the browser window, then submit.")
+        else:
+            print("\n  Review the browser window, fix anything, solve any CAPTCHA.")
         menu = []
         if can_submit:
             menu.append("[s]ubmit")
