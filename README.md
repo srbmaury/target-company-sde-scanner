@@ -446,5 +446,4 @@ changes with `--dry-run`, and keeping jobbot's safety rules intact.
 
 ## License
 
-No license has been selected yet. Add one before distributing the project or accepting
-contributions under specific reuse terms.
+[MIT](LICENSE) © 2026 Saurabh Maurya
