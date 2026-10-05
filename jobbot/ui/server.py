@@ -32,12 +32,14 @@ from . import bridge
 STATIC = Path(__file__).resolve().parent / "static"
 TASKS = {}            # id -> {"cmd", "status", "lines", "started", "ended"}
 TASK_LOCK = threading.Lock()
-ALLOWED_TASKS = {
-    "scan": ["scan", "--show-all"],
-    "rank": ["rank"],
-    "sync-gmail": ["track", "sync-gmail"],
-    "gmail-login": ["gmail", "login"],
+ALLOWED_TASKS = {     # name -> commands run one after another; a failure stops the rest
+    "scan": [["scan", "--show-all"]],
+    "rank": [["rank"]],
+    "refresh": [["scan"], ["rank"]],
+    "sync-gmail": [["track", "sync-gmail"]],
+    "gmail-login": [["gmail", "login"]],
 }
+JOB_TASKS = {"scan", "rank", "refresh"}   # these write the jobs table, so only one runs at a time
 
 
 # --- data helpers ---------------------------------------------------------------
@@ -101,23 +103,30 @@ def start_task(name):
     if name not in ALLOWED_TASKS:
         raise ValueError("unknown task")
     with TASK_LOCK:
-        if any(t["status"] == "running" and t["name"] == name for t in TASKS.values()):
-            raise ValueError(f"{name} is already running")
+        for t in TASKS.values():
+            if t["status"] == "running" and (t["name"] == name or {t["name"], name} <= JOB_TASKS):
+                raise ValueError(f"{t['name']} is already running")
         task_id = secrets.token_hex(4)
         TASKS[task_id] = {"id": task_id, "name": name, "status": "running", "lines": [],
-                          "started": dt.datetime.now().isoformat(timespec="seconds"), "ended": None}
-    cmd = [sys.executable, "-m", "jobbot", *ALLOWED_TASKS[name]]
+                          "step": None, "started": dt.datetime.now().isoformat(timespec="seconds"), "ended": None}
 
     def run():
         task = TASKS[task_id]
         try:
-            proc = subprocess.Popen(cmd, cwd=paths.REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    stdin=subprocess.DEVNULL, text=True, bufsize=1,
-                                    env={**os.environ, "PYTHONUNBUFFERED": "1"})
-            for line in proc.stdout:
-                task["lines"].append(line.rstrip("\n"))
-                del task["lines"][:-500]
-            task["status"] = "done" if proc.wait() == 0 else "failed"
+            for args in ALLOWED_TASKS[name]:
+                task["step"] = args[0]
+                task["lines"].append(f"$ jobbot {' '.join(args)}")
+                proc = subprocess.Popen([sys.executable, "-m", "jobbot", *args], cwd=paths.REPO,
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                        text=True, bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1"})
+                for line in proc.stdout:
+                    task["lines"].append(line.rstrip("\n"))
+                    del task["lines"][:-500]
+                if proc.wait() != 0:
+                    task["status"] = "failed"
+                    break
+            else:
+                task["status"] = "done"
         except Exception as e:  # report instead of dying silently
             task["lines"].append(f"error: {e}")
             task["status"] = "failed"

@@ -112,13 +112,13 @@ def cmd_scan(args):
     conn = tracker.connect()
     exclude = list(p.get("preferences.exclude_companies") or []) + [x for x in args.exclude.split(",") if x]
     applied = {r["url"] for r in tracker.list_applications(conn) if r["url"]}
-    print("Scanning job boards (about 2 minutes for --all)…")
+    print("Scanning job boards and careers pages (a few minutes)…")
     results, coverage, missing = run_scan(
         companies=args.companies.split(",") if args.companies else None,
         exclude=exclude,
         locations=args.locations or p.get("preferences.locations") or DEFAULT_LOCATIONS,
         max_yoe=args.max_yoe if args.max_yoe is not None else p.get("preferences.max_yoe", 3),
-        include_unstated=args.include_unstated, skip_urls=applied,
+        include_unstated=args.include_unstated, skip_urls=applied, careers_pages=not args.no_careers_pages,
     )
     if missing:
         print(f"Not in registry: {', '.join(missing)}")
@@ -366,6 +366,8 @@ def build_parser():
     sp.add_argument("--max-yoe", type=int)
     sp.add_argument("--include-unstated", action="store_true")
     sp.add_argument("--show-all", action="store_true", help="print every match, not only new ones")
+    sp.add_argument("--no-careers-pages", action="store_true",
+                    help="skip companies read from their own careers page in headless Chrome (faster)")
     sp.set_defaults(fn=cmd_scan)
 
     sp = sub.add_parser("jobs", help="list tracked roles")
