@@ -145,3 +145,26 @@ class ExpandKeysTest(unittest.TestCase):
         self.assertEqual(expand_job_keys(["14..12", "20"]), ["12", "13", "14", "20"])
         self.assertEqual(expand_job_keys(["3,5"]), ["3", "5"])
         self.assertEqual(expand_job_keys(["https://x.test/a,b"]), ["https://x.test/a,b"])
+
+
+class AppliedMatchTest(unittest.TestCase):
+    def test_title_and_company_normalisation(self):
+        self.assertTrue(tracker.titles_match("Software Engineer 2", "Software Engineer II"))
+        self.assertTrue(tracker.titles_match("SDE II - Backend", "Software Development Engineer 2 Backend"))
+        self.assertFalse(tracker.titles_match("Software Engineer II", "Software Engineer"))
+        self.assertTrue(tracker.titles_match("Software Engineer II (200047960)", "Software Engineer II"))
+        self.assertEqual(tracker.norm_company("Sarvam AI"), tracker.norm_company("Sarvam"))
+
+    def test_levels(self):
+        with tempfile.TemporaryDirectory() as d:
+            conn = tracker.connect(os.path.join(d, "t.db"))
+            tracker.add_application(conn, "Sarvam", "Agent Engineer", applied_on="2026-08-31")
+            tracker.add_application(conn, "Cisco", "(role not stated in email)", applied_on="2026-08-28")
+            tracker.add_application(conn, "Microsoft", "Software Engineer II", status="rejected",
+                                    applied_on="2026-08-01")
+            m = tracker.applied_match
+            self.assertEqual(m(conn, "u1", "Sarvam AI", "Agent Engineer", posted="2026-08-20")[0], "likely")
+            self.assertEqual(m(conn, "u2", "Sarvam AI", "Agent Engineer", posted="2026-09-15")[0], "possible")
+            self.assertEqual(m(conn, "u3", "Cisco", "Software Engineer")[0], "possible")
+            self.assertEqual(m(conn, "u4", "Microsoft", "Software Engineer II", first_seen="2026-10-05")[0], "possible")
+            self.assertIsNone(m(conn, "u5", "Sarvam AI", "Frontend Engineer")[0])
