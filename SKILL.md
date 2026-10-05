@@ -84,6 +84,12 @@ experience phrase it finds.
 If a registry entry errors or returns zero postings for a company that clearly hires, fall back to
 the career-site path and note the stale entry so the registry can be corrected.
 
+Before searching, make sure the tracker knows where the user has already applied. If jobbot is set up
+and Gmail is not connected (`./jobbot.sh gmail status`), ask the user whether to connect it. If they
+agree, have them run `./jobbot.sh gmail login` themselves: it opens Google's sign-in in their browser
+and grants read-only access, and you must never handle their Google password. Then run
+`./jobbot.sh track sync-gmail` to import their applications. If they decline, continue without it.
+
 If the user has set up jobbot (`profile.yaml` exists in the repository folder), prefer `./jobbot.sh scan`,
 `./jobbot.sh rank`, and `./jobbot.sh jobs --why`: they use the same scanner, skip roles already in
 the user's application tracker, and keep a ranked shortlist between runs. When the user applies

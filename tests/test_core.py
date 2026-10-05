@@ -240,3 +240,56 @@ class WrongDetailTest(unittest.TestCase):
 
     def test_upgrade_is_not_grade(self):
         self.assertIsNone(self.r._builtin("Would you like to upgrade your account?"))
+
+
+class GmailFlowTest(unittest.TestCase):
+    """Sign-in and sync with Google's endpoints simulated; no network."""
+
+    def test_login_and_search(self):
+        import json
+        import threading
+        import urllib.parse
+        import urllib.request
+        from pathlib import Path
+        from unittest import mock
+        from jobbot import gmail, mailimport, paths
+
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d)
+            client = home / "client.json"
+            client.write_text(json.dumps({"installed": {"client_id": "abc.apps.googleusercontent.com",
+                                                        "client_secret": "s"}}))
+            posted = []
+
+            def fake_post(url, data):
+                posted.append((url, data))
+                return {"access_token": "at", "refresh_token": "rt", "expires_in": 3600}
+
+            def fake_open(url):   # play the browser: Google redirects back with a code
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                self.assertEqual(q["scope"], [gmail.SCOPE])          # read-only scope only
+                self.assertEqual(q["code_challenge_method"], ["S256"])
+                back = q["redirect_uri"][0] + "/?" + urllib.parse.urlencode({"code": "c0de", "state": q["state"][0]})
+                threading.Thread(target=lambda: urllib.request.urlopen(back).read()).start()
+                return True
+
+            api = {"profile": {"emailAddress": "asha@example.com"},
+                   "messages": {"messages": [{"id": "m1"}]},
+                   "messages/m1": {"snippet": "Thank you for applying for the Backend Engineer role at Acme.",
+                                   "internalDate": "1790000000000", "labelIds": ["INBOX"],
+                                   "payload": {"headers": [{"name": "From", "value": "no-reply@acme.com"},
+                                                           {"name": "Subject", "value": "Thank you for applying to Acme"}]}}}
+            with mock.patch.object(paths, "HOME", home), mock.patch.object(gmail, "_post", fake_post), \
+                    mock.patch.object(gmail.webbrowser, "open", fake_open), \
+                    mock.patch.object(gmail, "_get", lambda path, params=None: api[path]):
+                self.assertEqual(gmail.login(str(client)), "asha@example.com")
+                token = home / "gmail_token.json"
+                self.assertTrue(token.exists())
+                self.assertEqual(oct(token.stat().st_mode & 0o777), "0o600")
+                self.assertEqual(posted[0][1]["code"], "c0de")
+                self.assertIn("code_verifier", posted[0][1])
+                msgs = gmail.search(days=30)
+                rows = mailimport.rows_from(msgs)
+                self.assertEqual((rows[0]["company"], rows[0]["status"]), ("Acme", "applied"))
+                self.assertTrue(gmail.logout())
+                self.assertFalse(token.exists())

@@ -10,6 +10,7 @@
     jobbot dismiss <n>              hide a role you are not interested in
     jobbot logs                     what apply filled, corrected and checked, page by page
     jobbot track ...                list, add, update, export, and import applications (CSV or Gmail JSON)
+    jobbot gmail login              connect Gmail read-only, then `jobbot track sync-gmail`
 """
 
 import argparse
@@ -98,6 +99,10 @@ def cmd_doctor(args):
         print("- ollama not running (optional): brew install ollama && brew services start ollama")
     conn = tracker.connect()
     print(f"✓ tracker: {paths.DB} ({sum(tracker.stats(conn).values())} applications)")
+    from . import gmail
+
+    print("✓ gmail: connected (read-only)" if gmail.is_connected() else
+          "- gmail: not connected (optional): jobbot gmail login, then jobbot track sync-gmail")
     sys.exit(0 if ok else 1)
 
 
@@ -311,6 +316,8 @@ def cmd_track(args):
         if not args.ref:
             sys.exit("track import needs a CSV path")
         print(f"Imported {tracker.import_csv(conn, args.ref)} rows")
+    elif action == "sync-gmail":
+        sync_gmail(conn, args)
     elif action == "import-gmail":
         from . import mailimport
 
@@ -319,6 +326,44 @@ def cmd_track(args):
         rows = mailimport.rows_from(mailimport.load(args.ref))
         added, updated = mailimport.import_rows(conn, rows)
         print(f"Read {len(rows)} application emails: {added} new applications, {updated} status updates.")
+
+
+def cmd_gmail(args):
+    from . import gmail
+
+    try:
+        if args.action == "login":
+            email = gmail.login(args.client)
+            print(f"Connected to Gmail as {email} (read-only). Run `jobbot track sync-gmail` to import applications.")
+        elif args.action == "logout":
+            print("Disconnected and revoked jobbot's Gmail access." if gmail.logout() else "Gmail was not connected.")
+        else:
+            if gmail.is_connected():
+                print(f"Connected (read-only) as {gmail.profile_email()}. Token: {gmail.token_path()}")
+            else:
+                print("Not connected. Run `jobbot gmail login`.")
+    except gmail.GmailError as e:
+        sys.exit(str(e))
+
+
+def sync_gmail(conn, args):
+    from . import gmail, mailimport
+
+    try:
+        if not gmail.is_connected():
+            if input("Gmail is not connected. Sign in with Google now (read-only)? [Y/n] ").strip().lower() in ("n", "no"):
+                sys.exit("Skipped. Run `jobbot gmail login` when you are ready.")
+            print(f"Connected as {gmail.login()}.")
+        query = "-in:spam -in:trash" if args.all_mail else (args.query or gmail.DEFAULT_QUERY)
+        what = "all mail" if args.all_mail else "application emails"
+        print(f"Reading {what} from the last {args.days} days (sender, subject, preview and date only)…")
+        messages = gmail.search(query, days=args.days, limit=args.limit,
+                                on_progress=lambda i, n: print(f"  {i}/{n}", end="\r"))
+    except gmail.GmailError as e:
+        sys.exit(str(e))
+    rows = mailimport.rows_from(messages)
+    added, updated = mailimport.import_rows(conn, rows)
+    print(f"Read {len(messages)} emails: {len(rows)} about applications, {added} new applications, {updated} status updates.")
 
 
 def cmd_logs(args):
@@ -399,8 +444,8 @@ def build_parser():
 
     sp = sub.add_parser("track", help="application tracker",
                         description="actions: list (default), add, update <id>, show <id>, stats, export [file], import <csv>, "
-                                    "import-gmail <json>")
-    sp.add_argument("action", nargs="?", choices=("list", "add", "update", "show", "stats", "export", "import", "import-gmail"))
+                                    "import-gmail <json>, sync-gmail")
+    sp.add_argument("action", nargs="?", choices=("list", "add", "update", "show", "stats", "export", "import", "import-gmail", "sync-gmail"))
     sp.add_argument("ref", nargs="?", help="application id or URL (update/show), or file path (export/import)")
     sp.add_argument("--status", choices=tracker.STATUSES)
     sp.add_argument("--company")
@@ -411,7 +456,19 @@ def build_parser():
     sp.add_argument("--source")
     sp.add_argument("--date", help="applied date, YYYY-MM-DD")
     sp.add_argument("--note")
+    sp.add_argument("--days", type=int, default=60, help="sync-gmail: how far back to read (default 60)")
+    sp.add_argument("--query", help="sync-gmail: Gmail search query instead of the built-in application-email query")
+    sp.add_argument("--all-mail", action="store_true",
+                    help="sync-gmail: read every email in the period (metadata only); the importer keeps application emails")
+    sp.add_argument("--limit", type=int, default=2000, help="sync-gmail: maximum emails to read")
     sp.set_defaults(fn=cmd_track)
+
+    sp = sub.add_parser("gmail", help="connect Gmail (read-only) to import your applications",
+                        description="Sign in with Google in your browser; jobbot gets read-only access and never sees "
+                                    "your password. Needs a one-time OAuth client: see jobbot/gmail.py or the README.")
+    sp.add_argument("action", choices=("login", "logout", "status"))
+    sp.add_argument("--client", help="path to the Google OAuth client JSON (saved to ~/.jobbot/gmail_client.json)")
+    sp.set_defaults(fn=cmd_gmail)
     return ap
 
 
