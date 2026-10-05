@@ -135,10 +135,14 @@ def cmd_jobs(args):
         print("No tracked roles yet. Run `jobbot scan`.")
         return
     print(f"{'#':>4} {'fit':>3}  {'company':20s} {'role':52s} {'location':24s} {'exp':16s} resume")
+    apps = conn.execute("SELECT * FROM applications").fetchall()
     for r in rows:
         fit = "" if r["fit_score"] is None else str(r["fit_score"])
+        level, _ = tracker.applied_match(conn, r["url"], r["company"], r["title"], _apps=apps, first_seen=r["first_seen"],
+                                              posted=r["posted"])
+        mark = {"exact": " [applied]", "likely": " [applied]", "possible": " [applied?]"}.get(level, "")
         print(f"{r['n']:>4} {fit:>3}  {_short(r['company'], 20):20s} {_short(r['title'], 52):52s} "
-              f"{_short(r['location'], 24):24s} {_short(r['experience'], 16):16s} {r['fit_resume'] or ''}")
+              f"{_short(r['location'], 24):24s} {_short(r['experience'], 16):16s} {r['fit_resume'] or ''}{mark}")
         if args.why and r["fit_reason"]:
             print(f"{'':10s}{_short(r['fit_reason'], 140)}")
         if args.urls:
@@ -188,9 +192,19 @@ def cmd_apply(args):
         targets = [t for t in targets if (t.get("fit_score") or 0) >= args.min_fit]
     seen, unique = set(), []
     for t in targets:
-        if t["url"] not in seen and (args.force or not tracker.is_applied(conn, url=t["url"])):
-            seen.add(t["url"])
-            unique.append(t)
+        if t["url"] in seen:
+            continue
+        seen.add(t["url"])
+        level, app = tracker.applied_match(conn, t["url"], t["company"], t["title"], first_seen=t.get("first_seen"),
+                                            posted=t.get("posted"))
+        if level in ("exact", "likely") and not args.force:
+            print(f"Skipping {t['company']} — {t['title']}: already applied "
+                  f"(#{app['id']} {app['title']}, {app['status']}, {app['applied_on'] or 'date unknown'}).")
+            continue
+        if level == "possible":
+            what = "an unnamed" if app["title"].startswith("(role not stated") else f"a similar ({app['title']})"
+            t["_possible"] = f"you applied to {what} {app['company']} role on {app['applied_on'] or 'an unknown date'}"
+        unique.append(t)
     targets = unique
     if not targets:
         sys.exit("Nothing to apply to. Pass job numbers or ranges from `jobbot jobs` (12 or 12-20), URLs, "
@@ -200,7 +214,8 @@ def cmd_apply(args):
         for t in targets:
             fit = "" if t.get("fit_score") is None else f"{t['fit_score']:>3}"
             num = f"#{t['n']}" if t.get("n") else "   "
-            print(f"  {num:>5} {fit:>3}  {_short(t['company'], 22):22s} {_short(t['title'], 60)}")
+            flag = "  (possibly applied: " + t["_possible"] + ")" if t.get("_possible") else ""
+            print(f"  {num:>5} {fit:>3}  {_short(t['company'], 22):22s} {_short(t['title'], 60)}{flag}")
         if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
             sys.exit("Cancelled.")
 
@@ -211,8 +226,8 @@ def cmd_apply(args):
     with Session(p, model, ui, dry_run=args.dry_run, upload=not args.no_upload,
                  auto_next=not args.no_auto_next) as session:
         for n, job in enumerate(targets, 1):
-            if tracker.is_applied(conn, url=job["url"]) and not args.force:
-                print(f"\nAlready applied: {job['company']} — {job['title']} (use --force to reopen)")
+            if job.get("_possible") and not args.yes and not ui.confirm(
+                    f"{job['company']} — {job['title']}: {job['_possible']}. Apply anyway?"):
                 continue
             resume_key = args.resume or job.get("fit_resume") or next(iter(resumes))
             if resume_key not in resumes:
