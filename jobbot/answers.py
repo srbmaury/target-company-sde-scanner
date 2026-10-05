@@ -62,6 +62,15 @@ def pick(answer, options):
     return None
 
 
+HEAR_RE = re.compile(r"how did you (hear|learn|find|come across)|where did you (hear|find|learn)|source of (application|referral)|"
+                     r"how (did you|were you) (referred|introduced)", re.I)
+HEAR_PREFERENCES = ["company website", "career site", "careers site", "careers website", "careers page", "company career",
+                    "corporate website", "website", "linkedin", "job board", "online job", "internet", "other"]
+EMPLOYMENT_RE = re.compile(r"employee id|employee number|(company|corporate|work) email|email address|worked|work(ing)? (for|at)|"
+                           r"employed|employee|intern|contractor|contingent|consultant|vendor|alumni|former|previous(ly)?|rehire",
+                           re.I)
+
+
 def yes_no(flag):
     return "Yes" if flag else "No"
 
@@ -159,8 +168,12 @@ class Resolver:
                 return None
         return None
 
-    def resolve(self, question, kind="text", options=None, required=False):
-        """kind: text | textarea | choice | checkbox. Returns Answer or None to leave blank."""
+    def resolve(self, question, kind="text", options=None, required=False, quick=False):
+        """kind: text | textarea | choice | checkbox. Returns Answer or None to leave blank.
+
+        quick=True uses only your answers, remembered answers and built-in rules: no model,
+        no questions to you. Used before searching long dropdown lists.
+        """
         question = re.sub(r"\s+", " ", question or "").strip(" *:")
         options = real_options(options or [])
 
@@ -181,11 +194,23 @@ class Resolver:
         if kind == "checkbox":
             return None  # consent boxes are handled by the review step, never ticked silently
 
+        if HEAR_RE.search(question) and not quick:
+            return self._how_did_you_hear(question, kind, options)
+
+        employer = self._employer_history(question)
+        if employer is not None:
+            ans = self._fit(employer, kind, options, "rule")
+            if ans is not None:
+                return ans
+
         value = self._builtin(question)
         if value is not None:
             ans = self._fit(value, kind, options, "rule")
             if ans is not None:
                 return ans
+
+        if quick:
+            return None
 
         if self.llm and self.llm.enabled:
             try:
@@ -206,6 +231,41 @@ class Resolver:
         if required:
             return self._ask(question, kind, options, required, None, reason="no rule matched")
         return None
+
+    def _how_did_you_hear(self, question, kind, options):
+        """Never ask: the profile's answer, a close synonym, the model's pick, else the first option."""
+        preferred = self.p.get("preferences.how_did_you_hear") or ""
+        if kind != "choice" or not options:
+            return Answer(preferred or "Company website", "rule")
+        for wanted in [preferred] + HEAR_PREFERENCES:
+            idx = pick(wanted, options) if wanted else None
+            if idx is None and wanted:
+                idx = next((i for i, o in enumerate(options) if wanted.lower() in o.lower()), None)
+            if idx is not None:
+                return Answer(idx, "rule", options[idx])
+        if self.llm and self.llm.enabled:
+            try:
+                idx = self.llm.choose(f"{question} (the candidate found the job on {preferred or 'the company website'})",
+                                      options, self.p.summary(), "")
+                if idx is not None:
+                    return Answer(idx, "model", options[idx])
+            except Exception:
+                pass
+        return Answer(0, "rule", options[0])
+
+    def _employer_history(self, question):
+        """'Have you been issued a Cisco employee ID / worked at Cisco…' -> No unless Cisco is a past employer."""
+        company = (self.job.get("company") or "").strip()
+        if not company:
+            return None
+        names = {company.lower(), company.split()[0].lower()}
+        if not any(re.search(r"\b" + re.escape(n) + r"\b", question, re.I) for n in names if len(n) > 2):
+            return None
+        if not EMPLOYMENT_RE.search(question):
+            return None
+        past = [e.lower() for e in (self.p.get("work.past_employers") or [])]
+        worked = any(n in e or e.split()[0] in n for n in names for e in past)
+        return yes_no(worked)
 
     def _fit(self, value, kind, options, source):
         if kind == "choice":

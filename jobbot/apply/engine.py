@@ -127,6 +127,7 @@ class Session:
         self.dry_run = dry_run
         self.upload = upload
         self.auto_next = auto_next
+        self._ats = None
         self._consent_approved = False   # one yes covers every consent box in the current application
         from ..memory import Memory
 
@@ -163,6 +164,7 @@ class Session:
     def apply(self, job, resume_key):
         url = job["url"]
         ats = detect_ats(url, job)
+        self._ats = ats
         resume = self.profile.resumes().get(resume_key)
         page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
         page.bring_to_front()
@@ -438,41 +440,77 @@ class Session:
         return {"filled": filled, "skipped": skipped, "records": records}
 
     def _fill_dropdown(self, page, f, resolver, note):
-        """React-select comboboxes, autocomplete boxes, and Workday listbox buttons."""
+        """React-select comboboxes, autocomplete boxes, Workday listbox buttons and Workday's
+        searchable, nested "prompt" lists (category -> sub-option)."""
         label = f["label"]
         loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
         loc.click()
-        page.wait_for_timeout(600)
+        page.wait_for_timeout(700)
         options = self._visible_options(page)
         if not options:
             loc.press("ArrowDown")  # some menus open only on a key press
             page.wait_for_timeout(600)
             options = self._visible_options(page)
-        typed = False
-        if not options and f["kind"] == "combo":
-            # Autocomplete: type first, then read suggestions.
-            guess = resolver.resolve(label, "text", required=f["required"])
-            if not guess:
-                page.keyboard.press("Escape")
-                return False
-            loc.fill(str(guess.value).split(",")[0])
-            typed = True
-            page.wait_for_timeout(1800)
-            options = self._visible_options(page)
-        if not options:
+        typed, path, ans = False, [], None
+        for _ in range(3):  # Workday nests up to a couple of levels
+            if not options and f["kind"] == "combo" and not typed:
+                options, typed = self._search_options(page, loc, resolver, label), True
+            if not options:
+                break
+            ans = resolver.resolve(label, "choice", options=options, required=f["required"], quick=True)
+            if ans is None and f["kind"] == "combo" and not typed:
+                # The answer may just not be visible yet (long lists): search for it first.
+                found = self._search_options(page, loc, resolver, label)
+                typed = True
+                options = found or self._reopen(page, loc) or options
+            if ans is None:
+                ans = resolver.resolve(label, "choice", options=options, required=f["required"])
+            if ans is None:
+                break
+            chosen = options[ans.value]
+            self._click_option(page, chosen, ans.value)
+            path.append(chosen)
+            page.wait_for_timeout(900)
+            after = self._visible_options(page)
+            if not after or after == options or chosen in after:
+                break  # a leaf was selected (the list closed or stayed the same)
+            options = after  # a category opened a sub-list; choose again inside it
+        if self._visible_options(page):
             page.keyboard.press("Escape")
+        if not path:
             return False
-        ans = resolver.resolve(label, "choice", options=options, required=f["required"])
-        if ans is None and not typed and f["kind"] == "combo":
-            page.keyboard.press("Escape")
-            return False
-        if ans is None:
-            page.keyboard.press("Escape")
-            return False
-        page.locator('[role="option"]:visible').nth(ans.value).click()
-        page.wait_for_timeout(400)
-        note(f, label, ans)
+        note(f, label, ans if len(path) == 1 else " › ".join(path), expected=path[-1])
         return True
+
+    def _search_options(self, page, loc, resolver, label):
+        """Type the answer we would give into the box and return the matching options."""
+        guess = resolver.resolve(label, "text", required=False)
+        if not guess:
+            return []
+        loc.fill(str(guess.value).split(",")[0].split("(")[0].strip())
+        if self._ats == "workday":
+            loc.press("Enter")  # Workday searches on Enter; react-select would pick the first hit
+        page.wait_for_timeout(1800)
+        return self._visible_options(page)
+
+    def _reopen(self, page, loc):
+        """Clear a search that found nothing and bring back the full list."""
+        try:
+            loc.fill("")
+            if self._ats == "workday":
+                loc.press("Enter")
+            loc.click()
+            page.wait_for_timeout(900)
+        except Exception:
+            return []
+        return self._visible_options(page)
+
+    @staticmethod
+    def _click_option(page, text, index):
+        try:
+            page.get_by_role("option", name=text, exact=True).first.click(timeout=4000)
+        except Exception:
+            page.locator('[role="option"]:visible').nth(index).click(timeout=4000)
 
     @staticmethod
     def _visible_options(page):
