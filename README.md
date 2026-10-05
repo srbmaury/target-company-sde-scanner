@@ -223,7 +223,8 @@ tracker stays complete:
 ./jobbot.sh track stats                              # counts, response rate, interview rate
 ./jobbot.sh track export applications.csv            # open in a spreadsheet
 ./jobbot.sh track import old.csv                     # columns: company,title,status,applied_on,url,notes
-./jobbot.sh track import-gmail emails.json           # build rows from application emails
+./jobbot.sh track sync-gmail                         # import applications from Gmail (see below)
+./jobbot.sh track import-gmail emails.json           # or build rows from an exported JSON of emails
 ```
 
 Statuses: `shortlisted`, `applied`, `assessment`, `interview`, `offer`, `rejected`, `withdrawn`,
@@ -240,10 +241,49 @@ agree ("Software Engineer II" ≠ "Software Engineer").
   - the email didn't name the role
   - the same title was posted after you applied (big employers reuse titles for new openings)
 
-`import-gmail` reads a JSON export of messages (sender, subject, snippet, date). It treats
-acknowledgements as `applied`, rejections as `rejected`, and assessment or interview invitations as
-`assessment` / `interview`. The parsing is heuristic, so review the result with `track` and fix
-rows with `track update`.
+### Importing applications from Gmail
+
+`track sync-gmail` reads your application emails and adds them to the tracker:
+- acknowledgements become `applied`
+- rejections become `rejected`
+- assessment and interview invitations become `assessment` / `interview`
+
+Run it after applying through job boards, so `apply` never reopens a role you already applied to.
+
+**Connect once.** You sign in on Google's own page in your browser. jobbot gets **read-only**
+access (`gmail.readonly`) and never sees your Google password. Google requires every app that reads
+Gmail to have its own OAuth client, so this takes a few minutes once:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create a project and enable the
+   **Gmail API**.
+2. Under **Google Auth Platform**, set up branding (app name "jobbot", your email). Under
+   **Audience**, choose External and add your own Gmail address as a test user.
+3. Under **Clients**, create a client of type **Desktop app** and download its JSON.
+4. Connect:
+   ```bash
+   ./jobbot.sh gmail login --client ~/Downloads/client_secret_....json
+   ```
+   Google shows an "unverified app" warning because the app is yours and unpublished. Choose
+   Continue, then allow read-only access.
+
+Then sync whenever you like:
+
+```bash
+./jobbot.sh track sync-gmail                  # application emails from the last 60 days
+./jobbot.sh track sync-gmail --days 180       # look further back
+./jobbot.sh track sync-gmail --all-mail       # read every email in the period, keep application emails
+./jobbot.sh gmail status                      # which account is connected
+./jobbot.sh gmail logout                      # revoke access and delete the token
+```
+
+What jobbot reads: sender, subject, a short preview, and the date of each message. It never
+downloads email bodies or attachments, and never sends, labels or deletes anything. The token is
+stored in `~/.jobbot/gmail_token.json`, readable only by you. If Gmail isn't connected yet,
+`sync-gmail` offers to connect it.
+
+The matching is heuristic, so review the result with `track` and fix rows with `track update`.
+`import-gmail <file.json>` does the same from an exported list of messages (sender, subject,
+snippet, date).
 
 ---
 
@@ -259,7 +299,8 @@ rows with `track update`.
 | `apply <n, x-y or URL>... [--top N] [--all] [--min-fit N] [-y] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm none]` | Fill applications in Chrome |
 | `dismiss <n>...` | Hide roles you are not interested in |
 | `logs [--date YYYY-MM-DD] [-n N]` | Show what `apply` filled, corrected and checked |
-| `track [list\|add\|update\|show\|stats\|export\|import\|import-gmail]` | Manage the application tracker |
+| `track [list\|add\|update\|show\|stats\|export\|import\|import-gmail\|sync-gmail]` | Manage the application tracker |
+| `gmail login [--client FILE] \| logout \| status` | Connect Gmail read-only for `track sync-gmail` |
 
 Environment variables: `JOBBOT_PROFILE` (default `./profile.yaml`), `JOBBOT_HOME` (default
 `~/.jobbot`), `JOBBOT_MODEL` (default `qwen2.5:7b`), and `OLLAMA_HOST`.
@@ -273,6 +314,8 @@ Environment variables: `JOBBOT_PROFILE` (default `./profile.yaml`), `JOBBOT_HOME
   and, if enabled, to Ollama on localhost.
 - **No automatic submits.** The final Submit always needs your keypress.
 - **No passwords.** jobbot never reads, stores, or types passwords, and skips password fields.
+  Gmail uses Google's own sign-in page with read-only access, and you can revoke it with
+  `jobbot gmail logout`.
   When a site needs you to sign in, it waits for you to do it in the browser.
 - **No CAPTCHA solving.** CAPTCHAs are left to you.
 - **No made-up answers.** Answers come from your profile, your resumes, or you. Model drafts are
