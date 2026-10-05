@@ -79,8 +79,18 @@ ln -s "$PWD/jobbot.sh" /opt/homebrew/bin/jobbot
 ./jobbot.sh scan          # 1. sweep 220+ company job boards (about 2 minutes)
 ./jobbot.sh rank          # 2. score new roles against each of your resumes
 ./jobbot.sh jobs --why    # 3. best fits first, with the reason and the resume to use
-./jobbot.sh apply 12 15   # 4. apply to the roles numbered 12 and 15
+./jobbot.sh apply --top 5 # 4. apply to the 5 best-ranked roles, one after another
 ./jobbot.sh track         # 5. see every application and its status
+```
+
+Other ways to choose which roles `apply` works through:
+
+```bash
+./jobbot.sh apply 12 15              # specific roles by number
+./jobbot.sh apply 12-20              # a range of numbers (also 12..20 or 12,15,18)
+./jobbot.sh apply --top 10           # the 10 best-ranked roles
+./jobbot.sh apply --all --min-fit 80 # every role you haven't applied to, with fit 80 or higher
+./jobbot.sh apply --all              # every role you haven't applied to, best fit first
 ```
 
 **`scan`** queries each company's public job-board API (Greenhouse, Lever, Ashby, Workday,
@@ -96,8 +106,9 @@ it, jobbot falls back to keyword matching. Treat scores as a sort order rather t
 **`jobs`** lists roles you have not applied to, best fit first. Add `--why` for the reason,
 `--urls` for links, and `dismiss <n>` to hide roles you don't want.
 
-**`apply`** takes job numbers from `jobs`, a posting URL, or `--top N` for the N best-ranked roles.
-See the next section.
+**`apply`** takes job numbers or ranges from `jobs`, a posting URL, `--top N` for the N best-ranked
+roles, or `--all`. It skips roles you have already applied to or dismissed. Before a batch of more
+than 3 roles it lists them and asks you to confirm (`-y` skips this). See the next section.
 
 ---
 
@@ -221,7 +232,7 @@ rows with `track update`.
 | `scan [--companies A,B] [--exclude C] [--locations REGEX] [--max-yoe N] [--show-all]` | Find matching roles and store new ones |
 | `rank [--limit N] [--rerank] [--llm none] [--model NAME]` | Score unranked roles against your resumes |
 | `jobs [--why] [--urls] [--limit N] [--include-applied]` | List tracked roles, best fit first |
-| `apply <n or URL>... [--top N] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm none]` | Fill applications in Chrome |
+| `apply <n, x-y or URL>... [--top N] [--all] [--min-fit N] [-y] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm none]` | Fill applications in Chrome |
 | `dismiss <n>...` | Hide roles you are not interested in |
 | `track [list\|add\|update\|show\|stats\|export\|import\|import-gmail]` | Manage the application tracker |
 
