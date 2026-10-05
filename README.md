@@ -216,6 +216,17 @@ tracker stays complete:
 Statuses: `shortlisted`, `applied`, `assessment`, `interview`, `offer`, `rejected`, `withdrawn`,
 `ghosted`.
 
+**How jobbot knows you already applied.** Applications imported from email often have no job link,
+so jobbot also matches on company and title. It ignores suffixes ("Sarvam AI" = "Sarvam"), job IDs,
+punctuation and Roman numerals ("Software Engineer 2" = "Software Engineer II"), but levels must
+agree ("Software Engineer II" ≠ "Software Engineer").
+
+- **Already applied** (same link, or same company and title): left out of `jobs`, and skipped by
+  `apply` unless you pass `--force`.
+- **Possibly applied**: shown as `[applied?]`, and `apply` asks before opening it. This covers:
+  - the email didn't name the role
+  - the same title was posted after you applied (big employers reuse titles for new openings)
+
 `import-gmail` reads a JSON export of messages (sender, subject, snippet, date). It treats
 acknowledgements as `applied`, rejections as `rejected`, and assessment or interview invitations as
 `assessment` / `interview`. The parsing is heuristic, so review the result with `track` and fix
