@@ -22,8 +22,65 @@ deduplicated shortlist of roles with direct, verified application links.
 | `SKILL.md` | The complete operational instructions for Codex. |
 | `target-companies.md` | Curated company tiers and known official career-site entry points. |
 | `references/ats-registry.json` | Public job-board API identifiers (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Microsoft) for 220+ companies, with the verification date. |
-| `scripts/ats_scan.py` | Standard-library scanner that sweeps the registry and prints 1–3 YOE engineering candidates with the stated experience requirement. |
+| `jobbot/` | Command-line tool: scan, rank against your resumes, fill applications in a browser, and track every application. |
+| `scripts/ats_scan.py` | Standard-library wrapper around `jobbot.scan` that prints 1–3 YOE engineering candidates with the stated experience requirement. |
+| `profile.example.yaml` | Template for your private jobbot profile (copied to `~/.jobbot/profile.yaml`). |
 | `references/job-platforms.md` | Supplemental job boards, recruiters, and how to treat each as a lead. |
+
+## jobbot: search, apply, and track from the terminal
+
+jobbot runs locally and is free. The optional local model runs through [Ollama](https://ollama.com).
+
+```bash
+# one-time setup
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+brew install ollama && brew services start ollama && ollama pull qwen2.5:7b   # optional
+./jobbot.sh init      # creates ~/.jobbot/profile.yaml; fill in your details and resume paths
+./jobbot.sh doctor    # checks profile, resumes, browser, and Ollama
+```
+
+Daily loop:
+
+```bash
+./jobbot.sh scan                 # sweep 220+ company boards; new roles go into the tracker
+./jobbot.sh rank                 # score new roles against each resume (local model, or keywords)
+./jobbot.sh jobs --why           # best fits first, with the reason and the resume to use
+./jobbot.sh apply 12 15          # fill those applications in Chrome; you approve each submit
+./jobbot.sh apply --top 5        # or work through the five best-ranked roles
+```
+
+How `apply` behaves:
+
+- It opens the posting in a real Chrome window with its own persistent profile, attaches the
+  ranked resume, and fills every field it can answer from your profile.
+- Questions listed under `always_ask` (signatures, legal and sanctions questions) and anything it
+  cannot answer are asked in the terminal. With Ollama it drafts free-text answers for you to
+  accept or edit; it never invents facts beyond your profile and resume.
+- Consent and privacy boxes are listed and ticked only after you say yes.
+- It never submits on its own. You review the browser, then choose submit, next step, refill,
+  done, or quit. CAPTCHAs and logins are always left to you, and jobbot never handles passwords.
+- `--dry-run` fills without submitting or recording anything.
+
+Supported forms: Greenhouse, Lever, and Ashby fill end to end. SmartRecruiters and Workday are
+best effort: multi-step pages, and Workday may ask you to sign in first. Other sites open in the
+browser for you to fill, and jobbot still records the result.
+
+Tracking every application, including ones made outside jobbot:
+
+```bash
+./jobbot.sh track                                   # list, newest first, with totals
+./jobbot.sh track add --company Acme --title "SDE II" --url https://... --status applied
+./jobbot.sh track update 42 --status interview --note "system design on Friday"
+./jobbot.sh track show 42                           # details and status history
+./jobbot.sh track stats                             # response and interview rates
+./jobbot.sh track export applications.csv           # spreadsheet export
+./jobbot.sh track import old.csv                    # bulk import (company,title,status,...)
+./jobbot.sh track import-gmail emails.json          # rows from application emails
+```
+
+Statuses: shortlisted, applied, assessment, interview, offer, rejected, withdrawn, ghosted.
+Your profile, tracker database, and browser profile live in `~/.jobbot/` (override with
+`JOBBOT_HOME`), never in the repository.
 
 ## Use in Codex
 

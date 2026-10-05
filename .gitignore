@@ -12,3 +12,7 @@ output/
 
 # Private local job-search de-duplication log
 job-search-history.md
+
+# Local virtualenv
+.venv/
+__pycache__/
