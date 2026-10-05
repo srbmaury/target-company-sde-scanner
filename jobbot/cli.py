@@ -5,12 +5,14 @@
     jobbot scan [--companies ...]   sweep company job boards; new roles go into the tracker
     jobbot jobs                     list tracked roles you have not applied to, best fit first
     jobbot rank                     score unranked roles against your resumes
-    jobbot apply <n|url> ...        fill applications in a browser; you approve each submit
+    jobbot apply <n|x-y|url> ...    fill applications in a browser; you approve each submit
+    jobbot apply --all [--min-fit N]  work through every tracked role, best fit first
     jobbot dismiss <n>              hide a role you are not interested in
     jobbot track ...                list, add, update, export, and import applications (CSV or Gmail JSON)
 """
 
 import argparse
+import re
 import sys
 import textwrap
 
@@ -36,6 +38,21 @@ def _llm(args):
         print(f"Model {args.model} is not pulled; run `ollama pull {args.model}`. Continuing without it.")
         model.enabled = False
     return model
+
+
+def expand_job_keys(keys):
+    """Turn "12", "12-20", "12..20", and "12,15" into individual keys; URLs pass through."""
+    out = []
+    for key in keys:
+        for part in ([key] if key.startswith("http") else key.split(",")):
+            part = part.strip()
+            m = re.fullmatch(r"(\d+)\s*(?:-|\.\.)\s*(\d+)", part)
+            if m:
+                lo, hi = sorted((int(m.group(1)), int(m.group(2))))
+                out.extend(str(n) for n in range(lo, hi + 1))
+            elif part:
+                out.append(part)
+    return out
 
 
 def _short(text, n):
@@ -148,13 +165,17 @@ def cmd_apply(args):
 
     p, conn, model = _profile(), tracker.connect(), _llm(args)
     targets = []
-    if args.top:
+    if args.all:
+        targets = [dict(r) for r in tracker.list_jobs(conn)]
+    elif args.top:
         targets = [dict(r) for r in tracker.list_jobs(conn, limit=args.top) if r["fit_score"] is not None]
         if not targets:
             sys.exit("No ranked roles. Run `jobbot rank` first.")
-    for key in args.jobs:
+    for key in expand_job_keys(args.jobs):
         row = tracker.get_job(conn, key)
-        if row:
+        if row and row["dismissed"]:
+            print(f"Skipping #{key}: dismissed ({row['company']} — {row['title']}).")
+        elif row:
             targets.append(dict(row))
         elif key.startswith("http"):
             company = input(f"Company for {key}: ").strip()
@@ -163,8 +184,25 @@ def cmd_apply(args):
                             "board": None, "description": "", "experience": "", "evidence": "", "fit_resume": None})
         else:
             print(f"Skipping {key}: not a tracked job number or URL.")
+    if args.min_fit is not None:
+        targets = [t for t in targets if (t.get("fit_score") or 0) >= args.min_fit]
+    seen, unique = set(), []
+    for t in targets:
+        if t["url"] not in seen and (args.force or not tracker.is_applied(conn, url=t["url"])):
+            seen.add(t["url"])
+            unique.append(t)
+    targets = unique
     if not targets:
-        sys.exit("Nothing to apply to. Pass job numbers from `jobbot jobs`, URLs, or --top N.")
+        sys.exit("Nothing to apply to. Pass job numbers or ranges from `jobbot jobs` (12 or 12-20), URLs, "
+                 "--top N, or --all.")
+    if len(targets) > 3 and not args.yes:
+        print(f"About to work through {len(targets)} roles:")
+        for t in targets:
+            fit = "" if t.get("fit_score") is None else f"{t['fit_score']:>3}"
+            num = f"#{t['n']}" if t.get("n") else "   "
+            print(f"  {num:>5} {fit:>3}  {_short(t['company'], 22):22s} {_short(t['title'], 60)}")
+        if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
+            sys.exit("Cancelled.")
 
     resumes = p.resumes()
     if not resumes:
@@ -308,8 +346,11 @@ def build_parser():
 
     sp = sub.add_parser("apply", help="fill applications in a browser")
     with_llm(sp)
-    sp.add_argument("jobs", nargs="*", help="job numbers from `jobbot jobs`, or posting URLs")
+    sp.add_argument("jobs", nargs="*", help="job numbers or ranges from `jobbot jobs` (12, 12-20, 12,15), or posting URLs")
     sp.add_argument("--top", type=int, help="apply to the N best-ranked roles, one after another")
+    sp.add_argument("--all", action="store_true", help="apply to every tracked role you have not applied to or dismissed")
+    sp.add_argument("--min-fit", type=int, help="only roles whose fit score is at least this")
+    sp.add_argument("-y", "--yes", action="store_true", help="skip the confirmation before a batch of more than 3 roles")
     sp.add_argument("--resume", help="resume key from your profile (default: the ranked best match)")
     sp.add_argument("--dry-run", action="store_true", help="fill forms but never submit or record")
     sp.add_argument("--no-upload", action="store_true", help="do not attach a resume")
