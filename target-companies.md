@@ -767,7 +767,7 @@ claims that a role is currently open.
 
 ## Career URLs for expanded targets
 
-These are official company career surfaces for the newly expanded targets. Prefer these branded pages over third-party ATS URLs; verify the live role before applying.
+These career surfaces were checked against the live web on 2026-10-05. Canonical redirects were updated where the official site exposed a new path. Where a site blocks automated fetching, the URL is retained only when the official domain/search evidence confirms the careers surface; verify the live role before applying.
 
 | Company | Career site URL | Notes |
 |---|---|---|
@@ -779,41 +779,41 @@ These are official company career surfaces for the newly expanded targets. Prefe
 | Anyscale | https://www.anyscale.com/careers | |
 | Cerebras | https://www.cerebras.ai/join-us | |
 | Groq | https://groq.com/careers-at-groq | |
-| SambaNova Systems | https://sambanova.ai/careers | |
+| SambaNova Systems | https://sambanova.ai/company/careers | |
 | Thinking Machines Lab | https://thinkingmachines.ai/careers | |
 | Character.AI | https://character.ai/careers | |
-| Hugging Face | https://huggingface.co/jobs | |
+| Hugging Face | https://huggingface.co/careers | |
 | Weights & Biases | https://site.wandb.ai/careers/ | |
-| Replicate | https://replicate.com/careers | |
+| Replicate | https://replicate.com/about | |
 | Together Computer | https://www.together.ai/careers | |
 | RunPod | https://www.runpod.io/careers | |
-| Baseten | https://www.baseten.co/careers | |
+| Baseten | https://www.baseten.co/resources/careers/ | |
 | OctoAI | https://octo.ai/careers | |
 | Pinecone | https://www.pinecone.io/careers/ | |
 | Weaviate | https://weaviate.io/company/careers | |
-| Zilliz | https://zilliz.com/careers | |
+| Zilliz | https://jobs.lever.co/zilliz | |
 | LangChain | https://www.langchain.com/careers | |
 | LlamaIndex | https://www.llamaindex.ai/careers | |
 | Arize AI | https://arize.com/careers/ | |
 | WhyLabs | https://whylabs.ai/careers | |
-| Snorkel AI | https://snorkel.ai/careers/ | |
+| Snorkel AI | https://snorkel.ai/join-us/ | |
 | Labelbox | https://labelbox.com/careers/ | |
 | Scale AI Labs | https://scale.com/careers | |
 | Figure AI | https://www.figure.ai/careers | |
 | Physical Intelligence | https://www.physicalintelligence.company/careers | |
 | 1X | https://www.1x.tech/careers | |
-| Skild AI | https://www.skild.ai/careers | |
+| Skild AI | https://www.skild.ai/career | |
 | Sakana AI | https://sakana.ai/careers/ | |
 | AI21 Labs | https://www.ai21.com/careers | |
 | Cockroach Labs | https://www.cockroachlabs.com/careers/ | |
 | Yugabyte | https://www.yugabyte.com/careers/ | |
 | SingleStore | https://www.singlestore.com/careers/ | |
-| Timescale | https://www.timescale.com/careers | |
-| ScyllaDB | https://www.scylladb.com/careers/ | |
+| Timescale | https://www.tigerdata.com/careers | |
+| ScyllaDB | https://www.scylladb.com/company/careers/ | |
 | PlanetScale | https://planetscale.com/careers | |
 | Turso | https://turso.tech/careers | |
 | Neon | https://neon.tech/careers | |
-| Convex | https://www.convex.dev/careers | |
+| Convex | https://www.convex.dev/jobs | |
 | Temporal Technologies | https://temporal.io/careers | |
 | Dagster Labs | https://dagster.io/careers | |
 | Prefect | https://www.prefect.io/careers | |
@@ -827,7 +827,7 @@ These are official company career surfaces for the newly expanded targets. Prefe
 | Aiven | https://aiven.io/careers | |
 | Upstash | https://upstash.com/careers | |
 | WarpStream | https://www.warpstream.com/careers | |
-| Redpanda Data | https://redpanda.com/careers | |
+| Redpanda Data | https://www.redpanda.com/careers | |
 | ConductorOne | https://www.conductorone.com/careers/ | |
 | Tailscale | https://tailscale.com/careers | |
 | Teleport | https://goteleport.com/careers/ | |
@@ -835,17 +835,17 @@ These are official company career surfaces for the newly expanded targets. Prefe
 | Fastly | https://www.fastly.com/about/careers | |
 | Akamai Technologies | https://www.akamai.com/careers | |
 | Equinix | https://careers.equinix.com/ | |
-| HashiCorp | https://www.hashicorp.com/careers | |
+| HashiCorp | https://www.hashicorp.com/en/careers | |
 | Pulumi | https://www.pulumi.com/careers/ | |
-| Harness | https://www.harness.io/careers | |
-| LaunchDarkly | https://launchdarkly.com/careers | |
+| Harness | https://www.harness.io/company/careers | |
+| LaunchDarkly | https://launchdarkly.com/careers/ | |
 | CircleCI | https://circleci.com/careers/ | |
-| Buildkite | https://buildkite.com/careers | |
+| Buildkite | https://buildkite.com/about/careers/ | |
 | Octopus Deploy | https://octopus.com/company/careers | |
 | GitGuardian | https://www.gitguardian.com/careers | |
 | Chainguard | https://www.chainguard.dev/careers | |
 | Wiz | https://www.wiz.io/careers | |
-| Orca Security | https://orca.security/careers/ | |
+| Orca Security | https://orca.security/about/careers/ | |
 | Lacework | https://www.lacework.com/careers | |
 | Sysdig | https://sysdig.com/company/careers/ | |
 | Snyk | https://snyk.io/careers/ | |
@@ -858,114 +858,114 @@ These are official company career surfaces for the newly expanded targets. Prefe
 | Illumio | https://www.illumio.com/company/careers | |
 | SentinelOne | https://www.sentinelone.com/company/careers/ | |
 | Tenable | https://www.tenable.com/careers | |
-| Rapid7 | https://www.rapid7.com/careers/ | |
+| Rapid7 | https://careers.rapid7.com/ | |
 | Darktrace | https://www.darktrace.com/en/careers | |
-| Huntress | https://www.huntress.com/careers | |
-| Abnormal Security | https://abnormalsecurity.com/careers | |
-| Vectra AI | https://www.vectra.ai/careers | |
+| Huntress | https://www.huntress.com/company/careers | |
+| Abnormal Security | https://abnormal.ai/careers | |
+| Vectra AI | https://www.vectra.ai/about/careers | |
 | Rubrik Security Cloud | https://www.rubrik.com/company/careers | |
 | HubSpot | https://www.hubspot.com/careers | |
 | Shopify | https://www.shopify.com/careers | |
-| Zendesk | https://www.zendesk.com/company/careers/ | |
+| Zendesk | https://www.zendesk.co.jp/company/careers/ | |
 | Braze | https://www.braze.com/company/careers | |
 | Amplitude | https://amplitude.com/careers | |
-| Mixpanel | https://mixpanel.com/careers | |
-| Intercom | https://www.intercom.com/careers | |
+| Mixpanel | https://mixpanel.com/jobs/ | |
+| Intercom | https://fin.ai/careers | |
 | Gong | https://www.gong.io/careers/ | |
 | Klaviyo | https://www.klaviyo.com/careers | |
-| Segment | https://segment.com/careers/ | |
+| Segment | https://jobs.twilio.com/careers | |
 | Miro | https://miro.com/careers/ | |
 | Airtable | https://airtable.com/careers | |
 | Linear | https://linear.app/careers | |
 | Retool | https://retool.com/careers | |
-| Sourcegraph | https://sourcegraph.com/careers | |
+| Sourcegraph | https://sourcegraph.com/jobs | |
 | Sentry | https://sentry.io/careers/ | |
 | PostHog | https://posthog.com/careers | |
 | Algolia | https://www.algolia.com/careers/ | |
-| Elastic Path | https://www.elasticpath.com/careers | |
+| Elastic Path | https://www.elasticpath.com/ | |
 | Contentful | https://www.contentful.com/careers/ | |
-| Contentstack | https://www.contentstack.com/careers | |
+| Contentstack | https://www.contentstack.com/company/careers | |
 | Sanity | https://www.sanity.io/careers | |
-| Storyblok | https://www.storyblok.com/careers | |
+| Storyblok | https://www.storyblok.com/jobs | |
 | DatoCMS | https://www.datocms.com/careers | |
 | Builder.io | https://www.builder.io/careers | |
 | Grafbase | https://grafbase.com/careers | |
 | Clerk | https://clerk.com/careers | |
-| Stytch | https://stytch.com/careers | |
+| Stytch | https://jobs.twilio.com/careers | |
 | WorkOS | https://workos.com/careers | |
 | Plaid | https://plaid.com/careers/ | |
-| Ramp | https://ramp.com/careers | |
+| Ramp | https://ramp.com/careers/ | |
 | Mercury | https://mercury.com/jobs | |
 | Brex | https://www.brex.com/careers | |
-| Airwallex | https://www.airwallex.com/careers | |
-| Circle | https://www.circle.com/en/careers | |
-| Marqeta | https://www.marqeta.com/careers | |
+| Airwallex | https://careers.airwallex.com/ | |
+| Circle | https://careers.circle.com/us/en | |
+| Marqeta | https://www.marqeta.com/company/careers | |
 | Checkout.com | https://www.checkout.com/careers | |
 | Adyen | https://careers.adyen.com/ | |
 | Wise | https://wise.jobs/ | |
 | Rapyd | https://www.rapyd.net/careers/ | |
 | Modern Treasury | https://www.moderntreasury.com/careers | |
-| Lithic | https://www.lithic.com/careers | |
+| Lithic | https://www.lithic.com/about/careers | |
 | Unit | https://www.unit.co/careers | |
 | Moov | https://moov.io/careers/ | |
 | Treasury Prime | https://www.treasuryprime.com/careers | |
 | Sardine | https://www.sardine.ai/careers | |
-| Alloy | https://www.alloy.com/careers | |
+| Alloy | https://www.alloy.com/about/jobs | |
 | Persona | https://withpersona.com/careers | |
-| Socure | https://www.socure.com/careers | |
-| Pinwheel | https://www.pinwheel.com/careers | |
+| Socure | https://www.socure.com/company/careers | |
+| Pinwheel | https://job-boards.greenhouse.io/pinwheelapi | |
 | Column | https://column.com/careers | |
 | Increase | https://increase.com/careers | |
 | Method Financial | https://methodfi.com/careers | |
 | Tink | https://tink.com/careers/ | |
 | TrueLayer | https://truelayer.com/careers/ | |
-| GoCardless | https://gocardless.com/careers/ | |
+| GoCardless | https://gocardless.com/about/careers | |
 | Agoda | https://careersatagoda.com/ | |
-| Grab | https://www.grab.careers/ | |
+| Grab | https://www.grab.careers/en/ | |
 | GoTo | https://www.gotocompany.com/careers | |
 | Sea Group | https://www.sea.com/careers | |
 | ByteDance | https://jobs.bytedance.com/ | |
 | TikTok | https://lifeattiktok.com/ | |
 | Tencent | https://careers.tencent.com/ | |
 | Huawei | https://career.huawei.com/ | |
-| SAP Labs India | https://jobs.sap.com/ | |
+| SAP Labs India | https://jobs.sap.com/en/ | |
 | Bosch Global Software | https://www.bosch.com/careers/ | |
-| Continental | https://jobs.continental.com/ | |
-| Aptiv | https://www.aptiv.com/en/careers | |
+| Continental | https://jobs.continental.com/en/ | |
+| Aptiv | https://www.aptiv.com/en/jobs | |
 | Valeo | https://jobs.valeo.com/ | |
 | ZF | https://jobs.zf.com/ | |
 | Magna | https://www.magna.com/careers | |
 | Rivian | https://rivian.com/careers | |
-| Waymo | https://waymo.com/careers/ | |
+| Waymo | https://careers.withwaymo.com/ | |
 | Zoox | https://zoox.com/careers | |
 | Anduril | https://www.anduril.com/careers/ | |
 | Shield AI | https://shield.ai/careers/ | |
 | Samsara | https://www.samsara.com/company/careers | |
-| Verkada | https://www.verkada.com/careers | |
+| Verkada | https://www.verkada.com/careers/ | |
 | ServiceTitan | https://www.servicetitan.com/careers | |
 | Toast | https://careers.toasttab.com/ | |
 | DoorDash Labs | https://careersatdoordash.com/ | |
-| Instacart | https://instacart.careers/ | |
+| Instacart | https://www.instacart.careers/ | |
 | Lyft | https://www.lyft.com/careers | |
 | Thumbtack | https://www.thumbtack.com/careers | |
 | Opendoor | https://www.opendoor.com/careers | |
 | Zillow | https://www.zillowgroup.com/careers/ | |
-| Indeed | https://www.indeed.com/career | |
+| Indeed | https://www.indeed.com/careers | |
 | Tripadvisor | https://careers.tripadvisor.com/ | |
 | Expedia | https://careers.expediagroup.com/ | |
-| Booking Holdings | https://www.bookingholdings.com/careers/ | |
-| eBay | https://jobs.ebayinc.com/ | |
-| Etsy | https://www.etsy.com/careers | |
-| Wayfair | https://www.wayfair.com/careers | |
-| Chewy | https://careers.chewy.com/ | |
+| Booking Holdings | https://www.bookingholdings.com/careers/careers/ | |
+| eBay | https://careers.ebayinc.com/ | |
+| Etsy | https://careers.etsy.com/ | |
+| Wayfair | https://www.aboutwayfair.com/careers | |
+| Chewy | https://careers.chewy.com/us/en | |
 | Cashfree Payments | https://www.cashfree.com/careers/ | |
 | Juspay | https://juspay.io/careers | |
 | Zeta | https://www.zeta.tech/careers | |
-| M2P Fintech | https://m2pfintech.com/careers/ | |
+| M2P Fintech | https://careers.m2pfintech.com/ | |
 | Setu | https://setu.co/careers | |
-| Perfios | https://www.perfios.com/careers | |
+| Perfios | https://perfios.ai/careers/ | |
 | Navi | https://navi.com/careers | |
-| Jupiter | https://jupiter.money/careers | |
+| Jupiter | https://jupiter.money/careers/ | |
 | Fi | https://fi.money/careers | |
 | OneCard | https://www.getonecard.app/careers | |
 | Pine Labs | https://www.pinelabs.com/careers | |
@@ -976,45 +976,45 @@ These are official company career surfaces for the newly expanded targets. Prefe
 | OfBusiness | https://www.ofbusiness.com/careers | |
 | Innovaccer | https://innovaccer.com/careers | |
 | Observe.AI | https://www.observe.ai/careers | |
-| Yellow.ai | https://yellow.ai/careers/ | |
+| Yellow.ai | https://yellow.ai/career/ | |
 | Uniphore | https://www.uniphore.com/careers/ | |
-| Ema | https://www.ema.co/careers | |
+| Ema | https://www.ema.ai/careers | |
 | Krutrim | https://krutrim.ai/careers | |
 | Sarvam AI | https://www.sarvam.ai/careers | |
 | Neysa | https://neysa.ai/careers | |
 | DevRev | https://devrev.ai/careers | |
-| Druva | https://www.druva.com/careers | |
+| Druva | https://www.druva.com/why-druva/explore/careers | |
 | Amagi | https://amagi.com/careers | |
 | BrowserStack | https://www.browserstack.com/careers | |
-| Postman | https://www.postman.com/company/careers | |
+| Postman | https://www.postman.com/company/careers/ | |
 | Freshworks | https://www.freshworks.com/company/careers/ | |
 | Zoho | https://www.zoho.com/careers/ | |
-| HighRadius | https://www.highradius.com/careers/ | |
+| HighRadius | https://www.highradius.com | |
 | Icertis | https://www.icertis.com/careers/ | |
 | Mindtickle | https://www.mindtickle.com/careers/ | |
 | MoEngage | https://www.moengage.com/careers/ | |
 | Whatfix | https://whatfix.com/careers | |
 | LeadSquared | https://www.leadsquared.com/careers/ | |
-| Wingify/VWO | https://wingify.com/careers | |
+| Wingify/VWO | https://wingify.com/company/careers/ | |
 | WebEngage | https://webengage.com/careers/ | |
 | Appsmith | https://www.appsmith.com/careers | |
 | E2E Networks | https://www.e2enetworks.com/careers | |
-| CloudSEK | https://www.cloudsek.com/careers | |
+| CloudSEK | https://www.cloudsek.com/openings | |
 | Sprinto | https://sprinto.com/careers | |
 | SpotDraft | https://www.spotdraft.com/careers | |
 | Haptik | https://www.haptik.ai/careers | |
 | Qure.ai | https://www.qure.ai/careers | |
-| Fractal | https://fractal.ai/careers/ | |
+| Fractal | https://fractal.wd1.myworkdayjobs.com/Careers | |
 | Tredence | https://www.tredence.com/careers | |
 | Tiger Analytics | https://www.tigeranalytics.com/careers | |
 | Locus | https://locus.sh/careers | |
 | Capillary Technologies | https://www.capillarytech.com/careers/ | |
-| Exotel | https://exotel.com/careers | |
+| Exotel | https://exotel.com/about-us/careers/ | |
 | Shiprocket | https://www.shiprocket.in/careers | |
 | GreyOrange | https://www.greyorange.com/careers | |
 | Keka | https://www.keka.com/careers | |
-| Kissflow | https://kissflow.com/careers | |
-| Vymo | https://vymo.com/careers | |
+| Kissflow | https://careers.kissflow.com/ | |
+| Vymo | https://vymo.com/careers/ | |
 | Xoxoday | https://www.xoxoday.com/careers | |
 
 ### Selection guidance
