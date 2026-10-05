@@ -171,48 +171,19 @@ def cmd_rank(args):
 
 
 def cmd_apply(args):
-    from .apply.engine import Session, record
+    from .apply.engine import Session
+    from .apply.runner import run_jobs, select_targets
     from .apply.ui import TerminalUI
 
     p, conn, model = _profile(), tracker.connect(), _llm(args)
-    targets = []
-    if args.all:
-        targets = [dict(r) for r in tracker.list_jobs(conn)]
-    elif args.top:
-        targets = [dict(r) for r in tracker.list_jobs(conn, limit=args.top) if r["fit_score"] is not None]
-        if not targets:
-            sys.exit("No ranked roles. Run `jobbot rank` first.")
-    for key in expand_job_keys(args.jobs):
-        row = tracker.get_job(conn, key)
-        if row and row["dismissed"]:
-            print(f"Skipping #{key}: dismissed ({row['company']} — {row['title']}).")
-        elif row:
-            targets.append(dict(row))
-        elif key.startswith("http"):
-            company = input(f"Company for {key}: ").strip()
-            title = input("Role title: ").strip()
-            targets.append({"url": key, "company": company, "title": title, "location": "", "ats": None,
-                            "board": None, "description": "", "experience": "", "evidence": "", "fit_resume": None})
-        else:
-            print(f"Skipping {key}: not a tracked job number or URL.")
-    if args.min_fit is not None:
-        targets = [t for t in targets if (t.get("fit_score") or 0) >= args.min_fit]
-    seen, unique = set(), []
-    for t in targets:
-        if t["url"] in seen:
-            continue
-        seen.add(t["url"])
-        level, app = tracker.applied_match(conn, t["url"], t["company"], t["title"], first_seen=t.get("first_seen"),
-                                            posted=t.get("posted"))
-        if level in ("exact", "likely") and not args.force:
-            print(f"Skipping {t['company']} — {t['title']}: already applied "
-                  f"(#{app['id']} {app['title']}, {app['status']}, {app['applied_on'] or 'date unknown'}).")
-            continue
-        if level == "possible":
-            what = "an unnamed" if app["title"].startswith("(role not stated") else f"a similar ({app['title']})"
-            t["_possible"] = f"you applied to {what} {app['company']} role on {app['applied_on'] or 'an unknown date'}"
-        unique.append(t)
-    targets = unique
+    if args.top and not tracker.list_jobs(conn, limit=args.top):
+        sys.exit("No tracked roles. Run `jobbot scan` first.")
+
+    def ask_url(url):
+        return input(f"Company for {url}: ").strip(), input("Role title: ").strip()
+
+    targets = select_targets(conn, args.jobs, all_=args.all, top=args.top, min_fit=args.min_fit, force=args.force,
+                             ask_url=ask_url)
     if not targets:
         sys.exit("Nothing to apply to. Pass job numbers or ranges from `jobbot jobs` (12 or 12-20), URLs, "
                  "--top N, or --all.")
@@ -225,35 +196,18 @@ def cmd_apply(args):
             print(f"  {num:>5} {fit:>3}  {_short(t['company'], 22):22s} {_short(t['title'], 60)}{flag}")
         if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
             sys.exit("Cancelled.")
-
-    resumes = p.resumes()
-    if not resumes:
+    if not p.resumes():
         sys.exit("No resume files found; fix `resumes:` in your profile.")
+
     ui = TerminalUI()
     with Session(p, model, ui, dry_run=args.dry_run, upload=not args.no_upload,
                  auto_next=not args.no_auto_next) as session:
-        for n, job in enumerate(targets, 1):
-            if job.get("_possible") and not args.yes and not ui.confirm(
-                    f"{job['company']} — {job['title']}: {job['_possible']}. Apply anyway?"):
-                continue
-            resume_key = args.resume or job.get("fit_resume") or next(iter(resumes))
-            if resume_key not in resumes:
-                print(f"Resume '{resume_key}' not found; using {next(iter(resumes))}.")
-                resume_key = next(iter(resumes))
-            print(f"\n=== [{n}/{len(targets)}] {job['company']} — {job['title']} ===")
-            try:
-                status, note = session.apply(job, resume_key)
-            except KeyboardInterrupt:
-                print("\nStopped.")
-                break
-            except Exception as e:
-                print(f"  ! {type(e).__name__}: {e}")
-                status, note = None, None
-            if status and not args.dry_run:
-                app = record(conn, job, status, note, resume_key)
-                print(f"  ✓ Tracked as application #{app['id']} ({status}).")
-            elif args.dry_run:
-                print("  Dry run: nothing recorded.")
+        try:
+            run_jobs(session, conn, p, targets, ui, resume=args.resume, dry_run=args.dry_run,
+                     confirm_possible=not args.yes,
+                     on_job=lambda n, total, job: print(f"\n=== [{n}/{total}] {job['company']} — {job['title']} ==="))
+        except KeyboardInterrupt:
+            print("\nStopped.")
 
 
 def cmd_dismiss(args):

@@ -5,7 +5,7 @@ const TOKEN = document.querySelector('meta[name="jobbot-token"]').content;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const state = { tab: "jobs", jobs: [], apps: [], summary: null, jobSort: ["fit_score", -1], appSort: ["applied_on", -1], polling: null };
+const state = { selected: new Set(), run: null, runPoll: null, tab: "jobs", jobs: [], apps: [], summary: null, jobSort: ["fit_score", -1], appSort: ["applied_on", -1], polling: null };
 
 async function api(path, body) {
   const opts = { headers: { "X-Jobbot-Token": TOKEN } };
@@ -34,7 +34,7 @@ function showTab(name) {
   remember("tab", name);
   $$(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
   $$(".panel").forEach((p) => (p.hidden = p.id !== "tab-" + name));
-  ({ jobs: loadJobs, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile }[name])();
+  ({ jobs: loadJobs, apply: loadRun, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile }[name])();
 }
 
 // ---------- summary ----------
@@ -101,9 +101,134 @@ function renderJobs() {
       <td>${esc(j.location)}</td>
       <td class="num" title="${esc(j.evidence)}">${esc(j.experience)}</td>
       <td>${esc(j.fit_resume || "")}</td>
-      <td><button class="link" data-job="${j.n}" data-act="${j.dismissed ? "restore" : "dismiss"}">${j.dismissed ? "Restore" : "Dismiss"}</button></td>
+      <td class="num"><label class="check"><input type="checkbox" data-select="${j.n}" ${state.selected.has(String(j.n)) ? "checked" : ""} ${j.dismissed ? "disabled" : ""}> Select</label>
+        <button class="link" data-job="${j.n}" data-act="${j.dismissed ? "restore" : "dismiss"}">${j.dismissed ? "Restore" : "Dismiss"}</button></td>
     </tr>`;
   }).join("") : `<tr><td colspan="8" class="empty">No roles match. Try Actions → Run scan.</td></tr>`;
+}
+
+// ---------- selection & apply runs ----------
+function updateSelection() {
+  const n = state.selected.size;
+  $("#sel-count").textContent = n ? `${n} role${n === 1 ? "" : "s"} selected` : "Select roles with the checkboxes to apply from here.";
+  $("#apply-selected").disabled = $("#dry-selected").disabled = !n;
+  $("#sel-clear").hidden = !n;
+}
+
+async function startRun(dry) {
+  const jobs = Array.from(state.selected);
+  const msg = `${dry ? "Dry-run" : "Apply to"} ${jobs.length} role${jobs.length === 1 ? "" : "s"}? Chrome will open in its own window.` +
+    (dry ? "" : " You'll confirm each Submit here.");
+  if (!confirm(msg)) return;
+  try {
+    await api("apply", { jobs, dry_run: dry });
+    state.selected.clear(); updateSelection();
+    showTab("apply");
+  } catch (e) { alert(e.message); }
+}
+
+async function loadRun() {
+  let run;
+  try { run = await api("apply"); } catch (e) { return; }
+  state.run = run;
+  const active = ["starting", "running", "waiting"].includes(run.status);
+  $("#apply-badge").hidden = run.status !== "waiting";
+  document.title = run.status === "waiting" ? "● jobbot needs you" : "jobbot";
+  if (active && !state.runPoll) state.runPoll = setInterval(loadRun, 1000);
+  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary(); }
+  if (state.tab === "apply") renderRun(run);
+}
+
+function renderRun(run) {
+  if (run.status === "idle") {
+    $("#run-title").textContent = "No apply run yet";
+    $("#run-status").textContent = ""; $("#run-progress").textContent = "";
+    $("#prompt").innerHTML = `<div class="empty">Select roles in the Jobs tab and choose “Apply to selected”.</div>`;
+    $("#feed").innerHTML = ""; $("#queue").innerHTML = ""; $("#run-stop").hidden = true;
+    return;
+  }
+  const active = ["starting", "running", "waiting"].includes(run.status);
+  $("#run-title").textContent = run.dry_run ? "Dry run" : "Applying";
+  $("#run-status").textContent = run.status;
+  $("#run-status").className = "pill " + ({ waiting: "maybe", running: "interview", done: "applied", failed: "rejected", stopped: "withdrawn" }[run.status] || "");
+  const done = Object.keys(run.results).length;
+  $("#run-progress").textContent = run.jobs.length ? `${done} of ${run.jobs.length} finished` : "";
+  $("#run-stop").hidden = !active;
+  $("#queue").innerHTML = run.jobs.map((j, i) => {
+    const r = run.results[j.url];
+    const pill = r ? `<span class="pill ${r.status === "applied" ? "applied" : "rejected"}">${esc(r.status)}</span>` : i === run.current ? `<span class="pill interview">now</span>` : "";
+    return `<li class="${i === run.current ? "now" : ""}">${esc(j.company)} ${pill}<span class="sub">${esc(j.title)}</span></li>`;
+  }).join("");
+  const feed = $("#feed");
+  const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
+  feed.innerHTML = run.events.map(renderEvent).join("");
+  if (nearBottom) feed.scrollTop = feed.scrollHeight;
+  renderPrompt(run.prompt);
+}
+
+function renderEvent(e) {
+  if (e.kind === "report") {
+    const items = e.filled.map((f) => `<li><b>${esc(f.label)}</b> → ${esc(f.value)} <span class="muted">${esc(f.source)}</span></li>`).join("");
+    const probs = (e.problems || []).map((p) => `<li style="color:var(--bad)">${esc(p)}</li>`).join("");
+    const status = e.ok === null ? "" : e.ok ? " · ✓ all checks passed" : " · ✗ problems found";
+    return `<div class="ev report ${e.ok === false ? "bad" : ""}"><span class="t">${esc(e.t)}</span>${esc(e.text)} — ${e.filled.length} field(s) set${status}<ul>${items}${probs}</ul></div>`;
+  }
+  return `<div class="ev ${esc(e.kind)}"><span class="t">${esc(e.t)}</span>${esc(e.text)}</div>`;
+}
+
+function renderPrompt(p) {
+  const box = $("#prompt");
+  if (!p) {
+    const run = state.run;
+    box.innerHTML = run && ["starting", "running"].includes(run.status)
+      ? `<div class="empty">Working… jobbot is filling and checking the page in Chrome.</div>` : "";
+    box.dataset.pid = "";
+    return;
+  }
+  if (box.dataset.pid === p.id) return;   // keep what you are typing while polling
+  box.dataset.pid = p.id;
+  const q = `<div class="q">${esc(p.question || "")}</div>`;
+  let html = "";
+  if (p.kind === "action") {
+    const labels = { submit: "Submit application", next: "Next step", refill: "Re-fill this page", done: "I submitted it myself", quit: "Quit without submitting" };
+    const head = p.final ? "Final step: every check passed" : p.check_ok ? "Review the page in Chrome" : "The check found problems";
+    html = `<div class="prompt ${p.final ? "final" : ""}"><h4>${esc(head)}</h4>
+      <div class="q">${p.final ? "Look over the application in the Chrome window, then submit." : "Fix anything in the Chrome window if needed, then choose:"}</div>
+      <div class="actions">${p.choices.map((c) => `<button data-answer="${c}" class="${c === "submit" ? "primary" : ""}">${esc(labels[c] || c)}</button>`).join("")}</div>
+      ${p.dry_run ? `<p class="reason">Dry run: submitting is disabled.</p>` : ""}</div>`;
+  } else if (p.kind === "confirm") {
+    html = `<div class="prompt"><h4>Confirm</h4>${q}<div class="actions"><button class="primary" data-answer="true">Yes</button><button data-answer="false">No</button></div></div>`;
+  } else if (p.kind === "wait") {
+    html = `<div class="prompt"><h4>Your turn in Chrome</h4>${q}<div class="actions"><button class="primary" data-answer="null">Done, continue</button></div></div>`;
+  } else if (p.kind === "code") {
+    html = `<div class="prompt"><h4>Verification code</h4>${q}<input type="text" id="p-text" placeholder="Code from your email" autocomplete="one-time-code">
+      <div class="actions"><button class="primary" data-answer="text">Enter code</button><button data-answer="null">Skip</button></div></div>`;
+  } else {
+    const reason = `<div class="reason">${esc(p.reason || "")}${p.required ? " · required" : " · optional"}</div>`;
+    if (p.options && p.options.length) {
+      html = `<div class="prompt"><h4>Question</h4>${q}${reason}<div class="opts">${p.options.map((o, i) => `<button data-answer="${i}">${esc(o)}</button>`).join("")}</div>
+        <div class="actions"><button class="link" data-answer="null">Leave blank</button></div></div>`;
+    } else {
+      html = `<div class="prompt"><h4>Question</h4>${q}${reason}<textarea id="p-text" rows="${p.suggestion ? 5 : 3}">${esc(p.suggestion || "")}</textarea>
+        <div class="actions"><button class="primary" data-answer="text">${p.suggestion ? "Use this answer" : "Answer"}</button><button data-answer="null">Leave blank</button></div></div>`;
+    }
+  }
+  box.innerHTML = html;
+  const input = $("#p-text", box);
+  if (input) input.focus();
+}
+
+async function answerPrompt(raw) {
+  const p = state.run && state.run.prompt;
+  if (!p) return;
+  let value = null;
+  if (raw === "text") value = $("#p-text").value;
+  else if (raw === "true") value = true;
+  else if (raw === "false") value = false;
+  else if (raw !== "null") value = /^\d+$/.test(raw) && p.kind === "ask" ? Number(raw) : raw;
+  $$("#prompt button").forEach((b) => (b.disabled = true));
+  try { await api("apply/answer", { prompt_id: p.id, value }); } catch (e) { alert(e.message); }
+  await loadRun();
 }
 
 // ---------- applications ----------
@@ -249,6 +374,20 @@ document.addEventListener("DOMContentLoaded", async () => {
   const reloadJobs = debounce(loadJobs);
   ["#jobs-q", "#jobs-min"].forEach((s) => $(s).addEventListener("input", reloadJobs));
   ["#jobs-applied", "#jobs-dismissed"].forEach((s) => $(s).addEventListener("change", loadJobs));
+  $("#jobs-table tbody").addEventListener("change", (ev) => {
+    const cb = ev.target.closest("input[data-select]");
+    if (!cb) return;
+    cb.checked ? state.selected.add(cb.dataset.select) : state.selected.delete(cb.dataset.select);
+    updateSelection();
+  });
+  $("#apply-selected").addEventListener("click", () => startRun(false));
+  $("#dry-selected").addEventListener("click", () => startRun(true));
+  $("#sel-clear").addEventListener("click", () => { state.selected.clear(); updateSelection(); renderJobs(); });
+  $("#prompt").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-answer]");
+    if (b) answerPrompt(b.dataset.answer);
+  });
+  $("#run-stop").addEventListener("click", async () => { await api("apply/stop", {}); loadRun(); });
   $("#jobs-table tbody").addEventListener("click", async (ev) => {
     const b = ev.target.closest("button[data-job]");
     if (!b) return;
@@ -277,4 +416,5 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   await loadSummary();
   showTab(recall("tab") || "jobs");
+  loadRun();   // picks up a run that is already in progress (and keeps polling while it is)
 });
