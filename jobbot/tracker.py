@@ -8,6 +8,7 @@ Two tables:
 
 import csv
 import datetime as dt
+import re
 import sqlite3
 
 from . import paths
@@ -104,17 +105,21 @@ def get_job(conn, key):
 
 
 def list_jobs(conn, unranked=False, include_applied=False, include_dismissed=False, limit=None):
+    """Tracked roles, best fit first. Unless include_applied, roles that match an application
+    by URL or by company and title (see applied_match) are left out."""
     sql = "SELECT rowid AS n, * FROM jobs WHERE 1=1"
     if unranked:
         sql += " AND fit_score IS NULL"
-    if not include_applied:
-        sql += " AND url NOT IN (SELECT url FROM applications WHERE url IS NOT NULL)"
     if not include_dismissed:
         sql += " AND dismissed = 0"
     sql += " ORDER BY fit_score IS NULL, fit_score DESC, first_seen DESC"
-    if limit:
-        sql += f" LIMIT {int(limit)}"
-    return conn.execute(sql).fetchall()
+    rows = conn.execute(sql).fetchall()
+    if not include_applied:
+        apps = conn.execute("SELECT * FROM applications").fetchall()
+        rows = [r for r in rows
+                if applied_match(conn, r["url"], r["company"], r["title"], _apps=apps,
+                                 first_seen=r["first_seen"], posted=r["posted"])[0] not in ("exact", "likely")]
+    return rows[: int(limit)] if limit else rows
 
 
 def set_fit(conn, url, score, resume, reason):
@@ -136,6 +141,96 @@ def find_application(conn, key):
     if str(key).isdigit():
         return conn.execute("SELECT * FROM applications WHERE id = ?", (int(key),)).fetchone()
     return conn.execute("SELECT * FROM applications WHERE url = ?", (key,)).fetchone()
+
+
+# --- matching applications that came from email (no URL) to scanned roles ----------
+
+_COMPANY_SUFFIX = re.compile(r"\b(ai|inc|llc|llp|ltd|limited|pvt|private|labs?|technologies|technology|tech|software|"
+                             r"corp(oration)?|co|company|india|global|group|careers|security|research)\b")
+_ROMAN = {"i": "1", "ii": "2", "iii": "3", "iv": "4"}
+_TITLE_NOISE = {"the", "a", "an", "and", "of", "for", "in", "at", "india", "remote", "hybrid", "role", "position",
+                "earlier", "application", "august", "september", "october"}
+
+
+def norm_company(name):
+    name = re.sub(r"[^a-z0-9 ]", " ", (name or "").lower())
+    name = _COMPANY_SUFFIX.sub(" ", name)
+    return re.sub(r"\s+", "", name)
+
+
+def title_tokens(title):
+    t = (title or "").lower()
+    t = re.sub(r"\((?:[^)]*\d{4,}[^)]*|job number[^)]*)\)", " ", t)      # (200047960), (Job number: ...)
+    t = re.sub(r"\b(r-?\d{4,}|jr\d+|\d{5,})\b", " ", t)                   # requisition ids
+    t = t.replace("sde", "software development engineer").replace("swe", "software engineer")
+    words = re.findall(r"[a-z0-9+#]+", t)
+    words = [_ROMAN.get(w, w) for w in words]
+    return {w for w in words if w not in _TITLE_NOISE}
+
+
+def titles_match(a, b):
+    ta, tb = title_tokens(a), title_tokens(b)
+    if not ta or not tb:
+        return False
+    if {w for w in ta if w.isdigit()} != {w for w in tb if w.isdigit()}:
+        return False  # "Software Engineer II" is not "Software Engineer"
+    if ta == tb:
+        return True
+    small, big = sorted((ta, tb), key=len)
+    if small <= big and len(big) - len(small) <= 1 and len(small) >= 2:
+        return True
+    return len(ta & tb) / len(ta | tb) >= 0.8
+
+
+def applied_match(conn, url=None, company=None, title=None, _apps=None, first_seen=None, posted=None):
+    """How sure are we that this role was already applied to?
+
+    Returns (level, application row): "exact" (same URL), "likely" (same company and
+    matching title), "possible" (same company, the email did not name the role), or
+    (None, None). Rejected/withdrawn applications still count: they were applied to.
+    """
+    if url:
+        row = conn.execute("SELECT * FROM applications WHERE url = ?", (url,)).fetchone()
+        if row:
+            return "exact", row
+    if not company:
+        return None, None
+    apps = _apps if _apps is not None else conn.execute("SELECT * FROM applications").fetchall()
+    key = norm_company(company)
+    if not key:
+        return None, None
+    same_company = [a for a in apps if norm_company(a["company"]) == key]
+    for a in same_company:
+        if titles_match(a["title"], title):
+            if a["url"] and url and a["url"] != url:
+                continue  # we know the exact posting applied to, and this is a different one
+            if _reposted(a, posted, first_seen):
+                return "possible", a  # big employers reuse titles; this looks like a newer opening
+            return "likely", a
+    for a in same_company:
+        if a["title"].startswith("(role not stated"):
+            return "possible", a
+    return None, None
+
+
+def _reposted(app, posted, first_seen):
+    """Is the scanned role probably a newer opening with the same title?"""
+    if posted:
+        # Posted after you applied: it cannot be the posting you applied to.
+        return _older_than(app["applied_on"], posted, days=0)
+    # No posting date (e.g. Microsoft): an old rejection plus a role still listed suggests a new opening.
+    return app["status"] == "rejected" and _older_than(app["applied_on"], first_seen, days=14)
+
+
+def _older_than(applied_on, first_seen, days):
+    if not applied_on or not first_seen:
+        return False
+    try:
+        a = dt.date.fromisoformat(applied_on[:10])
+        f = dt.date.fromisoformat(first_seen[:10])
+    except ValueError:
+        return False
+    return (f - a).days > days
 
 
 def is_applied(conn, url=None, company=None, title=None):
