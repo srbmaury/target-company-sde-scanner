@@ -15,6 +15,7 @@ job-search-history.md
 
 # Your personal jobbot profile: contact details, CTC, learned answers. Never commit it.
 profile.yaml
+profile.yaml.*
 
 # Local virtualenv
 .venv/

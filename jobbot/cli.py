@@ -9,6 +9,7 @@
     jobbot apply --all [--min-fit N]  work through every tracked role, best fit first
     jobbot dismiss <n>              hide a role you are not interested in
     jobbot logs                     what apply filled, corrected and checked, page by page
+    jobbot ui                       open the local dashboard: jobs, applications, actions, logs, profile
     jobbot track ...                list, add, update, export, and import applications (CSV or Gmail JSON)
     jobbot gmail login              connect Gmail read-only, then `jobbot track sync-gmail`
 """
@@ -351,6 +352,8 @@ def sync_gmail(conn, args):
 
     try:
         if not gmail.is_connected():
+            if not sys.stdin.isatty():
+                sys.exit("Gmail is not connected. Run `jobbot gmail login` (or use Connect Gmail in the dashboard).")
             if input("Gmail is not connected. Sign in with Google now (read-only)? [Y/n] ").strip().lower() in ("n", "no"):
                 sys.exit("Skipped. Run `jobbot gmail login` when you are ready.")
             print(f"Connected as {gmail.login()}.")
@@ -364,6 +367,12 @@ def sync_gmail(conn, args):
     rows = mailimport.rows_from(messages)
     added, updated = mailimport.import_rows(conn, rows)
     print(f"Read {len(messages)} emails: {len(rows)} about applications, {added} new applications, {updated} status updates.")
+
+
+def cmd_ui(args):
+    from .ui.server import serve
+
+    serve(port=args.port, open_browser=not args.no_open)
 
 
 def cmd_logs(args):
@@ -432,6 +441,11 @@ def build_parser():
     sp.add_argument("--no-auto-next", action="store_true",
                     help="stop after every page instead of moving on when the check passes")
     sp.set_defaults(fn=cmd_apply)
+
+    sp = sub.add_parser("ui", help="open the local dashboard in your browser")
+    sp.add_argument("--port", type=int, default=8765)
+    sp.add_argument("--no-open", action="store_true", help="do not open a browser tab")
+    sp.set_defaults(fn=cmd_ui)
 
     sp = sub.add_parser("logs", help="show what apply filled, corrected, and checked")
     sp.add_argument("--date", help="YYYY-MM-DD (default: today)")
