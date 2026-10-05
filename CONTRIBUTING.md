@@ -40,6 +40,15 @@ global employers, and later tiers broaden coverage.
 4. Update the top-level `verified` date when you re-verify the file, and run
    `python3 scripts/ats_scan.py --all` to check that no entry errors.
 
+## Working on jobbot
+
+- Run `python3 -m unittest discover -s tests` before opening a pull request.
+- Test form-filling changes with `./jobbot.sh apply <n> --dry-run --no-upload`, which never
+  submits or records anything.
+- Keep jobbot conservative: no automatic submits, no password or CAPTCHA handling, and legal or
+  attestation questions always go to the user unless their own profile answers them.
+- Never commit anything from `~/.jobbot/` (profile, tracker, browser profile) or real resumes.
+
 ## Editing the skill
 
 Keep the instructions actionable and conservative:

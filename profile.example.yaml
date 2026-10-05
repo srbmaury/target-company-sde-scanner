@@ -1,0 +1,91 @@
+# jobbot candidate profile.
+# `jobbot init` copies this file to ~/.jobbot/profile.yaml. Edit that copy, not this one:
+# it holds personal data and must never be committed.
+
+personal:
+  first_name: Asha
+  last_name: Example
+  preferred_name: Asha
+  email: asha@example.com
+  phone: "9876543210"          # national number, without the country code
+  phone_country: India         # the name shown in phone-country pickers
+  phone_country_code: "+91"
+  city: Bengaluru
+  state: Karnataka
+  country: India
+  address_line1: ""            # leave blank to skip optional address fields
+  postal_code: ""
+  # Text to pick when a location box offers autocomplete suggestions.
+  location_autocomplete: "Bengaluru, Karnataka, India"
+
+links:
+  linkedin: https://www.linkedin.com/in/example   # include www.; some Workday sites reject the short form
+  github: https://github.com/example
+  website: https://example.com
+
+work:
+  current_company: Example Corp
+  current_title: Software Engineer
+  start_month: "2024-06"
+  total_experience_years: 2       # whole years
+  past_employers: [Example Corp, Previous Intern Co]
+  notice_period_days: 30
+  current_ctc: "INR 20 LPA fixed"
+  expected_ctc: "INR 28 LPA fixed, negotiable"
+  reason_for_change: >-
+    I'm looking to broaden my technical experience and take on more ownership.
+
+education:
+  school: Example Institute of Technology
+  degree: Bachelor's degree        # free-text answer; dropdowns match "Bachelor"
+  degree_short: B.Tech
+  field: Computer Science
+  gpa: "8.0/10"
+  start_year: 2020
+  end_year: 2024
+
+eligibility:
+  authorized_countries: [India]
+  needs_sponsorship: false
+  willing_to_relocate: true
+  background_check_ok: true
+
+eeo:            # set any value to "Decline" to pick the decline-to-answer option
+  gender: Decline
+  hispanic_latino: Decline
+  race: Decline
+  veteran: Decline
+  disability: Decline
+
+preferences:
+  locations: "hyderabad|bengaluru|bangalore|noida|gurugram|gurgaon|delhi|remote.*india|india.*remote"
+  max_yoe: 3
+  exclude_companies: [Example Corp]
+  how_did_you_hear: Company website
+
+# Resume variants. jobbot ranks each job against every resume and uses the best match.
+# `focus` is a short hint for the ranker.
+resumes:
+  backend:
+    path: ~/Documents/Resume/Example_Backend.pdf
+    focus: Java, Spring Boot, distributed systems
+  fullstack:
+    path: ~/Documents/Resume/Example_FullStack.pdf
+    focus: React, Next.js, Node.js, TypeScript
+
+# Your own fixed answers. `match` is a case-insensitive regex tested against the question text.
+# These win over everything else, including the questions jobbot would normally ask you about.
+answers:
+  - match: "\\breferr(ed|al)\\b|referred by"
+    answer: "No"
+  # - match: "citizen or lawful permanent resident of cuba"
+  #   answer: "No"
+
+# Questions jobbot never answers on its own; it asks you in the terminal every time,
+# unless an entry under `answers` matches first. Extend as needed.
+always_ask:
+  - "signature|sign here|e-?sign"
+  - "criminal|convict|felony"
+  - "sanction|export control|cuba|iran|north korea|syria|crimea"
+  - "government|debar|security clearance"
+  - "non-?compete|conflict of interest|related to (an|any) employee"
