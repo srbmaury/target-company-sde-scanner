@@ -482,3 +482,550 @@ control before returning a role.
   to be trimmed for time.
 - IBM Research is a research org; its openings for 1-3 YOE SDE roles will mostly be regular IBM
   software engineering postings rather than pure-research roles — search IBM's general careers site.
+
+
+## Tier 3 — Additional 100+ employers for expanded targeting
+
+These employers are intentionally added as **new targets** beyond the existing company universe. Search
+India-based roles first, followed by roles explicitly open to India/remote candidates. Always verify
+the exact posting and active application control at search time. These are discovery targets, not
+claims that a role is currently open.
+
+### AI, ML, AI infrastructure, and data
+
+- Together AI — AI inference/training infrastructure
+- Fireworks AI — LLM inference and serving infrastructure
+- CoreWeave — GPU cloud and AI infrastructure
+- Lambda — GPU/AI cloud infrastructure
+- Modal — serverless AI infrastructure
+- Anyscale — distributed AI infrastructure
+- Cerebras — AI compute systems
+- Groq — AI inference hardware/software
+- SambaNova Systems — AI systems and inference
+- Thinking Machines Lab — AI research/infrastructure
+- Character.AI — AI product/backend infrastructure
+- Hugging Face — ML/developer platform
+- Weights & Biases — ML developer platform
+- Replicate — model deployment infrastructure
+- Together Computer — AI compute infrastructure
+- RunPod — GPU cloud infrastructure
+- Baseten — ML inference infrastructure
+- OctoAI — AI inference platform
+- Pinecone — vector database/AI infrastructure
+- Weaviate — vector database/AI platform
+- Zilliz — Milvus/vector database infrastructure
+- LangChain — LLM application/developer infrastructure
+- LlamaIndex — LLM data/application infrastructure
+- Arize AI — ML observability
+- WhyLabs — AI/ML observability
+- Snorkel AI — AI/data platform
+- Labelbox — AI data/ML platform
+- Scale AI Labs — AI data/infrastructure
+- Weights & Biases — ML tooling and platform
+- Figure AI — robotics/AI systems
+- Physical Intelligence — robotics/AI
+- 1X — robotics/AI
+- Skild AI — robotics foundation models
+- Sakana AI — AI research/product engineering
+- AI21 Labs — generative AI platform
+
+### Cloud, infrastructure, databases, networking, and developer platforms
+
+- Cockroach Labs — distributed SQL/database systems
+- Yugabyte — distributed SQL/database systems
+- SingleStore — distributed database/data platform
+- Timescale — time-series/PostgreSQL infrastructure
+- ScyllaDB — distributed NoSQL/database systems
+- PlanetScale — database platform
+- Turso — distributed SQLite/database platform
+- Neon — serverless Postgres
+- Convex — backend/database platform
+- Temporal Technologies — distributed workflow infrastructure
+- Dagster Labs — data orchestration
+- Prefect — workflow/data infrastructure
+- Airbyte — data integration platform
+- Fivetran — data infrastructure
+- dbt Labs — data platform
+- MotherDuck — cloud analytics/database
+- Starburst Data — query/data platform
+- Trino — distributed query ecosystem
+- Materialize — streaming database
+- Aiven — managed open-source infrastructure
+- Upstash — serverless Redis/Kafka infrastructure
+- WarpStream — Kafka-compatible streaming infrastructure
+- Redpanda Data — streaming infrastructure
+- ConductorOne — identity/infrastructure platform
+- Tailscale — networking infrastructure
+- Teleport — infrastructure/security
+- Fly.io — distributed application infrastructure
+- Fastly — edge/cloud infrastructure
+- Akamai Technologies — edge infrastructure
+- Equinix — cloud/data-center infrastructure
+- HashiCorp — developer infrastructure
+- Pulumi — infrastructure as code
+- Harness — DevOps/developer platform
+- LaunchDarkly — feature/platform infrastructure
+- CircleCI — CI/CD infrastructure
+- Buildkite — CI/CD infrastructure
+- Octopus Deploy — deployment automation
+- GitGuardian — developer security
+- Chainguard — software supply-chain security
+
+### Security and identity
+
+- Wiz — cloud security
+- Orca Security — cloud security
+- Lacework — cloud security
+- Sysdig — cloud/container security
+- Snyk — developer security
+- Aqua Security — cloud-native security
+- Salt Security — API security
+- Noname Security — API security
+- Axonius — cyber asset management
+- Cato Networks — SASE/network security
+- Netskope — cloud/security platform
+- Illumio — zero-trust/security
+- SentinelOne — endpoint/cloud security
+- Tenable — security platform
+- Rapid7 — security/observability
+- Darktrace — AI cybersecurity
+- Huntress — cybersecurity platform
+- Abnormal Security — AI email/security
+- Vectra AI — AI cybersecurity
+- Rubrik Security Cloud — data/security infrastructure
+
+### SaaS, developer tools, collaboration, and enterprise software
+
+- HubSpot — SaaS/backend/data
+- Shopify — commerce infrastructure/backend
+- Zendesk — SaaS/backend/platform
+- Braze — customer engagement infrastructure
+- Amplitude — analytics platform
+- Mixpanel — analytics/data platform
+- Intercom — SaaS/AI platform
+- Gong — revenue intelligence/AI
+- Klaviyo — SaaS/data platform
+- Braze — messaging/data infrastructure
+- Segment — customer data infrastructure
+- Miro — collaboration platform
+- Airtable — data/collaboration platform
+- Linear — developer/productivity platform
+- Retool — internal developer platform
+- Sourcegraph — code intelligence/developer platform
+- Sentry — developer observability
+- PostHog — developer analytics
+- CircleCI — developer infrastructure
+- Algolia — search infrastructure
+- Elastic Path — commerce APIs/platform
+- Contentful — headless CMS/platform
+- Contentstack — composable CMS
+- Sanity — content/data platform
+- Storyblok — headless CMS
+- DatoCMS — content platform
+- Builder.io — developer/content platform
+- Grafbase — developer/data platform
+- Clerk — identity/developer platform
+- Stytch — authentication/identity APIs
+- WorkOS — enterprise identity/developer APIs
+
+### Fintech, payments, banking, and financial infrastructure
+
+- Plaid — financial APIs/infrastructure
+- Ramp — fintech infrastructure
+- Mercury — fintech/banking platform
+- Brex — fintech platform
+- Airwallex — global payments infrastructure
+- Circle — payments/stablecoin infrastructure
+- Marqeta — card/payment infrastructure
+- Checkout.com — payments infrastructure
+- Adyen — global payments
+- Wise — cross-border payments
+- Rapyd — fintech/payment infrastructure
+- Stripe Treasury — financial infrastructure
+- Modern Treasury — payments infrastructure
+- Lithic — card issuing infrastructure
+- Unit — banking APIs
+- Moov — payment APIs
+- Treasury Prime — banking infrastructure
+- Sardine — fintech fraud/risk
+- Alloy — identity/risk infrastructure
+- Persona — identity verification
+- Socure — identity/fraud AI
+- Pinwheel — payroll/fintech APIs
+- Column — banking infrastructure
+- Increase — banking APIs
+- Method Financial — financial data APIs
+- Tink — open banking
+- TrueLayer — open banking/payments
+- GoCardless — payments infrastructure
+- Checkout.com — payments infrastructure
+- Rapyd — global fintech infrastructure
+
+### High-quality product/engineering companies and India scale-ups
+
+- Agoda — travel/backend/platform
+- Grab — marketplace/mobility/platform
+- GoTo — commerce/mobility/fintech
+- Sea Group — consumer/fintech/platform
+- ByteDance — large-scale backend/AI
+- TikTok — distributed systems/data/AI
+- Tencent — large-scale systems/cloud
+- Huawei — cloud/networking/systems
+- SAP Labs India — enterprise/backend/cloud
+- Bosch Global Software — platform/embedded/backend
+- Continental — automotive software/platform
+- Aptiv — automotive software/platform
+- Valeo — automotive software
+- ZF — automotive software/platform
+- Magna — automotive software
+- Rivian — EV/software platform
+- Waymo — autonomy/platform
+- Zoox — autonomy/platform
+- Anduril — defense/AI systems
+- Shield AI — autonomy/AI systems
+- Samsara — IoT/cloud platform
+- Verkada — security/IoT cloud
+- Samsara India — IoT/cloud/backend
+- ServiceTitan — SaaS/backend/platform
+- Toast — commerce/payments platform
+- DoorDash Labs — logistics/platform engineering
+- Instacart — marketplace/data/backend
+- Lyft — mobility/backend/platform
+- Thumbtack — marketplace/backend
+- Opendoor — marketplace/data platform
+- Zillow — marketplace/data/backend
+- Indeed — search/data/backend
+- Tripadvisor — travel/data/backend
+- Expedia — travel platform
+- Booking Holdings — travel infrastructure
+- eBay — marketplace/platform
+- Etsy — marketplace/backend
+- Wayfair — commerce/platform
+- Chewy — commerce/platform
+
+### India-focused additions
+
+- Cashfree Payments — payments infrastructure
+- Juspay — payment infrastructure
+- Zeta — banking/payment technology
+- M2P Fintech — payment infrastructure
+- Setu — financial APIs
+- Perfios — fintech/data
+- Navi — fintech
+- Jupiter — fintech
+- Fi — fintech
+- OneCard — fintech
+- Pine Labs — payments
+- BharatPe — fintech
+- Policybazaar — fintech/marketplace
+- Acko — insurtech
+- ClearTax — fintech SaaS
+- OfBusiness — B2B/fintech
+- Juspay HyperVerge — fintech infrastructure
+- Innovaccer — healthcare data/AI
+- Observe.AI — conversational AI
+- Yellow.ai — conversational AI
+- Uniphore — enterprise AI
+- Ema — AI agents
+- Krutrim — AI/cloud
+- Sarvam AI — Indian AI infrastructure
+- Neysa — AI cloud infrastructure
+- DevRev — developer/AI platform
+- Druva — data security/cloud
+- Amagi — media cloud/backend
+- BrowserStack — developer infrastructure
+- Postman — API/developer infrastructure
+- Freshworks — SaaS/backend
+- Zoho — SaaS/platform
+- HighRadius — fintech SaaS
+- Icertis — enterprise SaaS
+- Mindtickle — SaaS
+- MoEngage — customer engagement/data
+- Whatfix — enterprise SaaS
+- LeadSquared — CRM/SaaS
+- Wingify/VWO — experimentation/SaaS
+- WebEngage — engagement/data platform
+- Appsmith — developer tooling
+- E2E Networks — cloud/AI infrastructure
+- CloudSEK — cybersecurity/AI
+- Sprinto — security SaaS
+- SpotDraft — legal AI/SaaS
+- Haptik — conversational AI
+- Qure.ai — healthcare AI
+- Fractal — AI/data
+- Tredence — data/AI
+- Tiger Analytics — AI/data
+- Locus — logistics optimization
+- Capillary Technologies — retail SaaS
+- Exotel — communications infrastructure
+- Shiprocket — commerce/logistics platform
+- GreyOrange — robotics/platform
+- Keka — HR SaaS
+- Kissflow — workflow SaaS
+- Vymo — enterprise SaaS
+- Xoxoday — rewards/payments platform
+
+## Career URLs for expanded targets
+
+These career surfaces were checked against the live web on 2026-10-05. Canonical redirects were updated where the official site exposed a new path. Where a site blocks automated fetching, the URL is retained only when the official domain/search evidence confirms the careers surface; verify the live role before applying.
+
+| Company | Career site URL | Notes |
+|---|---|---|
+| Together AI | https://www.together.ai/careers | |
+| Fireworks AI | https://fireworks.ai/careers | |
+| CoreWeave | https://www.coreweave.com/careers | |
+| Lambda | https://lambda.ai/careers | |
+| Modal | https://modal.com/careers | |
+| Anyscale | https://www.anyscale.com/careers | |
+| Cerebras | https://www.cerebras.ai/join-us | |
+| Groq | https://groq.com/careers-at-groq | |
+| SambaNova Systems | https://sambanova.ai/company/careers | |
+| Thinking Machines Lab | https://thinkingmachines.ai/careers | |
+| Character.AI | https://character.ai/careers | |
+| Hugging Face | https://huggingface.co/careers | |
+| Weights & Biases | https://site.wandb.ai/careers/ | |
+| Replicate | https://replicate.com/about | |
+| Together Computer | https://www.together.ai/careers | |
+| RunPod | https://www.runpod.io/careers | |
+| Baseten | https://www.baseten.co/resources/careers/ | |
+| OctoAI | https://octo.ai/careers | |
+| Pinecone | https://www.pinecone.io/careers/ | |
+| Weaviate | https://weaviate.io/company/careers | |
+| Zilliz | https://jobs.lever.co/zilliz | |
+| LangChain | https://www.langchain.com/careers | |
+| LlamaIndex | https://www.llamaindex.ai/careers | |
+| Arize AI | https://arize.com/careers/ | |
+| WhyLabs | https://whylabs.ai/careers | |
+| Snorkel AI | https://snorkel.ai/join-us/ | |
+| Labelbox | https://labelbox.com/careers/ | |
+| Scale AI Labs | https://scale.com/careers | |
+| Figure AI | https://www.figure.ai/careers | |
+| Physical Intelligence | https://www.physicalintelligence.company/careers | |
+| 1X | https://www.1x.tech/careers | |
+| Skild AI | https://www.skild.ai/career | |
+| Sakana AI | https://sakana.ai/careers/ | |
+| AI21 Labs | https://www.ai21.com/careers | |
+| Cockroach Labs | https://www.cockroachlabs.com/careers/ | |
+| Yugabyte | https://www.yugabyte.com/careers/ | |
+| SingleStore | https://www.singlestore.com/careers/ | |
+| Timescale | https://www.tigerdata.com/careers | |
+| ScyllaDB | https://www.scylladb.com/company/careers/ | |
+| PlanetScale | https://planetscale.com/careers | |
+| Turso | https://turso.tech/careers | |
+| Neon | https://neon.tech/careers | |
+| Convex | https://www.convex.dev/jobs | |
+| Temporal Technologies | https://temporal.io/careers | |
+| Dagster Labs | https://dagster.io/careers | |
+| Prefect | https://www.prefect.io/careers | |
+| Airbyte | https://airbyte.com/careers | |
+| Fivetran | https://www.fivetran.com/careers | |
+| dbt Labs | https://www.getdbt.com/careers | |
+| MotherDuck | https://motherduck.com/careers | |
+| Starburst Data | https://www.starburst.io/careers | |
+| Trino | https://trino.io/careers.html | |
+| Materialize | https://materialize.com/careers/ | |
+| Aiven | https://aiven.io/careers | |
+| Upstash | https://upstash.com/careers | |
+| WarpStream | https://www.warpstream.com/careers | |
+| Redpanda Data | https://www.redpanda.com/careers | |
+| ConductorOne | https://www.conductorone.com/careers/ | |
+| Tailscale | https://tailscale.com/careers | |
+| Teleport | https://goteleport.com/careers/ | |
+| Fly.io | https://fly.io/jobs/ | |
+| Fastly | https://www.fastly.com/about/careers | |
+| Akamai Technologies | https://www.akamai.com/careers | |
+| Equinix | https://careers.equinix.com/ | |
+| HashiCorp | https://www.hashicorp.com/en/careers | |
+| Pulumi | https://www.pulumi.com/careers/ | |
+| Harness | https://www.harness.io/company/careers | |
+| LaunchDarkly | https://launchdarkly.com/careers/ | |
+| CircleCI | https://circleci.com/careers/ | |
+| Buildkite | https://buildkite.com/about/careers/ | |
+| Octopus Deploy | https://octopus.com/company/careers | |
+| GitGuardian | https://www.gitguardian.com/careers | |
+| Chainguard | https://www.chainguard.dev/careers | |
+| Wiz | https://www.wiz.io/careers | |
+| Orca Security | https://orca.security/about/careers/ | |
+| Lacework | https://www.lacework.com/careers | |
+| Sysdig | https://sysdig.com/company/careers/ | |
+| Snyk | https://snyk.io/careers/ | |
+| Aqua Security | https://www.aquasec.com/careers/ | |
+| Salt Security | https://salt.security/careers/ | |
+| Noname Security | https://nonamesecurity.com/careers/ | |
+| Axonius | https://www.axonius.com/careers | |
+| Cato Networks | https://www.catonetworks.com/careers/ | |
+| Netskope | https://www.netskope.com/company/careers | |
+| Illumio | https://www.illumio.com/company/careers | |
+| SentinelOne | https://www.sentinelone.com/company/careers/ | |
+| Tenable | https://www.tenable.com/careers | |
+| Rapid7 | https://careers.rapid7.com/ | |
+| Darktrace | https://www.darktrace.com/en/careers | |
+| Huntress | https://www.huntress.com/company/careers | |
+| Abnormal Security | https://abnormal.ai/careers | |
+| Vectra AI | https://www.vectra.ai/about/careers | |
+| Rubrik Security Cloud | https://www.rubrik.com/company/careers | |
+| HubSpot | https://www.hubspot.com/careers | |
+| Shopify | https://www.shopify.com/careers | |
+| Zendesk | https://www.zendesk.co.jp/company/careers/ | |
+| Braze | https://www.braze.com/company/careers | |
+| Amplitude | https://amplitude.com/careers | |
+| Mixpanel | https://mixpanel.com/jobs/ | |
+| Intercom | https://fin.ai/careers | |
+| Gong | https://www.gong.io/careers/ | |
+| Klaviyo | https://www.klaviyo.com/careers | |
+| Segment | https://jobs.twilio.com/careers | |
+| Miro | https://miro.com/careers/ | |
+| Airtable | https://airtable.com/careers | |
+| Linear | https://linear.app/careers | |
+| Retool | https://retool.com/careers | |
+| Sourcegraph | https://sourcegraph.com/jobs | |
+| Sentry | https://sentry.io/careers/ | |
+| PostHog | https://posthog.com/careers | |
+| Algolia | https://www.algolia.com/careers/ | |
+| Elastic Path | https://www.elasticpath.com/ | |
+| Contentful | https://www.contentful.com/careers/ | |
+| Contentstack | https://www.contentstack.com/company/careers | |
+| Sanity | https://www.sanity.io/careers | |
+| Storyblok | https://www.storyblok.com/jobs | |
+| DatoCMS | https://www.datocms.com/careers | |
+| Builder.io | https://www.builder.io/careers | |
+| Grafbase | https://grafbase.com/careers | |
+| Clerk | https://clerk.com/careers | |
+| Stytch | https://jobs.twilio.com/careers | |
+| WorkOS | https://workos.com/careers | |
+| Plaid | https://plaid.com/careers/ | |
+| Ramp | https://ramp.com/careers/ | |
+| Mercury | https://mercury.com/jobs | |
+| Brex | https://www.brex.com/careers | |
+| Airwallex | https://careers.airwallex.com/ | |
+| Circle | https://careers.circle.com/us/en | |
+| Marqeta | https://www.marqeta.com/company/careers | |
+| Checkout.com | https://www.checkout.com/careers | |
+| Adyen | https://careers.adyen.com/ | |
+| Wise | https://wise.jobs/ | |
+| Rapyd | https://www.rapyd.net/careers/ | |
+| Modern Treasury | https://www.moderntreasury.com/careers | |
+| Lithic | https://www.lithic.com/about/careers | |
+| Unit | https://www.unit.co/careers | |
+| Moov | https://moov.io/careers/ | |
+| Treasury Prime | https://www.treasuryprime.com/careers | |
+| Sardine | https://www.sardine.ai/careers | |
+| Alloy | https://www.alloy.com/about/jobs | |
+| Persona | https://withpersona.com/careers | |
+| Socure | https://www.socure.com/company/careers | |
+| Pinwheel | https://job-boards.greenhouse.io/pinwheelapi | |
+| Column | https://column.com/careers | |
+| Increase | https://increase.com/careers | |
+| Method Financial | https://methodfi.com/careers | |
+| Tink | https://tink.com/careers/ | |
+| TrueLayer | https://truelayer.com/careers/ | |
+| GoCardless | https://gocardless.com/about/careers | |
+| Agoda | https://careersatagoda.com/ | |
+| Grab | https://www.grab.careers/en/ | |
+| GoTo | https://www.gotocompany.com/careers | |
+| Sea Group | https://www.sea.com/careers | |
+| ByteDance | https://jobs.bytedance.com/ | |
+| TikTok | https://lifeattiktok.com/ | |
+| Tencent | https://careers.tencent.com/ | |
+| Huawei | https://career.huawei.com/ | |
+| SAP Labs India | https://jobs.sap.com/en/ | |
+| Bosch Global Software | https://www.bosch.com/careers/ | |
+| Continental | https://jobs.continental.com/en/ | |
+| Aptiv | https://www.aptiv.com/en/jobs | |
+| Valeo | https://jobs.valeo.com/ | |
+| ZF | https://jobs.zf.com/ | |
+| Magna | https://www.magna.com/careers | |
+| Rivian | https://rivian.com/careers | |
+| Waymo | https://careers.withwaymo.com/ | |
+| Zoox | https://zoox.com/careers | |
+| Anduril | https://www.anduril.com/careers/ | |
+| Shield AI | https://shield.ai/careers/ | |
+| Samsara | https://www.samsara.com/company/careers | |
+| Verkada | https://www.verkada.com/careers/ | |
+| ServiceTitan | https://www.servicetitan.com/careers | |
+| Toast | https://careers.toasttab.com/ | |
+| DoorDash Labs | https://careersatdoordash.com/ | |
+| Instacart | https://www.instacart.careers/ | |
+| Lyft | https://www.lyft.com/careers | |
+| Thumbtack | https://www.thumbtack.com/careers | |
+| Opendoor | https://www.opendoor.com/careers | |
+| Zillow | https://www.zillowgroup.com/careers/ | |
+| Indeed | https://www.indeed.com/careers | |
+| Tripadvisor | https://careers.tripadvisor.com/ | |
+| Expedia | https://careers.expediagroup.com/ | |
+| Booking Holdings | https://www.bookingholdings.com/careers/careers/ | |
+| eBay | https://careers.ebayinc.com/ | |
+| Etsy | https://careers.etsy.com/ | |
+| Wayfair | https://www.aboutwayfair.com/careers | |
+| Chewy | https://careers.chewy.com/us/en | |
+| Cashfree Payments | https://www.cashfree.com/careers/ | |
+| Juspay | https://juspay.io/careers | |
+| Zeta | https://www.zeta.tech/careers | |
+| M2P Fintech | https://careers.m2pfintech.com/ | |
+| Setu | https://setu.co/careers | |
+| Perfios | https://perfios.ai/careers/ | |
+| Navi | https://navi.com/careers | |
+| Jupiter | https://jupiter.money/careers/ | |
+| Fi | https://fi.money/careers | |
+| OneCard | https://www.getonecard.app/careers | |
+| Pine Labs | https://www.pinelabs.com/careers | |
+| BharatPe | https://bharatpe.com/careers | |
+| Policybazaar | https://www.policybazaar.com/careers/ | |
+| Acko | https://www.acko.com/careers/ | |
+| ClearTax | https://cleartax.in/careers | |
+| OfBusiness | https://www.ofbusiness.com/careers | |
+| Innovaccer | https://innovaccer.com/careers | |
+| Observe.AI | https://www.observe.ai/careers | |
+| Yellow.ai | https://yellow.ai/career/ | |
+| Uniphore | https://www.uniphore.com/careers/ | |
+| Ema | https://www.ema.ai/careers | |
+| Krutrim | https://krutrim.ai/careers | |
+| Sarvam AI | https://www.sarvam.ai/careers | |
+| Neysa | https://neysa.ai/careers | |
+| DevRev | https://devrev.ai/careers | |
+| Druva | https://www.druva.com/why-druva/explore/careers | |
+| Amagi | https://amagi.com/careers | |
+| BrowserStack | https://www.browserstack.com/careers | |
+| Postman | https://www.postman.com/company/careers/ | |
+| Freshworks | https://www.freshworks.com/company/careers/ | |
+| Zoho | https://www.zoho.com/careers/ | |
+| HighRadius | https://www.highradius.com | |
+| Icertis | https://www.icertis.com/careers/ | |
+| Mindtickle | https://www.mindtickle.com/careers/ | |
+| MoEngage | https://www.moengage.com/careers/ | |
+| Whatfix | https://whatfix.com/careers | |
+| LeadSquared | https://www.leadsquared.com/careers/ | |
+| Wingify/VWO | https://wingify.com/company/careers/ | |
+| WebEngage | https://webengage.com/careers/ | |
+| Appsmith | https://www.appsmith.com/careers | |
+| E2E Networks | https://www.e2enetworks.com/careers | |
+| CloudSEK | https://www.cloudsek.com/openings | |
+| Sprinto | https://sprinto.com/careers | |
+| SpotDraft | https://www.spotdraft.com/careers | |
+| Haptik | https://www.haptik.ai/careers | |
+| Qure.ai | https://www.qure.ai/careers | |
+| Fractal | https://fractal.wd1.myworkdayjobs.com/Careers | |
+| Tredence | https://www.tredence.com/careers | |
+| Tiger Analytics | https://www.tigeranalytics.com/careers | |
+| Locus | https://locus.sh/careers | |
+| Capillary Technologies | https://www.capillarytech.com/careers/ | |
+| Exotel | https://exotel.com/about-us/careers/ | |
+| Shiprocket | https://www.shiprocket.in/careers | |
+| GreyOrange | https://www.greyorange.com/careers | |
+| Keka | https://www.keka.com/careers | |
+| Kissflow | https://careers.kissflow.com/ | |
+| Vymo | https://vymo.com/careers/ | |
+| Xoxoday | https://www.xoxoday.com/careers | |
+
+### Selection guidance
+
+For this expansion, rank companies using the candidate-fit model rather than company size alone:
+1. Backend/distributed systems relevance
+2. AI/agent/data infrastructure relevance
+3. Java/JVM or transferable backend relevance
+4. Probability of compensation above the user's target
+5. India/remote accessibility
+6. Engineering reputation and career upside
+
+Do not treat the presence of a company in this section as evidence of a live opening. Verify every
+exact role during a scan using the existing live-listing verification rules.
