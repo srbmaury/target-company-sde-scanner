@@ -105,6 +105,12 @@ function renderJobs() {
         <button class="link" data-job="${j.n}" data-act="${j.dismissed ? "restore" : "dismiss"}">${j.dismissed ? "Restore" : "Dismiss"}</button></td>
     </tr>`;
   }).join("") : `<tr><td colspan="8" class="empty">No roles match. Try Actions → Run scan.</td></tr>`;
+  updateSelection();
+}
+
+// Roles "select all" picks: the ones shown, minus dismissed and already-applied roles (apply skips those anyway).
+function selectable() {
+  return state.jobs.filter((j) => !j.dismissed && j.applied !== "exact" && j.applied !== "likely").map((j) => String(j.n));
 }
 
 // ---------- selection & apply runs ----------
@@ -113,6 +119,19 @@ function updateSelection() {
   $("#sel-count").textContent = n ? `${n} role${n === 1 ? "" : "s"} selected` : "Select roles with the checkboxes to apply from here.";
   $("#apply-selected").disabled = $("#dry-selected").disabled = !n;
   $("#sel-clear").hidden = !n;
+  const keys = selectable(), picked = keys.filter((k) => state.selected.has(k)).length;
+  const all = keys.length > 0 && picked === keys.length;
+  const box = $("#sel-all-box");
+  box.checked = all;
+  box.indeterminate = picked > 0 && !all;
+  box.disabled = !keys.length;
+  $("#sel-all").disabled = !keys.length || all;
+  $("#sel-all").textContent = keys.length ? `Select all shown (${keys.length})` : "Select all shown";
+}
+
+function selectAll(on) {
+  for (const k of selectable()) on ? state.selected.add(k) : state.selected.delete(k);
+  renderJobs();
 }
 
 async function startRun(dry) {
@@ -382,7 +401,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("#apply-selected").addEventListener("click", () => startRun(false));
   $("#dry-selected").addEventListener("click", () => startRun(true));
-  $("#sel-clear").addEventListener("click", () => { state.selected.clear(); updateSelection(); renderJobs(); });
+  $("#sel-clear").addEventListener("click", () => { state.selected.clear(); renderJobs(); });
+  $("#sel-all").addEventListener("click", () => selectAll(true));
+  $("#sel-all-box").addEventListener("change", (ev) => selectAll(ev.target.checked));
   $("#prompt").addEventListener("click", (ev) => {
     const b = ev.target.closest("button[data-answer]");
     if (b) answerPrompt(b.dataset.answer);

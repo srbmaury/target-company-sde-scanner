@@ -191,7 +191,7 @@ profile and logs as the commands.
 
 | Tab | What you can do |
 | --- | --- |
-| **Jobs** | Ranked roles with fit scores and reasons, filters (text, minimum fit, already applied, dismissed), links to postings, dismiss/restore. Tick roles and click **Apply to selected** (or **Dry run**) |
+| **Jobs** | Ranked roles with fit scores and reasons, filters (text, minimum fit, already applied, dismissed), links to postings, dismiss/restore. Tick roles (or **Select all shown**, which follows your filters and leaves out applied and dismissed roles) and click **Apply to selected** (or **Dry run**) |
 | **Apply** | The running application batch: a live activity feed (what was filled, corrected and checked on each page), the queue, and any question jobbot needs you to answer |
 | **Applications** | Every application with status pills and history; click one to change its status or notes; add applications made elsewhere |
 | **Actions** | Run Scan, Rank, and Gmail sync in the background and watch their output; connect Gmail |
