@@ -86,7 +86,8 @@ SCAN_JS = r"""
     const t = el.tagName.toLowerCase();
     if (t === 'input' || t === 'select' || t === 'textarea') {
       const type = (el.getAttribute('type') || t).toLowerCase();
-      if (['hidden', 'submit', 'button', 'image', 'reset'].includes(type)) continue;
+      // Never touch passwords; jobbot leaves sign-in to the user.
+      if (['hidden', 'submit', 'button', 'image', 'reset', 'password'].includes(type)) continue;
       if (type === 'search' && !el.getAttribute('role')) continue;
       if (type === 'file') { out.push({ id: tag(el), kind: 'file', label: labelFor(el), name: el.name || el.id || '' }); continue; }
       if (type === 'radio' || type === 'checkbox') {
