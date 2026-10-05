@@ -20,6 +20,7 @@ from .verify import check_page
 MAX_PAGES = 15
 
 SUBMIT_RE = r"^(submit( (my )?application)?|send application|apply|finish|complete application)$"
+WORKDAY_SUBMIT_RE = r"^submit$"   # Workday keeps "Apply" buttons around; only Review has "Submit"
 NEXT_RE = r"^(next|continue|save and continue|save & continue|proceed)$"
 CONFIRM_RE = re.compile(
     r"thank(s| you) for (applying|your (application|interest))|application (has been |was )?(submitted|received)|"
@@ -187,9 +188,11 @@ class Session:
                 check = self.verify(page, report)
             self.ui.report(report, check, step)
 
-            can_submit = bool(self._buttons(page, SUBMIT_RE))
+            submit_re = WORKDAY_SUBMIT_RE if ats == "workday" else SUBMIT_RE
             can_next = bool(self._buttons(page, NEXT_RE))
-            if self.auto_next and check.ok and can_next and not can_submit:
+            # A page with Next / Save and Continue is never the final step, whatever else it shows.
+            can_submit = not can_next and bool(self._buttons(page, submit_re))
+            if self.auto_next and check.ok and can_next:
                 self.ui.info("All checks passed; moving to the next step.")
                 choice = "next"
             else:
@@ -213,7 +216,7 @@ class Session:
                         self.ui.warn("The site kept us on the same step: " + "; ".join(after.lines()[:3]))
                 continue
             if choice == "submit":
-                self._click(page, SUBMIT_RE)
+                self._click(page, submit_re)
                 page.wait_for_timeout(6000)
                 confirmed = self._confirmation(page)
                 if confirmed:
