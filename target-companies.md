@@ -482,3 +482,298 @@ control before returning a role.
   to be trimmed for time.
 - IBM Research is a research org; its openings for 1-3 YOE SDE roles will mostly be regular IBM
   software engineering postings rather than pure-research roles — search IBM's general careers site.
+
+
+## Tier 3 — Additional 100+ employers for expanded targeting
+
+These employers are intentionally added as **new targets** beyond the existing company universe. Search
+India-based roles first, followed by roles explicitly open to India/remote candidates. Always verify
+the exact posting and active application control at search time. These are discovery targets, not
+claims that a role is currently open.
+
+### AI, ML, AI infrastructure, and data
+
+- Together AI — AI inference/training infrastructure
+- Fireworks AI — LLM inference and serving infrastructure
+- CoreWeave — GPU cloud and AI infrastructure
+- Lambda — GPU/AI cloud infrastructure
+- Modal — serverless AI infrastructure
+- Anyscale — distributed AI infrastructure
+- Cerebras — AI compute systems
+- Groq — AI inference hardware/software
+- SambaNova Systems — AI systems and inference
+- Thinking Machines Lab — AI research/infrastructure
+- Character.AI — AI product/backend infrastructure
+- Hugging Face — ML/developer platform
+- Weights & Biases — ML developer platform
+- Replicate — model deployment infrastructure
+- Together Computer — AI compute infrastructure
+- RunPod — GPU cloud infrastructure
+- Baseten — ML inference infrastructure
+- OctoAI — AI inference platform
+- Pinecone — vector database/AI infrastructure
+- Weaviate — vector database/AI platform
+- Zilliz — Milvus/vector database infrastructure
+- LangChain — LLM application/developer infrastructure
+- LlamaIndex — LLM data/application infrastructure
+- Arize AI — ML observability
+- WhyLabs — AI/ML observability
+- Snorkel AI — AI/data platform
+- Labelbox — AI data/ML platform
+- Scale AI Labs — AI data/infrastructure
+- Weights & Biases — ML tooling and platform
+- Figure AI — robotics/AI systems
+- Physical Intelligence — robotics/AI
+- 1X — robotics/AI
+- Skild AI — robotics foundation models
+- Sakana AI — AI research/product engineering
+- AI21 Labs — generative AI platform
+
+### Cloud, infrastructure, databases, networking, and developer platforms
+
+- Cockroach Labs — distributed SQL/database systems
+- Yugabyte — distributed SQL/database systems
+- SingleStore — distributed database/data platform
+- Timescale — time-series/PostgreSQL infrastructure
+- ScyllaDB — distributed NoSQL/database systems
+- PlanetScale — database platform
+- Turso — distributed SQLite/database platform
+- Neon — serverless Postgres
+- Convex — backend/database platform
+- Temporal Technologies — distributed workflow infrastructure
+- Dagster Labs — data orchestration
+- Prefect — workflow/data infrastructure
+- Airbyte — data integration platform
+- Fivetran — data infrastructure
+- dbt Labs — data platform
+- MotherDuck — cloud analytics/database
+- Starburst Data — query/data platform
+- Trino — distributed query ecosystem
+- Materialize — streaming database
+- Aiven — managed open-source infrastructure
+- Upstash — serverless Redis/Kafka infrastructure
+- WarpStream — Kafka-compatible streaming infrastructure
+- Redpanda Data — streaming infrastructure
+- ConductorOne — identity/infrastructure platform
+- Tailscale — networking infrastructure
+- Teleport — infrastructure/security
+- Fly.io — distributed application infrastructure
+- Fastly — edge/cloud infrastructure
+- Akamai Technologies — edge infrastructure
+- Equinix — cloud/data-center infrastructure
+- HashiCorp — developer infrastructure
+- Pulumi — infrastructure as code
+- Harness — DevOps/developer platform
+- LaunchDarkly — feature/platform infrastructure
+- CircleCI — CI/CD infrastructure
+- Buildkite — CI/CD infrastructure
+- Octopus Deploy — deployment automation
+- GitGuardian — developer security
+- Chainguard — software supply-chain security
+
+### Security and identity
+
+- Wiz — cloud security
+- Orca Security — cloud security
+- Lacework — cloud security
+- Sysdig — cloud/container security
+- Snyk — developer security
+- Aqua Security — cloud-native security
+- Salt Security — API security
+- Noname Security — API security
+- Axonius — cyber asset management
+- Cato Networks — SASE/network security
+- Netskope — cloud/security platform
+- Illumio — zero-trust/security
+- SentinelOne — endpoint/cloud security
+- Tenable — security platform
+- Rapid7 — security/observability
+- Darktrace — AI cybersecurity
+- Huntress — cybersecurity platform
+- Abnormal Security — AI email/security
+- Vectra AI — AI cybersecurity
+- Rubrik Security Cloud — data/security infrastructure
+
+### SaaS, developer tools, collaboration, and enterprise software
+
+- HubSpot — SaaS/backend/data
+- Shopify — commerce infrastructure/backend
+- Zendesk — SaaS/backend/platform
+- Braze — customer engagement infrastructure
+- Amplitude — analytics platform
+- Mixpanel — analytics/data platform
+- Intercom — SaaS/AI platform
+- Gong — revenue intelligence/AI
+- Klaviyo — SaaS/data platform
+- Braze — messaging/data infrastructure
+- Segment — customer data infrastructure
+- Miro — collaboration platform
+- Airtable — data/collaboration platform
+- Linear — developer/productivity platform
+- Retool — internal developer platform
+- Sourcegraph — code intelligence/developer platform
+- Sentry — developer observability
+- PostHog — developer analytics
+- CircleCI — developer infrastructure
+- Algolia — search infrastructure
+- Elastic Path — commerce APIs/platform
+- Contentful — headless CMS/platform
+- Contentstack — composable CMS
+- Sanity — content/data platform
+- Storyblok — headless CMS
+- DatoCMS — content platform
+- Builder.io — developer/content platform
+- Grafbase — developer/data platform
+- Clerk — identity/developer platform
+- Stytch — authentication/identity APIs
+- WorkOS — enterprise identity/developer APIs
+
+### Fintech, payments, banking, and financial infrastructure
+
+- Plaid — financial APIs/infrastructure
+- Ramp — fintech infrastructure
+- Mercury — fintech/banking platform
+- Brex — fintech platform
+- Airwallex — global payments infrastructure
+- Circle — payments/stablecoin infrastructure
+- Marqeta — card/payment infrastructure
+- Checkout.com — payments infrastructure
+- Adyen — global payments
+- Wise — cross-border payments
+- Rapyd — fintech/payment infrastructure
+- Stripe Treasury — financial infrastructure
+- Modern Treasury — payments infrastructure
+- Lithic — card issuing infrastructure
+- Unit — banking APIs
+- Moov — payment APIs
+- Treasury Prime — banking infrastructure
+- Sardine — fintech fraud/risk
+- Alloy — identity/risk infrastructure
+- Persona — identity verification
+- Socure — identity/fraud AI
+- Pinwheel — payroll/fintech APIs
+- Column — banking infrastructure
+- Increase — banking APIs
+- Method Financial — financial data APIs
+- Tink — open banking
+- TrueLayer — open banking/payments
+- GoCardless — payments infrastructure
+- Checkout.com — payments infrastructure
+- Rapyd — global fintech infrastructure
+
+### High-quality product/engineering companies and India scale-ups
+
+- Agoda — travel/backend/platform
+- Grab — marketplace/mobility/platform
+- GoTo — commerce/mobility/fintech
+- Sea Group — consumer/fintech/platform
+- ByteDance — large-scale backend/AI
+- TikTok — distributed systems/data/AI
+- Tencent — large-scale systems/cloud
+- Huawei — cloud/networking/systems
+- SAP Labs India — enterprise/backend/cloud
+- Bosch Global Software — platform/embedded/backend
+- Continental — automotive software/platform
+- Aptiv — automotive software/platform
+- Valeo — automotive software
+- ZF — automotive software/platform
+- Magna — automotive software
+- Rivian — EV/software platform
+- Waymo — autonomy/platform
+- Zoox — autonomy/platform
+- Anduril — defense/AI systems
+- Shield AI — autonomy/AI systems
+- Samsara — IoT/cloud platform
+- Verkada — security/IoT cloud
+- Samsara India — IoT/cloud/backend
+- ServiceTitan — SaaS/backend/platform
+- Toast — commerce/payments platform
+- DoorDash Labs — logistics/platform engineering
+- Instacart — marketplace/data/backend
+- Lyft — mobility/backend/platform
+- Thumbtack — marketplace/backend
+- Opendoor — marketplace/data platform
+- Zillow — marketplace/data/backend
+- Indeed — search/data/backend
+- Tripadvisor — travel/data/backend
+- Expedia — travel platform
+- Booking Holdings — travel infrastructure
+- eBay — marketplace/platform
+- Etsy — marketplace/backend
+- Wayfair — commerce/platform
+- Chewy — commerce/platform
+
+### India-focused additions
+
+- Cashfree Payments — payments infrastructure
+- Juspay — payment infrastructure
+- Zeta — banking/payment technology
+- M2P Fintech — payment infrastructure
+- Setu — financial APIs
+- Perfios — fintech/data
+- Navi — fintech
+- Jupiter — fintech
+- Fi — fintech
+- OneCard — fintech
+- Pine Labs — payments
+- BharatPe — fintech
+- Policybazaar — fintech/marketplace
+- Acko — insurtech
+- ClearTax — fintech SaaS
+- OfBusiness — B2B/fintech
+- Juspay HyperVerge — fintech infrastructure
+- Innovaccer — healthcare data/AI
+- Observe.AI — conversational AI
+- Yellow.ai — conversational AI
+- Uniphore — enterprise AI
+- Ema — AI agents
+- Krutrim — AI/cloud
+- Sarvam AI — Indian AI infrastructure
+- Neysa — AI cloud infrastructure
+- DevRev — developer/AI platform
+- Druva — data security/cloud
+- Amagi — media cloud/backend
+- BrowserStack — developer infrastructure
+- Postman — API/developer infrastructure
+- Freshworks — SaaS/backend
+- Zoho — SaaS/platform
+- HighRadius — fintech SaaS
+- Icertis — enterprise SaaS
+- Mindtickle — SaaS
+- MoEngage — customer engagement/data
+- Whatfix — enterprise SaaS
+- LeadSquared — CRM/SaaS
+- Wingify/VWO — experimentation/SaaS
+- WebEngage — engagement/data platform
+- Appsmith — developer tooling
+- E2E Networks — cloud/AI infrastructure
+- CloudSEK — cybersecurity/AI
+- Sprinto — security SaaS
+- SpotDraft — legal AI/SaaS
+- Haptik — conversational AI
+- Qure.ai — healthcare AI
+- Fractal — AI/data
+- Tredence — data/AI
+- Tiger Analytics — AI/data
+- Locus — logistics optimization
+- Capillary Technologies — retail SaaS
+- Exotel — communications infrastructure
+- Shiprocket — commerce/logistics platform
+- GreyOrange — robotics/platform
+- Keka — HR SaaS
+- Kissflow — workflow SaaS
+- Vymo — enterprise SaaS
+- Xoxoday — rewards/payments platform
+
+### Selection guidance
+
+For this expansion, rank companies using the candidate-fit model rather than company size alone:
+1. Backend/distributed systems relevance
+2. AI/agent/data infrastructure relevance
+3. Java/JVM or transferable backend relevance
+4. Probability of compensation above the user's target
+5. India/remote accessibility
+6. Engineering reputation and career upside
+
+Do not treat the presence of a company in this section as evidence of a live opening. Verify every
+exact role during a scan using the existing live-listing verification rules.
