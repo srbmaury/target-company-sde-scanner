@@ -130,7 +130,7 @@ if __name__ == "__main__":
 class VerifyMatchTest(unittest.TestCase):
     def test_matches(self):
         from jobbot.apply.verify import matches
-        self.assertTrue(matches("+91 7355069174", "73550 69174", "text"))       # sites reformat phones
+        self.assertTrue(matches("+91 9876543210", "98765 43210", "text"))       # sites reformat phones
         self.assertTrue(matches("Male", "Gender Male", "combo"))               # react-select shows label + value
         self.assertFalse(matches("Hyderabad", "", "text"))                     # wiped by the page
         self.assertFalse(matches("No", "", "radio"))
