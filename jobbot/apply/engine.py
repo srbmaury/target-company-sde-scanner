@@ -72,6 +72,50 @@ def start_url(url, ats, job=None):
     return url
 
 
+def browser_profile_holder():
+    """PID of a live Chrome holding jobbot's browser profile, or None.
+
+    Chrome's SingletonLock is a symlink to "<hostname>-<pid>"; a stale lock from a crash
+    points at a PID that no longer exists and is ignored.
+    """
+    import os
+
+    lock = paths.BROWSER_PROFILE / "SingletonLock"
+    try:
+        target = os.readlink(lock)
+    except OSError:
+        return None
+    m = re.search(r"-(\d+)$", target)
+    if not m:
+        return None
+    pid = int(m.group(1))
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except PermissionError:
+        pass
+    return _owning_jobbot(pid) or pid
+
+
+def _owning_jobbot(chrome_pid):
+    """Walk up from Chrome to the `python -m jobbot ...` process that launched it, if any."""
+    import subprocess
+
+    pid = chrome_pid
+    for _ in range(4):
+        out = subprocess.run(["ps", "-o", "ppid=,command=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        if not out:
+            return None
+        ppid, _, command = out.partition(" ")
+        if "-m jobbot" in command:
+            return pid
+        pid = int(ppid.strip() or 0)
+        if pid <= 1:
+            return None
+    return None
+
+
 class Session:
     def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True):
         self.profile = profile
@@ -88,6 +132,11 @@ class Session:
         from playwright.sync_api import sync_playwright
 
         paths.ensure_home()
+        holder = browser_profile_holder()
+        if holder:
+            raise SystemExit(
+                f"jobbot's browser is already open from another run (process {holder}). "
+                f"Finish or quit that run (press q there), or stop it with: kill {holder}")
         self._pw = sync_playwright().start()
         opts = dict(user_data_dir=str(paths.BROWSER_PROFILE), headless=False, viewport=None,
                     args=["--start-maximized"])
