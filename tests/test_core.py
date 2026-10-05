@@ -219,3 +219,24 @@ class WorkdayQuestionsTest(unittest.TestCase):
     def test_phone_code_answer(self):
         self.assertEqual(self.r.resolve("Country Phone Code*", "choice", ["Indonesia (+62)", "India (+91)"]).display,
                          "India (+91)")
+
+
+class WrongDetailTest(unittest.TestCase):
+    def setUp(self):
+        self.r = Resolver(Profile({**PROFILE, "eligibility": {**PROFILE["eligibility"], "willing_to_relocate": True}}, "x"),
+                          job={"company": "Acme"})
+
+    def test_relocation_is_not_location(self):
+        self.assertEqual(self.r.resolve("Are you open to relocation?", "choice", ["Yes", "No"]).display, "Yes")
+        self.assertEqual(self.r.resolve("Are you open to relocation?", "text").value, "Yes")
+
+    def test_mobile_development_is_not_phone(self):
+        self.assertIsNone(self.r._builtin("Do you have mobile development experience?"))
+        self.assertEqual(self.r.resolve("Mobile Number*").value, "9876543210")
+
+    def test_other_people_never_get_your_details(self):
+        for q in ("Referrer's name", "Emergency contact phone number", "Manager's email", "Reference name"):
+            self.assertIsNone(self.r._builtin(q), q)
+
+    def test_upgrade_is_not_grade(self):
+        self.assertIsNone(self.r._builtin("Would you like to upgrade your account?"))

@@ -102,6 +102,7 @@ SCAN_JS = r"""
       out.push({
         id: tag(el), kind: t === 'select' ? 'select' : combo ? 'combo' : (t === 'textarea' ? 'textarea' : 'text'),
         type, label, required: required(el, label), value: el.value || '', maxlength: el.maxLength || -1,
+        text: t === 'select' && el.selectedIndex >= 0 ? clean(el.options[el.selectedIndex].text) : '',
         options: t === 'select' ? Array.from(el.options).map(o => clean(o.text)) : [],
       });
     } else if (t === 'button' && el.getAttribute('aria-haspopup') === 'listbox' && visible(el)) {

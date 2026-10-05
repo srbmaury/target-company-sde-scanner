@@ -8,6 +8,7 @@
     jobbot apply <n|x-y|url> ...    fill applications in a browser; you approve each submit
     jobbot apply --all [--min-fit N]  work through every tracked role, best fit first
     jobbot dismiss <n>              hide a role you are not interested in
+    jobbot logs                     what apply filled, corrected and checked, page by page
     jobbot track ...                list, add, update, export, and import applications (CSV or Gmail JSON)
 """
 
@@ -320,6 +321,19 @@ def cmd_track(args):
         print(f"Read {len(rows)} application emails: {added} new applications, {updated} status updates.")
 
 
+def cmd_logs(args):
+    import datetime as dt
+
+    logdir = paths.HOME / "logs"
+    day = args.date or dt.date.today().isoformat()
+    path = logdir / f"{day}.log"
+    if not path.exists():
+        sys.exit(f"No log for {day} in {logdir}.")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    print("\n".join(lines[-args.lines:]))
+    print(f"\n({path})")
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="jobbot", description=textwrap.dedent(__doc__),
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -373,6 +387,11 @@ def build_parser():
     sp.add_argument("--no-auto-next", action="store_true",
                     help="stop after every page instead of moving on when the check passes")
     sp.set_defaults(fn=cmd_apply)
+
+    sp = sub.add_parser("logs", help="show what apply filled, corrected, and checked")
+    sp.add_argument("--date", help="YYYY-MM-DD (default: today)")
+    sp.add_argument("-n", "--lines", type=int, default=80)
+    sp.set_defaults(fn=cmd_logs)
 
     sp = sub.add_parser("dismiss", help="hide roles you do not want")
     sp.add_argument("jobs", nargs="+")

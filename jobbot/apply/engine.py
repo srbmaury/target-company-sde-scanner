@@ -15,7 +15,10 @@ import urllib.parse
 from .. import paths, tracker
 from ..answers import Resolver, real_options
 from .fields import BUTTONS_JS, SCAN_JS
-from .verify import check_page
+from .verify import check_page, matches
+
+MAX_ROUNDS = 5           # review rounds per page before asking you
+TRUSTED = ("profile", "rule", "remembered")   # sources allowed to overwrite a value the site pre-filled
 
 MAX_PAGES = 15
 
@@ -180,15 +183,16 @@ class Session:
                             memory=self.memory,
                             auto_drafts=bool(self.profile.get("automation.auto_accept_drafts", True)))
         self._consent_approved = bool(self.profile.get("automation.auto_consent", False))
+        self._mine = set()   # labels jobbot has filled or confirmed during this application
+        self._log(f"=== {job['company']} — {job['title']} [{ats}] {url} resume={resume_key}")
         for step in range(1, MAX_PAGES + 1):
             signed_in = self._ensure_signed_in(page, attempts=1) if ats == "workday" else True
-            report = self.fill_page(page, resolver) if signed_in else {"filled": [], "skipped": [], "records": []}
-            check = self.verify(page, report)
-            if not check.ok and signed_in:
-                self.ui.info("Check found problems; re-filling once.")
-                report = self._merge(report, self.fill_page(page, resolver))
-                check = self.verify(page, report)
+            report, check, rounds = self.review_page(page, resolver, step) if signed_in else \
+                ({"filled": [], "skipped": [], "records": []}, self.verify(page, {}), 0)
             self.ui.report(report, check, step)
+            if rounds:
+                self.ui.info(f"Reviewed page {step} in {rounds} round(s); "
+                             + ("the last round changed nothing." if check.ok else "problems remain."))
 
             submit_re = WORKDAY_SUBMIT_RE if ats == "workday" else SUBMIT_RE
             can_next = bool(self._buttons(page, NEXT_RE))
@@ -236,13 +240,58 @@ class Session:
             return None, "stopped without submitting"
         return None, f"stopped after {MAX_PAGES} pages"
 
+    def review_page(self, page, resolver, step):
+        """Fill, verify and correct until a whole round changes nothing and the check passes.
+
+        Each round re-reads the page. Values the site pre-filled (e.g. Workday's resume autofill)
+        are overwritten when your profile says otherwise; values jobbot set are re-filled only if
+        the check shows they did not stick. Stops after MAX_ROUNDS rounds.
+        """
+        total = {"filled": [], "skipped": [], "records": []}
+        force, check = set(), None
+        for rnd in range(1, MAX_ROUNDS + 1):
+            rep = self.fill_page(page, resolver, force=force)
+            total = self._merge(total, rep)
+            page.wait_for_timeout(500)
+            check = self.verify(page, total)
+            changes = len(rep["filled"])
+            self._log(f"page {step} round {rnd}: {changes} change(s)", *[f"  set {l} = {a}" for l, a in rep["filled"]],
+                      *[f"  ! {line}" for line in check.lines()])
+            force = {m[0] for m in check.mismatches}
+            for label in force:
+                self._mine.discard(label)
+            if changes == 0 and check.ok:
+                return total, check, rnd
+            if changes == 0 and not force:
+                return total, check, rnd   # nothing left that jobbot can change by itself
+        return total, check, MAX_ROUNDS
+
+    def _log(self, *lines):
+        try:
+            import datetime as _dt
+
+            logdir = paths.HOME / "logs"
+            logdir.mkdir(parents=True, exist_ok=True)
+            stamp = _dt.datetime.now().strftime("%H:%M:%S")
+            with open(logdir / f"{_dt.date.today().isoformat()}.log", "a", encoding="utf-8") as fh:
+                for line in lines:
+                    fh.write(f"{stamp} {line}\n")
+        except OSError:
+            pass
+
+    def _trusted(self, resolver, label, kind, options=None):
+        """Your profile's answer for a field, from your own answers and rules only (no model, no asking)."""
+        ans = resolver.resolve(label, kind, options=options, required=False, quick=True)
+        return ans if ans is not None and ans.source in TRUSTED else None
+
     def verify(self, page, report):
         return check_page(page, report.get("records", []), report.get("skipped", []), self._fields(page))
 
     @staticmethod
     def _merge(first, second):
+        records = {r["id"]: r for r in first.get("records", []) + second.get("records", [])}
         return {"filled": first["filled"] + second["filled"], "skipped": second["skipped"],
-                "records": first.get("records", []) + second.get("records", [])}
+                "records": list(records.values())}
 
     @staticmethod
     def _step_marker(page):
@@ -319,11 +368,13 @@ class Session:
             self._click(page, NEXT_RE, wait=4000)
         self.ui.info(f"Attached {path.name}")
 
-    def fill_page(self, page, resolver):
+    def fill_page(self, page, resolver, force=()):
         filled, skipped, consents, records = [], [], [], []
+        mine = getattr(self, "_mine", set())
 
-        def note(f, label, ans, expected=None, target_id=None, kind=None):
-            filled.append((label, ans))
+        def note(f, label, ans, expected=None, target_id=None, kind=None, was=None):
+            mine.add(label)
+            filled.append((f"{label} (was “{was[:30]}”)" if was else label, ans))
             records.append({"id": target_id or f["id"], "kind": kind or f["kind"], "label": label,
                             "expected": str(expected if expected is not None else getattr(ans, "display", "") or ans)})
 
@@ -354,35 +405,54 @@ class Session:
                 continue  # Workday's language picker and similar chrome
             try:
                 if kind in ("text", "textarea"):
-                    if f["value"]:
-                        continue
-                    ans = resolver.resolve(label, kind, required=f["required"])
+                    was = None
+                    if f["value"] and label not in force:
+                        if label in mine:
+                            continue
+                        ans = self._trusted(resolver, label, kind)
+                        if ans is None or matches(self._text_value(f, label, ans, has_dial_picker), f["value"], "text"):
+                            mine.add(label)
+                            continue
+                        was = f["value"]  # pre-filled by the site and wrong: correct it
+                    else:
+                        ans = resolver.resolve(label, kind, required=f["required"])
                     if ans:
                         loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
-                        if f["type"] in ("number",):
-                            value = re.sub(r"[^\d.]", "", str(ans.value)) or "0"
-                        elif re.search(r"phone|mobile", label, re.I) and not has_dial_picker:
-                            value = f"{self.profile.get('personal.phone_country_code', '')} {ans.value}".strip()
-                        else:
-                            value = str(ans.value)
+                        value = self._text_value(f, label, ans, has_dial_picker)
                         loc.fill(value)
-                        note(f, label, ans, expected=value)
+                        note(f, label, ans, expected=value, was=was)
                     elif f["required"]:
                         skipped.append(label)
                 elif kind == "select":
                     opts = f["options"]
-                    if f["value"] and not re.match(r"^(|0|-1)$", f["value"]) and real_options([f["value"]]):
-                        continue
-                    ans = resolver.resolve(label, "choice", options=opts, required=f["required"])
+                    was = None
+                    current = f.get("text") or ""
+                    if current and real_options([current]) and label not in force:
+                        if label in mine:
+                            continue
+                        ans = self._trusted(resolver, label, "choice", opts)
+                        if ans is None or ans.display == current:
+                            mine.add(label)
+                            continue
+                        was = current
+                    else:
+                        ans = resolver.resolve(label, "choice", options=opts, required=f["required"])
                     if ans:
                         page.locator(f'[data-jobbot-id="{f["id"]}"]').select_option(label=ans.display)
-                        note(f, label, ans)
+                        note(f, label, ans, was=was)
                     elif f["required"]:
                         skipped.append(label)
                 elif kind in ("combo", "listbutton"):
-                    if kind == "listbutton" and real_options([f["value"]]) and f["value"].lower() not in ("select one",):
-                        continue
-                    if kind == "combo" and f["value"]:
+                    if kind == "listbutton" and real_options([f["value"]]) and f["value"].lower() not in ("select one",) \
+                            and label not in force:
+                        if label in mine:
+                            continue
+                        want = self._trusted(resolver, label, "text")
+                        if want is None or matches(str(want.value), f["value"], "combo"):
+                            mine.add(label)
+                            continue
+                        # pre-filled with something your profile disagrees with: choose again below
+                    elif kind == "combo" and f["value"] and label not in force:
                         continue
                     if CONSENT_RE.search(label):
                         consents.append(f)
@@ -392,7 +462,17 @@ class Session:
                     if f["required"]:
                         skipped.append(label)
                 elif kind in ("radio", "checkgroup", "yesno"):
-                    if any(f["value"]):
+                    if any(f["value"]) and label not in force:
+                        if label in mine or kind == "checkgroup":
+                            continue
+                        want = self._trusted(resolver, label, "choice", f["options"])
+                        if want is None or f["value"][want.value]:
+                            mine.add(label)
+                            continue
+                        ids = f["id"].split(",")
+                        page.locator(f'[data-jobbot-id="{ids[want.value]}"]').click(force=True)
+                        was = next((o for o, v in zip(f["options"], f["value"]) if v), "")
+                        note(f, label, want, target_id=ids[want.value], was=was)
                         continue
                     if kind == "checkgroup" and len(f["options"]) <= 2 and all(CONSENT_RE.search(o) for o in f["options"]):
                         consents.append({**f, "id": f["id"].split(",")[0], "label": f"{label} [{f['options'][0]}]"})
@@ -438,6 +518,13 @@ class Session:
                 else:
                     note(c, c["label"][:80], "ticked (you approved)", expected="checked", kind="consent")
         return {"filled": filled, "skipped": skipped, "records": records}
+
+    def _text_value(self, f, label, ans, has_dial_picker):
+        if f.get("type") == "number":
+            return re.sub(r"[^\d.]", "", str(ans.value)) or "0"
+        if re.search(r"phone|mobile", label, re.I) and not has_dial_picker and re.fullmatch(r"[\d\s-]{6,}", str(ans.value)):
+            return f"{self.profile.get('personal.phone_country_code', '')} {ans.value}".strip()
+        return str(ans.value)
 
     def _fill_dropdown(self, page, f, resolver, note):
         """React-select comboboxes, autocomplete boxes, Workday listbox buttons and Workday's

@@ -71,6 +71,10 @@ EMPLOYMENT_RE = re.compile(r"employee id|employee number|(company|corporate|work
                            re.I)
 
 
+OTHER_PERSON_RE = re.compile(r"referr(er|al|ed by)|\breference\b|emergency|next of kin|\bmanager'?s\b|hiring manager|recruiter|"
+                             r"\bspouse\b|relative|guardian|parent'?s|supervisor", re.I)
+
+
 def yes_no(flag):
     return "Yes" if flag else "No"
 
@@ -86,6 +90,8 @@ class Resolver:
         self.custom = [(re.compile(r["match"], re.I), r["answer"]) for r in (profile.get("answers") or [])]
         self.always_ask = [re.compile(x, re.I) for x in (profile.get("always_ask") or [])]
         self.rules = self._rules()
+        self._q = ""
+        self._first_personal_rule = next(i for i, (pat, _) in enumerate(self.rules) if pat.startswith("preferred (first )?name"))
         self.memory = memory
 
     # --- built-in rules: (pattern, function returning the answer or None) -------------
@@ -102,65 +108,93 @@ class Resolver:
         def experience_years():
             return str(g("work.total_experience_years", ""))
 
+        def tech_years(question):
+            """'Years of experience with Kafka': your total years if a resume mentions it, else 0."""
+            m = re.search(r"(?:with|in|using|on|of)\s+([A-Za-z0-9+#./ -]{2,40}?)(?:\?|$|\s+(?:development|programming|experience))",
+                          question, re.I)
+            if not m:
+                return experience_years()
+            tech = m.group(1).strip().lower()
+            if tech in ("software", "software development", "professional", "the industry", "industry", "total"):
+                return experience_years()
+            corpus = " ".join(p.resume_text(k).lower() for k in p.resumes())
+            words = [w for w in re.findall(r"[a-z0-9+#.]+", tech) if len(w) > 1]
+            return experience_years() if words and all(w in corpus for w in words) else "0"
+
+        willing = lambda: yes_no(g("eligibility.willing_to_relocate", True))  # noqa: E731
+        # Order matters: specific yes/no policy questions first, so e.g. "relocation" never reaches the
+        # location rule and "mobile development" never reaches the phone rule.
         return [
-            (r"preferred (first )?name|nick ?name", lambda: g("personal.preferred_name") or g("personal.first_name")),
-            (r"first name|given name|legal first", lambda: g("personal.first_name")),
-            (r"last name|family name|surname|legal last", lambda: g("personal.last_name")),
-            (r"^(full |legal |your )?name\b", lambda: p.full_name),
-            (r"e-?mail", lambda: g("personal.email")),
-            (r"country (phone )?code|phone country|dialing code", lambda: g("personal.phone_country")),
-            (r"phone|mobile|contact number", lambda: g("personal.phone")),
-            (r"linkedin", lambda: g("links.linkedin")),
-            (r"github", lambda: g("links.github")),
-            (r"website|portfolio|personal (site|url)|blog|other link", lambda: g("links.website")),
-            (r"preferred (work )?location|locations? (are you|would you)", lambda: g("personal.city")),
-            (r"address line 1|street address", lambda: g("personal.address_line1") or None),
-            (r"postal|zip|pin ?code", lambda: g("personal.postal_code") or None),
-            (r"\bstate\b|province|region", lambda: g("personal.state")),
-            (r"location|\bcity\b|where are you (based|located)|current location", lambda: g("personal.location_autocomplete") or g("personal.city")),
-            (r"^country\b|country of residence|which country", lambda: g("personal.country")),
-            (r"current (company|employer|organi[sz]ation)|^company$|most recent (company|employer)", lambda: g("work.current_company")),
-            (r"(current|most recent|latest) (job )?title|current (role|designation)|^title$", lambda: g("work.current_title")),
-            (r"notice period|when can you (start|join)|earliest start|availability to join|(preferred|expected|available) (start|joining) date|start date", lambda: f"{g('work.notice_period_days')} days notice"),
-            (r"years of (professional |relevant |total |industry |work )?experience|how many years", experience_years),
-            (r"current (total |annual |fixed )?(ctc|compensation|salary|cost to company|package)|present (ctc|salary)", lambda: g("work.current_ctc")),
-            (r"expected (ctc|compensation|salary)|salary expectation|desired (salary|compensation)", lambda: g("work.expected_ctc")),
-            (r"reason for (leaving|change|looking)|why are you (leaving|looking)", lambda: g("work.reason_for_change")),
             (r"sponsor", lambda: yes_no(g("eligibility.needs_sponsorship", False))),
-            (r"(authori[sz]ed|eligible|right|permit(ted)?) to work|work authori[sz]ation|legally (able|eligible|authori[sz]ed)|documentation establishing your identity",
-             lambda: yes_no(bool(g("eligibility.authorized_countries")))),
+            (r"(authori[sz]ed|eligible|right|permit(ted)?) to work|work authori[sz]ation|legally (able|eligible|authori[sz]ed)|"
+             r"documentation establishing your identity", lambda: yes_no(bool(g("eligibility.authorized_countries")))),
             (r"legal age|at least 18|over (the age of )?18", lambda: "Yes"),
-            (r"hybrid|in.?office|on.?site|onsite|work (from|in|at) (the|our) .*office|days a week|come (in )?to the office|"
-             r"based in our .* office|office.?based", lambda: yes_no(g("eligibility.willing_to_relocate", True))),
-            (r"relocat|work (on a daily basis )?in the (work )?location|able to work from|commute", lambda: yes_no(g("eligibility.willing_to_relocate", True))),
+            (r"background (check|verification)", lambda: yes_no(g("eligibility.background_check_ok", True))),
+            (r"(have you )?(ever |previously )?(worked|been employed) (at|for|by)|former employee|current(ly)? .*employee|"
+             r"employed by .* in the past", worked_here),
+            (r"\bhybrid\b|in.?office|\bon.?site\b|work (from|in|at) (the|our) .*office|days a week|come (in )?to the office|"
+             r"based in our .* office|office.?based", willing),
+            (r"relocat|work (on a daily basis )?in the (work )?location|able to work from|\bcommute", willing),
             (r"currently (based|located|living|residing) in|do you (live|reside) in", lambda: None),
             (r"notice period.*(negotiable|buy ?out|serve)|can you (join|start) (early|sooner|immediately)|buy ?out", lambda: "Yes"),
             (r"serving (your )?notice|on notice period|currently on notice", lambda: "No"),
             (r"willing to (work|take|do).*(shift|weekend|on.?call|night|rotational)", lambda: "Yes"),
             (r"open to (contract|full.?time|permanent)|employment type|full.?time (role|position)", lambda: "Yes"),
-            (r"(how many|number of) years.*(experience|exp)|years of (hands.?on )?experience (with|in|using)", lambda: str(g("work.total_experience_years", ""))),
-            (r"background (check|verification)", lambda: yes_no(g("eligibility.background_check_ok", True))),
-            (r"(have you )?(ever |previously )?(worked|been employed) (at|for|by)|former employee|current(ly)? .*employee|employed by .* in the past", worked_here),
+            (r"years of (hands.?on |professional )?experience (with|in|using|on)|how many years.*(with|in|using|on) ",
+             lambda: tech_years(self._q)),
+            (r"years of (professional |relevant |total |industry |work )?experience|how many years", experience_years),
+            (r"\bnotice period\b|when can you (start|join)|earliest start|availability to join|"
+             r"(preferred|expected|available) (start|joining) date|\bstart date\b", lambda: f"{g('work.notice_period_days')} days notice"),
+            (r"current (total |annual |fixed )?(ctc|compensation|salary|cost to company|package)|present (ctc|salary)",
+             lambda: g("work.current_ctc")),
+            (r"expected (ctc|compensation|salary)|salary expectation|desired (salary|compensation)", lambda: g("work.expected_ctc")),
+            (r"reason for (leaving|change|looking)|why are you (leaving|looking)", lambda: g("work.reason_for_change")),
+            # --- facts about you (skipped for questions about other people: see OTHER_PERSON_RE) ---
+            (r"preferred (first )?name|nick ?name", lambda: g("personal.preferred_name") or g("personal.first_name")),
+            (r"\bfirst name|given name|legal first", lambda: g("personal.first_name")),
+            (r"\blast name|family name|surname|legal last", lambda: g("personal.last_name")),
+            (r"^(full |legal |your )?name\b", lambda: p.full_name),
+            (r"\be-?mail\b", lambda: g("personal.email")),
+            (r"country (phone )?code|phone country|dialing code", lambda: g("personal.phone_country")),
+            (r"\b(phone|mobile|contact) (number|no\.?)\b|^\s*(phone|mobile|telephone)\b(?!.*(app|develop|experience))",
+             lambda: g("personal.phone")),
+            (r"linkedin", lambda: g("links.linkedin")),
+            (r"github", lambda: g("links.github")),
+            (r"\bwebsite\b|portfolio|personal (site|url)|\bblog\b|other link", lambda: g("links.website")),
+            (r"preferred (work )?location|locations? (are you|would you)", lambda: g("personal.city")),
+            (r"address line 1|street address", lambda: g("personal.address_line1") or None),
+            (r"\bpostal|\bzip\b|pin ?code", lambda: g("personal.postal_code") or None),
+            (r"\bstate\b|\bprovince\b|\bregion\b", lambda: g("personal.state")),
+            (r"\blocation\b|\bcity\b|where are you (based|located)", lambda: g("personal.location_autocomplete") or g("personal.city")),
+            (r"^country\b|country of residence|which country", lambda: g("personal.country")),
+            (r"current (company|employer|organi[sz]ation)|^company$|most recent (company|employer)", lambda: g("work.current_company")),
+            (r"(current|most recent|latest) (job )?title|current (role|designation)|^title$", lambda: g("work.current_title")),
             (r"hispanic|latin[oa]", lambda: g("eeo.hispanic_latino")),
-            (r"gender|\bsex\b", lambda: g("eeo.gender")),
-            (r"race|ethnic", lambda: g("eeo.race")),
+            (r"\bgender\b|\bsex\b", lambda: g("eeo.gender")),
+            (r"\brace\b|ethnic", lambda: g("eeo.race")),
             (r"veteran|military", lambda: g("eeo.veteran")),
             (r"disabilit", lambda: g("eeo.disability")),
-            (r"how did you (hear|learn|find|come across)|source of (application|referral)|where did you (hear|find)", lambda: g("preferences.how_did_you_hear")),
-            (r"school|university|college|institution", lambda: g("education.school")),
-            (r"\bdegree\b|qualification|level of education", lambda: g("education.degree")),
-            (r"major|field of study|discipline|specialization", lambda: g("education.field")),
-            (r"\bc?gpa\b|grade|percentage|overall result", lambda: g("education.gpa")),
+            (r"how did you (hear|learn|find|come across)|source of (application|referral)|where did you (hear|find)",
+             lambda: g("preferences.how_did_you_hear")),
+            (r"\b(school|university|college|institution)\b(?!.*\?$)|name of (your )?(school|university|college)",
+             lambda: g("education.school")),
+            (r"\bdegree\b(?!.*\?$)|highest (level of )?(education|qualification)|level of education", lambda: g("education.degree")),
+            (r"\bmajor\b|field of study|discipline|specialization", lambda: g("education.field")),
+            (r"\bc?gpa\b|\bgrade\b|\bpercentage\b|overall result", lambda: g("education.gpa")),
             (r"graduat(ion|ed) (year|date)|year of (graduation|passing)|expected graduation", lambda: str(g("education.end_year", ""))),
         ]
 
     def _builtin(self, question):
         q = question.strip()
+        self._q = q
+        about_someone_else = bool(OTHER_PERSON_RE.search(q))
         m = re.search(r"currently (?:based|located|living|residing) in ([A-Za-z ,/]+)|do you (?:live|reside) in ([A-Za-z ,/]+)", q, re.I)
         if m:
             place = (m.group(1) or m.group(2) or "").lower()
             return yes_no(str(self.p.get("personal.city", "")).lower() in place)
-        for pattern, fn in self.rules:
+        for i, (pattern, fn) in enumerate(self.rules):
+            if about_someone_else and i >= self._first_personal_rule:
+                return None  # never put your own name/email/phone into a referrer or contact field
             if re.search(pattern, q, re.I):
                 value = fn()
                 if value not in (None, ""):
