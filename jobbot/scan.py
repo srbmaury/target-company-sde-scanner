@@ -37,7 +37,8 @@ ENGINEERING = re.compile(
 NOT_ENGINEERING = re.compile(
     r"sales|solutions? engineer|customer|support|account|recruit|partner|field|"
     r"technical program|program manager|product manager|designer|marketing|consultant|"
-    r"\bqa\b|quality|\btest|sdet|verification|asic|silicon|analyst|advocate|writer|security engineer",
+    r"\bqa\b|quality|\btest|sdet|verification|asic|silicon|analyst|advocate|writer|security engineer|"
+    r"network engineer|\bnoc\b|it service|\bit engineer|technical publication",
     re.I,
 )
 SENIOR = re.compile(
