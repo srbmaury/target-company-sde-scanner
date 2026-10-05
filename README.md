@@ -57,8 +57,14 @@ How `apply` behaves:
   cannot answer are asked in the terminal. With Ollama it drafts free-text answers for you to
   accept or edit; it never invents facts beyond your profile and resume.
 - Consent and privacy boxes are listed and ticked only after you say yes.
-- It never submits on its own. You review the browser, then choose submit, next step, refill,
-  done, or quit. CAPTCHAs and logins are always left to you, and jobbot never handles passwords.
+- Before every Next and Submit it verifies the page: it reads back every value it set, looks for
+  empty required fields, the site's own validation errors, and CAPTCHAs. If anything is off it
+  re-fills once and checks again, then shows you exactly what is still wrong.
+- Multi-page forms: when a page passes the check, jobbot clicks Next and carries on by itself
+  (`--no-auto-next` to stop after every page). It works through every job you pass, one after another.
+- It never submits on its own. On the final page you confirm with one key: submit, refill, done,
+  or quit. Consent boxes are asked once per application.
+- Sign-in pages, verification links, and CAPTCHAs are left to you; jobbot never handles passwords.
 - `--dry-run` fills without submitting or recording anything.
 
 Supported forms: Greenhouse, Lever, and Ashby fill end to end. SmartRecruiters and Workday are
