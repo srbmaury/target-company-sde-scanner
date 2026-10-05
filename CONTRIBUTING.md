@@ -27,6 +27,19 @@ When adding or changing a career-site URL:
 Keep tier ordering intentional: Tier 0 is the highest-priority search set, Tier 1 contains major
 global employers, and later tiers broaden coverage.
 
+## Updating the ATS registry
+
+`references/ats-registry.json` holds board identifiers, not openings. When adding or changing one:
+
+1. Fetch the board's public API (for example `boards-api.greenhouse.io/v1/boards/<id>`,
+   `api.lever.co/v0/postings/<id>`, `api.ashbyhq.com/posting-api/job-board/<id>`, or a Workday
+   `/wday/cxs/<tenant>/<site>/jobs` search) and confirm it returns postings.
+2. Confirm the postings belong to the intended employer. Short slugs collide often: `capital`,
+   `neon`, `circle`, `pine`, and `disney` all resolve to unrelated companies.
+3. Add a `note` for rebrands or shared boards (for example Zynga on Take-Two's board).
+4. Update the top-level `verified` date when you re-verify the file, and run
+   `python3 scripts/ats_scan.py --all` to check that no entry errors.
+
 ## Editing the skill
 
 Keep the instructions actionable and conservative:
