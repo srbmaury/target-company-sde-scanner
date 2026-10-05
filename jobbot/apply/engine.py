@@ -18,6 +18,9 @@ NEXT_RE = r"^(next|continue|save and continue|save & continue|proceed)$"
 CONFIRM_RE = re.compile(
     r"thank(s| you) for (applying|your (application|interest))|application (has been |was )?(submitted|received)|"
     r"successfully (submitted|applied)|we.ve received your application|congratulations", re.I)
+# Honeypot fields exist to catch bots; filling one gets the application flagged.
+TRAP_RE = re.compile(r"robots? only|for robots|do not (fill|enter)|leave (this )?(field )?(blank|empty)|honeypot", re.I)
+ACCOUNT_STEP_RE = re.compile(r"current step \d+ of \d+\s*\|?\s*create account\s*/\s*sign in", re.I)
 CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i confirm|confirm the statement|declare", re.I)
 
 
@@ -110,7 +113,8 @@ class Session:
 
         resolver = Resolver(self.profile, self.llm, job=job, resume_key=resume_key, ask=self.ui.ask)
         while True:
-            report = self.fill_page(page, resolver)
+            signed_in = self._ensure_signed_in(page, attempts=1) if ats == "workday" else True
+            report = self.fill_page(page, resolver) if signed_in else {"filled": [], "skipped": []}
             self.ui.report(report)
             choice = self.ui.next_action(
                 can_submit=bool(self._buttons(page, SUBMIT_RE)) and not self.dry_run,
@@ -122,6 +126,8 @@ class Session:
             if choice == "next":
                 self._click(page, NEXT_RE)
                 page.wait_for_timeout(3500)
+                if ats == "workday":
+                    self._workday_settle(page)
                 continue
             if choice == "submit":
                 self._click(page, SUBMIT_RE)
@@ -148,11 +154,48 @@ class Session:
                 self._click(page, r"^autofill with resume$", wait=3000)
             elif self._buttons(page, r"^apply manually$"):
                 self._click(page, r"^apply manually$", wait=3000)
-            if re.search(r"sign in|create account", page.content()[:20000], re.I) and not self._fields(page):
-                self.ui.wait_for_user("Workday wants you to sign in or create an account. Do that in the browser window "
-                                      "(jobbot never handles passwords), then press Enter here.")
+            self._workday_settle(page)
+            self._ensure_signed_in(page)
         elif ats == "generic":
             self.ui.wait_for_user("Open the application form in the browser window, then press Enter here.")
+
+    @staticmethod
+    def _workday_settle(page, timeout_ms=15000):
+        """Workday renders each step after a 'Loading' placeholder; wait for real content."""
+        waited = 0
+        while waited < timeout_ms:
+            try:
+                text = page.inner_text("body")
+            except Exception:
+                text = ""
+            if "Loading" not in text[:3000] and page.locator("input, button[aria-haspopup='listbox']").count() > 1:
+                return
+            page.wait_for_timeout(1000)
+            waited += 1000
+
+    def _needs_account(self, page):
+        try:
+            text = re.sub(r"\s+", " ", page.inner_text("body")[:4000])
+        except Exception:
+            return False
+        return bool(ACCOUNT_STEP_RE.search(text) or page.locator("input[type=password]:visible").count())
+
+    def _ensure_signed_in(self, page, attempts=2):
+        """Pause for the user to sign in. Returns True once the account step is gone."""
+        for _ in range(attempts):
+            if not self._needs_account(page):
+                return True
+            self.ui.wait_for_user(
+                "This employer's Workday needs an account. In the browser window, sign in (or create an account "
+                "with your own password; jobbot never handles passwords). When the application form appears, "
+                "press Enter here.")
+            page.wait_for_timeout(1500)
+            self._workday_settle(page)
+        if self._needs_account(page):
+            self.ui.warn("Still on the sign-in step, so jobbot is not filling anything there. "
+                         "Sign in, then choose [r]efill.")
+            return False
+        return True
 
     def _upload_resume(self, page, path, ats):
         inputs = [f for f in self._fields(page) if f["kind"] == "file"]
@@ -174,8 +217,10 @@ class Session:
                               for x in fields)
         for f in fields:
             kind, label = f["kind"], f["label"] or "(unlabelled field)"
-            if kind == "file":
+            if kind == "file" or TRAP_RE.search(label):
                 continue
+            if kind == "listbutton" and not f["label"]:
+                continue  # Workday's language picker and similar chrome
             try:
                 if kind in ("text", "textarea"):
                     if f["value"]:
