@@ -136,3 +136,12 @@ class VerifyMatchTest(unittest.TestCase):
         self.assertFalse(matches("No", "", "radio"))
         self.assertTrue(matches("No", "checked", "radio"))
         self.assertTrue(matches("India +91", "India +91", "combo"))
+
+
+class ExpandKeysTest(unittest.TestCase):
+    def test_ranges(self):
+        from jobbot.cli import expand_job_keys
+        self.assertEqual(expand_job_keys(["12-14"]), ["12", "13", "14"])
+        self.assertEqual(expand_job_keys(["14..12", "20"]), ["12", "13", "14", "20"])
+        self.assertEqual(expand_job_keys(["3,5"]), ["3", "5"])
+        self.assertEqual(expand_job_keys(["https://x.test/a,b"]), ["https://x.test/a,b"])
