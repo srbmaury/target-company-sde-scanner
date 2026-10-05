@@ -36,6 +36,7 @@
       </div>
       <div class="toolbar selbar">
         <span id="sel-count" class="muted">Select roles with the checkboxes to apply from here.</span>
+        <button id="sel-all">Select all shown</button>
         <button class="primary" id="apply-selected" disabled>Apply to selected</button>
         <button id="dry-selected" disabled>Dry run</button>
         <button class="link" id="sel-clear" hidden>Clear selection</button>
@@ -44,7 +45,7 @@
         <thead><tr>
           <th data-sort="n">#</th><th data-sort="fit_score">Fit</th><th data-sort="company">Company</th>
           <th data-sort="title">Role</th><th data-sort="location">Location</th><th data-sort="experience">Experience</th>
-          <th>Resume</th><th></th>
+          <th>Resume</th><th class="sel-head"><label class="check"><input type="checkbox" id="sel-all-box" aria-label="Select all shown roles"> All</label></th>
         </tr></thead>
         <tbody></tbody>
       </table></div>

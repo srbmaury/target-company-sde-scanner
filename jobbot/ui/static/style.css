@@ -13,6 +13,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 code, pre, textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
@@ -94,6 +95,7 @@ dialog ol.history { padding-left: 18px; color: var(--muted); max-height: 220px; 
 
 .badge { display: inline-block; min-width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-left: 4px; vertical-align: 2px; }
 .selbar { padding: 8px 10px; background: var(--bg); border-radius: 8px; }
+.grid th.sel-head { cursor: default; }
 .run-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
 .prompt { border: 2px solid var(--accent); border-radius: 12px; padding: 14px; background: var(--bg); }
 .prompt h4 { margin: 0 0 4px; font-size: 13px; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
