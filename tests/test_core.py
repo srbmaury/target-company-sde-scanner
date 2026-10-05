@@ -198,3 +198,45 @@ class MemoryTest(unittest.TestCase):
                          "remembered")
         q = "Abnormal AI operates a hybrid working model. This role is based in our Bangalore office. Are you okay with that?"
         self.assertEqual(r.resolve(q, "choice", ["Yes", "No"]).display, "Yes")
+
+
+class WorkdayQuestionsTest(unittest.TestCase):
+    def setUp(self):
+        self.r = Resolver(Profile({**PROFILE, "preferences": {"how_did_you_hear": "Company website"}}, "x"),
+                          job={"company": "Cisco"}, ask=lambda *a: (_ for _ in ()).throw(AssertionError("asked")))
+
+    def test_how_did_you_hear_never_asks(self):
+        self.assertEqual(self.r.resolve("How Did You Hear About Us?*", "choice",
+                                        ["Job Board", "Cisco Careers Website", "Referral"]).display, "Cisco Careers Website")
+        self.assertEqual(self.r.resolve("How did you hear about us?", "choice", ["Event", "Agency"]).display, "Event")
+
+    def test_employer_history(self):
+        q = "Have you ever been issued a Cisco Employee ID or Cisco email address? This includes interns and contractors."
+        self.assertEqual(self.r.resolve(q, "choice", ["Yes", "No"]).display, "No")
+        r = Resolver(Profile({**PROFILE, "work": {"past_employers": ["Cisco Systems"]}}, "x"), job={"company": "Cisco"})
+        self.assertEqual(r.resolve(q, "choice", ["Yes", "No"]).display, "Yes")
+
+    def test_phone_code_answer(self):
+        self.assertEqual(self.r.resolve("Country Phone Code*", "choice", ["Indonesia (+62)", "India (+91)"]).display,
+                         "India (+91)")
+
+
+class WrongDetailTest(unittest.TestCase):
+    def setUp(self):
+        self.r = Resolver(Profile({**PROFILE, "eligibility": {**PROFILE["eligibility"], "willing_to_relocate": True}}, "x"),
+                          job={"company": "Acme"})
+
+    def test_relocation_is_not_location(self):
+        self.assertEqual(self.r.resolve("Are you open to relocation?", "choice", ["Yes", "No"]).display, "Yes")
+        self.assertEqual(self.r.resolve("Are you open to relocation?", "text").value, "Yes")
+
+    def test_mobile_development_is_not_phone(self):
+        self.assertIsNone(self.r._builtin("Do you have mobile development experience?"))
+        self.assertEqual(self.r.resolve("Mobile Number*").value, "9876543210")
+
+    def test_other_people_never_get_your_details(self):
+        for q in ("Referrer's name", "Emergency contact phone number", "Manager's email", "Reference name"):
+            self.assertIsNone(self.r._builtin(q), q)
+
+    def test_upgrade_is_not_grade(self):
+        self.assertIsNone(self.r._builtin("Would you like to upgrade your account?"))

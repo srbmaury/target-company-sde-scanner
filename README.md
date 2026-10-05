@@ -128,13 +128,15 @@ For each job you pass, one after another:
    - required questions it has no answer for. With Ollama it drafts free-text answers from your
      profile and resume for you to accept or edit.
    - consent and privacy boxes, once per application
-5. **Checks the page** before moving on:
+5. **Reviews the page until it is stable.** Each round it:
    - reads back every value it set, including dropdowns, radios, and Workday widgets
-   - looks for empty required fields
-   - looks for the site's own validation errors
-   - looks for CAPTCHAs
+   - corrects values the site pre-filled wrongly (for example Workday's resume autofill), using only
+     your profile, rules, and remembered answers, never a model guess
+   - looks for empty required fields, the site's own validation errors (including Workday's
+     "Errors Found"), and CAPTCHAs
 
-   If anything is off, it re-fills once and checks again, then shows you exactly what is still wrong.
+   It repeats until a whole round changes nothing and every check passes (up to 5 rounds). If
+   problems remain that it can't fix, it shows you exactly what is wrong.
 6. **Moves through multi-page forms by itself**: when a page passes the check, it clicks
    Next / Save and Continue. Use `--no-auto-next` to stop after every page.
 7. **Stops on the final page.** jobbot never submits on its own. You review the browser, then press:
@@ -156,6 +158,9 @@ For each job you pass, one after another:
 | Workday | Adobe, NVIDIA, Visa, Cisco, Wells Fargo | Multi-page; many employers require you to sign in first |
 | SmartRecruiters | ServiceNow | Multi-page, best effort |
 | Anything else | | Opens the page for you to fill; jobbot still tracks the result |
+
+**What happened?** `./jobbot.sh logs` shows, page by page and round by round, what jobbot filled,
+what it corrected (with the old value), and what the check found. Logs are in `~/.jobbot/logs/`.
 
 **Useful flags:** `--dry-run` (fill and check, but never submit or record), `--resume ai_engineer`
 (override the ranked resume), `--llm none` (skip Ollama), `--no-upload`, `--force` (reopen a role
@@ -253,6 +258,7 @@ rows with `track update`.
 | `jobs [--why] [--urls] [--limit N] [--include-applied]` | List tracked roles, best fit first |
 | `apply <n, x-y or URL>... [--top N] [--all] [--min-fit N] [-y] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm none]` | Fill applications in Chrome |
 | `dismiss <n>...` | Hide roles you are not interested in |
+| `logs [--date YYYY-MM-DD] [-n N]` | Show what `apply` filled, corrected and checked |
 | `track [list\|add\|update\|show\|stats\|export\|import\|import-gmail]` | Manage the application tracker |
 
 Environment variables: `JOBBOT_PROFILE` (default `./profile.yaml`), `JOBBOT_HOME` (default

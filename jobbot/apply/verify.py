@@ -64,6 +64,7 @@ PAGE_PROBLEMS_JS = r"""
       if (/required|invalid|please|must|error|cannot be blank|enter a valid/i.test(text)) errors.add(text);
     }
   }
+  if (/\bErrors? Found\b/.test(document.body.innerText.slice(0, 4000))) errors.add('The page shows "Errors Found"');
   const invalid = all.filter(e => e.getAttribute && e.getAttribute('aria-invalid') === 'true' && visible(e)).length;
   const captcha = Array.from(document.querySelectorAll('iframe')).some(f =>
       /recaptcha\/api2\/bframe|hcaptcha\.com.*challenge|challenges\.cloudflare/.test(f.src || '') && visible(f))
