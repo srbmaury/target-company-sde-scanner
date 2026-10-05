@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="jobbot-token" content="__JOBBOT_TOKEN__">
+  <title>jobbot</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">jobbot</div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="jobs" aria-selected="true">Jobs</button>
+      <button role="tab" data-tab="applications">Applications</button>
+      <button role="tab" data-tab="actions">Actions</button>
+      <button role="tab" data-tab="logs">Logs</button>
+      <button role="tab" data-tab="profile">Profile</button>
+    </nav>
+    <div class="status" id="status"></div>
+  </header>
+
+  <main>
+    <section class="stats" id="stats"></section>
+
+    <!-- Jobs -->
+    <section class="panel" id="tab-jobs">
+      <div class="toolbar">
+        <input type="search" id="jobs-q" placeholder="Filter company, role, location">
+        <label>Min fit <input type="number" id="jobs-min" min="0" max="100" step="5" placeholder="0"></label>
+        <label class="check"><input type="checkbox" id="jobs-applied"> Show already applied</label>
+        <label class="check"><input type="checkbox" id="jobs-dismissed"> Show dismissed</label>
+        <span class="muted" id="jobs-count"></span>
+      </div>
+      <div class="table-wrap"><table class="grid" id="jobs-table">
+        <thead><tr>
+          <th data-sort="n">#</th><th data-sort="fit_score">Fit</th><th data-sort="company">Company</th>
+          <th data-sort="title">Role</th><th data-sort="location">Location</th><th data-sort="experience">Experience</th>
+          <th>Resume</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p class="hint">Apply from the terminal: <code>./jobbot.sh apply 12 15</code> or <code>./jobbot.sh apply --all --min-fit 70</code>.</p>
+    </section>
+
+    <!-- Applications -->
+    <section class="panel" id="tab-applications" hidden>
+      <div class="toolbar">
+        <input type="search" id="apps-q" placeholder="Filter by company">
+        <select id="apps-status"><option value="">All statuses</option></select>
+        <button class="primary" id="apps-add">Add application</button>
+        <span class="muted" id="apps-count"></span>
+      </div>
+      <div class="table-wrap"><table class="grid" id="apps-table">
+        <thead><tr>
+          <th data-sort="id">#</th><th data-sort="company">Company</th><th data-sort="title">Role</th>
+          <th data-sort="status">Status</th><th data-sort="applied_on">Applied</th><th data-sort="updated_on">Updated</th>
+          <th data-sort="source">Source</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+
+    <!-- Actions -->
+    <section class="panel" id="tab-actions" hidden>
+      <div class="cards">
+        <div class="card"><h3>Scan</h3><p>Sweep 220+ company job boards for new roles (about 2 minutes).</p>
+          <button class="primary" data-task="scan">Run scan</button></div>
+        <div class="card"><h3>Rank</h3><p>Score new roles against your resumes with the local model.</p>
+          <button class="primary" data-task="rank">Run rank</button></div>
+        <div class="card"><h3>Gmail</h3><p id="gmail-text">Import application emails into the tracker (read-only).</p>
+          <button class="primary" data-task="sync-gmail" id="gmail-sync">Sync Gmail</button>
+          <button data-task="gmail-login" id="gmail-login">Connect Gmail</button></div>
+      </div>
+      <h3 class="section-title">Recent runs</h3>
+      <div id="tasks"></div>
+    </section>
+
+    <!-- Logs -->
+    <section class="panel" id="tab-logs" hidden>
+      <div class="toolbar"><select id="logs-date"></select>
+        <input type="search" id="logs-q" placeholder="Filter lines"></div>
+      <pre class="log" id="logs"></pre>
+    </section>
+
+    <!-- Profile -->
+    <section class="panel" id="tab-profile" hidden>
+      <div class="toolbar"><span class="muted" id="profile-path"></span>
+        <button class="primary" id="profile-save">Save</button><span id="profile-msg"></span></div>
+      <textarea id="profile-text" spellcheck="false"></textarea>
+      <p class="hint">Your profile is git-ignored and never committed. Saving keeps a backup next to it (<code>profile.yaml.bak</code>).</p>
+    </section>
+  </main>
+
+  <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
+  <script src="app.js"></script>
+</body>
+</html>

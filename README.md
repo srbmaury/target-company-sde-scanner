@@ -25,6 +25,7 @@ $ ./jobbot.sh jobs --why
 - [Quick start](#quick-start)
 - [Daily workflow](#daily-workflow)
 - [How `apply` works](#how-apply-works)
+- [Dashboard](#dashboard)
 - [Your profile](#your-profile)
 - [Tracking applications](#tracking-applications)
 - [Command reference](#command-reference)
@@ -170,6 +171,29 @@ already marked applied).
 
 ---
 
+## Dashboard
+
+```bash
+./jobbot.sh ui
+```
+
+Opens a local dashboard in your browser (`http://127.0.0.1:8765`). It uses the same tracker,
+profile and logs as the commands.
+
+| Tab | What you can do |
+| --- | --- |
+| **Jobs** | Ranked roles with fit scores and reasons, filters (text, minimum fit, already applied, dismissed), links to postings, dismiss/restore |
+| **Applications** | Every application with status pills and history; click one to change its status or notes; add applications made elsewhere |
+| **Actions** | Run Scan, Rank, and Gmail sync in the background and watch their output; connect Gmail |
+| **Logs** | What `apply` filled, corrected and checked, page by page, with a filter |
+| **Profile** | Edit `profile.yaml`, including learned answers. Invalid YAML is refused, and a backup is kept |
+
+Applying still runs from the terminal (`./jobbot.sh apply …`). The dashboard listens only on
+`127.0.0.1`, and each run generates a random access token that is embedded in the page, so other
+websites in your browser can't call it. Stop it with Ctrl+C.
+
+---
+
 ## Your profile
 
 `profile.yaml` in the repository folder holds everything jobbot answers with. It is created from
@@ -299,6 +323,7 @@ snippet, date).
 | `apply <n, x-y or URL>... [--top N] [--all] [--min-fit N] [-y] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm none]` | Fill applications in Chrome |
 | `dismiss <n>...` | Hide roles you are not interested in |
 | `logs [--date YYYY-MM-DD] [-n N]` | Show what `apply` filled, corrected and checked |
+| `ui [--port N] [--no-open]` | Open the local dashboard |
 | `track [list\|add\|update\|show\|stats\|export\|import\|import-gmail\|sync-gmail]` | Manage the application tracker |
 | `gmail login [--client FILE] \| logout \| status` | Connect Gmail read-only for `track sync-gmail` |
 
