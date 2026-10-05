@@ -101,7 +101,7 @@ SCAN_JS = r"""
       const combo = role === 'combobox' || el.getAttribute('aria-autocomplete') || el.getAttribute('aria-haspopup') === 'listbox';
       out.push({
         id: tag(el), kind: t === 'select' ? 'select' : combo ? 'combo' : (t === 'textarea' ? 'textarea' : 'text'),
-        type, label, required: required(el, label), value: el.value || '',
+        type, label, required: required(el, label), value: el.value || '', maxlength: el.maxLength || -1,
         options: t === 'select' ? Array.from(el.options).map(o => clean(o.text)) : [],
       });
     } else if (t === 'button' && el.getAttribute('aria-haspopup') === 'listbox' && visible(el)) {

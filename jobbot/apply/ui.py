@@ -41,6 +41,10 @@ class TerminalUI:
         raw = _input("    answer (Enter to skip): ").strip()
         return raw or None
 
+    def ask_code(self, prompt):
+        print(f"\n  ? {prompt[:300]}")
+        return _input("    Enter the code from your email (Enter to skip): ").strip() or None
+
     def report(self, report, check=None, step=None):
         print(f"\n  Page {step} filled:" if step else "\n  Filled:")
         for label, ans in report["filled"]:

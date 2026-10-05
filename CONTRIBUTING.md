@@ -47,7 +47,7 @@ global employers, and later tiers broaden coverage.
   submits or records anything.
 - Keep jobbot conservative: no automatic submits, no password or CAPTCHA handling, and legal or
   attestation questions always go to the user unless their own profile answers them.
-- Never commit anything from `~/.jobbot/` (profile, tracker, browser profile) or real resumes.
+- Never commit `profile.yaml`, anything from `~/.jobbot/` (tracker, browser profile), or real resumes.
 
 ## Editing the skill
 
