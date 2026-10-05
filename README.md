@@ -21,6 +21,9 @@ deduplicated shortlist of roles with direct, verified application links.
 | --- | --- |
 | `SKILL.md` | The complete operational instructions for Codex. |
 | `target-companies.md` | Curated company tiers and known official career-site entry points. |
+| `references/ats-registry.json` | Public job-board API identifiers (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Microsoft) for 220+ companies, with the verification date. |
+| `scripts/ats_scan.py` | Standard-library scanner that sweeps the registry and prints 1–3 YOE engineering candidates with the stated experience requirement. |
+| `references/job-platforms.md` | Supplemental job boards, recruiters, and how to treat each as a lead. |
 
 ## Use in Codex
 
@@ -44,6 +47,19 @@ The skill creates a separate targeted PDF for each role. It highlights genuine e
 reorders relevant content, but never invents skills, metrics, experience, or credentials. Each PDF
 is rendered and visually checked for a balanced, readable one-page layout before delivery, while
 preserving the source resume's clickable contact, portfolio, project, and coding-profile links.
+
+## Run the scanner directly
+
+The scanner works without Codex and needs only Python 3:
+
+```bash
+python3 scripts/ats_scan.py --companies "Stripe,MongoDB,Adobe,ServiceNow"
+python3 scripts/ats_scan.py --all --exclude "Salesforce" --max-yoe 3
+python3 scripts/ats_scan.py --all --locations "hyderabad|bengaluru|bangalore|remote" --json
+```
+
+It prints a Markdown table of candidate roles plus per-company coverage. Every row still needs the
+live-listing check described in `SKILL.md` before it is treated as an open role.
 
 ## Important behavior
 

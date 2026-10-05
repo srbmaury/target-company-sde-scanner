@@ -377,7 +377,7 @@ previous role URL is never evidence that it remains open.
 | UiPath | `jobs.ashbyhq.com/uipath` | Bangalore engineering; render the role page before using |
 | Starburst | `job-boards.greenhouse.io/starburst` | India; Java, infrastructure, data platform |
 | Addepar | `job-boards.greenhouse.io/addepar1` | Pune; backend and AI-platform engineering |
-| Arcadia | `job-boards.greenhouse.io/arcadiacareers` | Chennai/India engineering |
+| Arcadia | `job-boards.greenhouse.io/arcadiacareers` | Chennai/India engineering. Board API returned 404 on 2026-10-05; search fresh for its current ATS |
 
 **Additional companies to search fresh**: Baya Systems, Bolna AI, Hinge Health, Sarvam AI, Coram AI,
 Redwood Software, Diligent, Poshmark, MiQ, Pfizer Digital, HPE, JLL, R1 RCM, Columbia Sportswear,
@@ -397,7 +397,7 @@ board first, then verify the exact posting and its experience band before return
 | Dialpad | `job-boards.greenhouse.io/dialpad` | Bengaluru; backend / integrations / platform |
 | Dun & Bradstreet | `jobs.lever.co/dnb` | Hyderabad; Java / API / cloud services |
 | HighLevel | `jobs.lever.co/gohighlevel` | India Remote; mobile / backend / platform |
-| Perch Energy | `job-boards.greenhouse.io/perchenergycareers` | Remote India; L2 full-stack |
+| Perch Energy | `job-boards.greenhouse.io/perchenergycareers` | Remote India; L2 full-stack. Board API returned 404 on 2026-10-05; search fresh for its current ATS |
 | Shield AI | `jobs.lever.co/shieldai` | Bangalore / Delhi; C++ / Python / autonomy |
 | SolarWinds | `solarwinds.com/careers` | Bengaluru; platform engineering / SDE-2 |
 | Workloom (Tetriz) | `jobs.lever.co/epifi` | Bangalore; backend / full-stack / AI systems |
