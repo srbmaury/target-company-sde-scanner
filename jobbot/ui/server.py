@@ -27,6 +27,7 @@ from pathlib import Path
 import yaml
 
 from .. import paths, tracker
+from . import bridge
 
 STATIC = Path(__file__).resolve().parent / "static"
 TASKS = {}            # id -> {"cmd", "status", "lines", "started", "ended"}
@@ -199,6 +200,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"path": str(path), "text": path.read_text(encoding="utf-8") if path.exists() else ""})
             if parts == ["tasks"]:
                 return self._send(200, sorted(TASKS.values(), key=lambda t: t["started"], reverse=True)[:20])
+            if parts == ["apply"]:
+                run = bridge.current()
+                return self._send(200, run.snapshot() if run else {"status": "idle"})
             if len(parts) == 2 and parts[0] == "tasks":
                 task = TASKS.get(parts[1])
                 return self._send(200, task) if task else self._send(404, {"error": "no such task"})
@@ -253,6 +257,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"ok": True})
             if len(parts) == 2 and parts[0] == "tasks":
                 return self._send(200, start_task(parts[1]))
+            if parts == ["apply"]:
+                keys = [str(k) for k in body.get("jobs", []) if str(k).strip()]
+                if not keys:
+                    return self._send(400, {"error": "Choose at least one role."})
+                run = bridge.start(keys, dry_run=bool(body.get("dry_run")), auto_next=body.get("auto_next", True),
+                                   resume=body.get("resume") or None, use_llm=body.get("llm", True) is not False,
+                                   force=bool(body.get("force")))
+                return self._send(200, run.snapshot())
+            if parts == ["apply", "answer"]:
+                run = bridge.current()
+                if not run:
+                    return self._send(400, {"error": "No apply run."})
+                run.answer(body.get("prompt_id"), body.get("value"))
+                return self._send(200, {"ok": True})
+            if parts == ["apply", "stop"]:
+                run = bridge.current()
+                if run:
+                    run.stop()
+                return self._send(200, {"ok": True})
             return self._send(404, {"error": "not found"})
         except (KeyError, ValueError, yaml.YAMLError) as e:
             return self._send(400, {"error": str(e)})
