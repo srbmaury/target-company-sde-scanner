@@ -84,6 +84,9 @@ ln -s "$PWD/jobbot.sh" /opt/homebrew/bin/jobbot
 ./jobbot.sh track         # 5. see every application and its status
 ```
 
+Prefer clicking? `./jobbot.sh ui` does all of this from a browser page, including applying (see
+[Dashboard](#dashboard)).
+
 Other ways to choose which roles `apply` works through:
 
 ```bash
@@ -124,11 +127,14 @@ For each job you pass, one after another:
 3. **Fills every field it can** from your profile: name, contact details, links, current company
    and title, CTC, notice period, education, work authorization, sponsorship, EEO answers, and
    your own fixed answers.
-4. **Asks you in the terminal only when it has to**:
+4. **Asks you only when it has to**, in the terminal or, when you apply from the dashboard, in its
+   Apply tab:
    - questions matching your `always_ask` list, such as signatures and legal or sanctions questions
    - required questions it has no answer for. With Ollama it drafts free-text answers from your
-     profile and resume for you to accept or edit.
-   - consent and privacy boxes, once per application
+     profile and resume. By default it uses them without asking (`automation.auto_accept_drafts`);
+     every draft is shown in the page report and the logs.
+   - consent and privacy boxes, once per application, unless `automation.auto_consent` is on
+   - email verification codes, once, spread across Workday's separate code boxes
 5. **Reviews the page until it is stable.** Each round it:
    - reads back every value it set, including dropdowns, radios, and Workday widgets
    - corrects values the site pre-filled wrongly (for example Workday's resume autofill), using only
@@ -148,6 +154,9 @@ For each job you pass, one after another:
    | `r` | re-fill the page (after you fix something) |
    | `d` | you submitted it yourself; jobbot records it |
    | `q` | quit without submitting; nothing is recorded |
+
+   In the dashboard the same choices are buttons: **Submit application**, **Re-fill this page**,
+   **I submitted it myself**, and **Quit without submitting**.
 
 **Supported sites**
 
@@ -200,8 +209,7 @@ every page but never submits. **Stop after this step** ends the batch without su
 current application. Only one run happens at a time. Skipping rules match `apply`: already-applied
 and dismissed roles are skipped, and for possible matches you are asked first.
 
-The dashboard listens only on
-`127.0.0.1`, and each run generates a random access token that is embedded in the page, so other
+The dashboard listens only on `127.0.0.1`, and each run generates a random access token that is embedded in the page, so other
 websites in your browser can't call it. Stop it with Ctrl+C.
 
 ---
@@ -224,10 +232,10 @@ contact details and CTC, so it is never committed. The main sections:
 | `resumes` | each resume variant: a key, the PDF path, and a short focus hint for ranking |
 | `answers` | your fixed answers: a regex matched against the question, and the answer to give |
 | `always_ask` | regexes for questions jobbot must always ask you about |
-| `automation` | `auto_accept_drafts` (use model drafts for free-text questions without asking), `auto_consent` (tick consent boxes without asking) |
+| `automation` | `auto_accept_drafts` (use model drafts for free-text questions without asking; on by default), `auto_consent` (tick consent boxes without asking; off by default) |
 | `learned_answers` | answers you gave during applications, which jobbot fills in itself (see below) |
 
-**jobbot learns as you go.** When you answer a question in the terminal, jobbot saves it under
+**jobbot learns as you go.** When you answer a question, in the terminal or the dashboard, jobbot saves it under
 `learned_answers` and reuses it for the same or a very similar question at any company, so you're
 asked once. Answers that name the employer ("Why do you want to join Acme?") are not saved. You
 can edit or delete entries in the file.
@@ -347,16 +355,17 @@ Environment variables: `JOBBOT_PROFILE` (default `./profile.yaml`), `JOBBOT_HOME
 ## Privacy and safety
 
 - **Everything runs on your machine.** Your profile (`profile.yaml`, git-ignored) lives in the
-  repository folder. The tracker database (`applications.db`) and browser profile live in `~/.jobbot/`. The only network traffic is to the job boards themselves
-  and, if enabled, to Ollama on localhost.
-- **No automatic submits.** The final Submit always needs your keypress.
+  repository folder. The tracker database (`applications.db`) and browser profile live in `~/.jobbot/`. The only network traffic is to the job boards themselves,
+  to Google's Gmail API if you connect Gmail, and to Ollama on localhost.
+- **No automatic submits.** The final Submit always needs your keypress, or your click in the dashboard.
 - **No passwords.** jobbot never reads, stores, or types passwords, and skips password fields.
   Gmail uses Google's own sign-in page with read-only access, and you can revoke it with
   `jobbot gmail logout`.
   When a site needs you to sign in, it waits for you to do it in the browser.
 - **No CAPTCHA solving.** CAPTCHAs are left to you.
 - **No made-up answers.** Answers come from your profile, your resumes, or you. Model drafts are
-  grounded in those facts and shown to you before use.
+  grounded in those facts. They are used without asking only if `auto_accept_drafts` is on (the
+  default), and every one is listed in the page report and the logs; review them before you submit.
 - **Hidden trap fields are skipped.** Some forms include invisible fields that only bots fill in;
   jobbot leaves them empty so the application isn't flagged as automated.
 
@@ -369,8 +378,8 @@ applications you would make anyway, not to send them in bulk.
 
 | Problem | Fix |
 | --- | --- |
-| `profile is already in use` | A jobbot Chrome window is still open from an earlier run. Quit that run (`q`) or close the window. |
-| Workday stops at "Create Account/Sign In" | Expected for many employers. Sign in or create the account in the jobbot window, then press Enter. |
+| `profile is already in use` | A jobbot Chrome window is still open from an earlier run. Quit that run (`q`, or **Stop** in the dashboard) or close the window. |
+| Workday stops at "Create Account/Sign In" | Expected for many employers. Sign in or create the account in the jobbot window, then press Enter (or click **Done, continue** in the dashboard). |
 | `Ollama is not running` | `brew services start ollama`, or pass `--llm none` |
 | A question gets a wrong or missing answer | Add a rule under `answers:` in your profile (see [Your profile](#your-profile)) |
 | The scanner errors on one company | That board moved or was retired. The rest of the scan continues; see [Contributing](CONTRIBUTING.md) to fix the registry entry. |
@@ -415,7 +424,9 @@ Rows are candidates: open each link before treating it as a live opening.
 
 | Path | Purpose |
 | --- | --- |
-| `jobbot/` | The command-line tool: `scan.py`, `rank.py`, `llm.py`, `answers.py`, `tracker.py`, `mailimport.py`, and `apply/` (browser filling and page checks) |
+| `jobbot/` | The command-line tool: `cli.py`, `scan.py`, `rank.py`, `llm.py` (Ollama), `answers.py` and `memory.py` (answering questions, learned answers), `tracker.py`, `gmail.py` and `mailimport.py` |
+| `jobbot/apply/` | Browser filling: `engine.py` (pages, review rounds, Workday), `fields.py`, `verify.py` (readback and checks), `runner.py` (choosing and working through roles) |
+| `jobbot/ui/` | The dashboard: `server.py` (local API), `bridge.py` (runs `apply` for the page), `static/` |
 | `jobbot.sh` | Launcher that uses the project virtualenv |
 | `profile.example.yaml` | Template for your private profile |
 | `references/ats-registry.json` | Verified job-board API identifiers for 220+ companies |

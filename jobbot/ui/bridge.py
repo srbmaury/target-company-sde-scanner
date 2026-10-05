@@ -117,7 +117,7 @@ class WebUI:
         return bool(self._wait("confirm", False, question=msg[:1200]))
 
     def wait_for_user(self, msg):
-        self._wait("wait", None, question=msg)
+        self._wait("wait", None, question=msg.replace("press Enter here", "click Done, continue"))
 
     def next_action(self, can_submit, can_next, dry_run, check_ok=True):
         choices = (["submit"] if can_submit else []) + (["next"] if can_next else []) + ["refill", "done", "quit"]
