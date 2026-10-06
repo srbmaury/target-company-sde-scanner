@@ -143,22 +143,24 @@ def import_rows(conn, rows):
     from . import tracker
 
     added = updated = 0
+    apps = conn.execute("SELECT * FROM applications").fetchall()
     for r in rows:
-        existing = conn.execute(
-            "SELECT id, status FROM applications WHERE lower(company)=lower(?) AND lower(title)=lower(?)",
-            (r["company"], r["title"])).fetchone()
+        existing = next((a for a in apps if tracker.same_company(a["company"], r["company"])
+                         and tracker.titles_match(a["title"], r["title"])), None)
         if not existing and r["title"].startswith("(role not stated"):
             # Same company already tracked from the same day: almost certainly the same application.
             existing = conn.execute(
                 "SELECT id, status FROM applications WHERE lower(company)=lower(?) AND applied_on=?",
                 (r["company"], r["applied_on"])).fetchone()
         if existing:
-            if existing["status"] != r["status"] and r["status"] != "applied":
+            final = existing["status"] in ("offer", "withdrawn")   # set by you; an email never undoes it
+            if existing["status"] != r["status"] and r["status"] != "applied" and not final:
                 tracker.update_status(conn, existing["id"], r["status"], f"from email {r['date']}: {r['notes']}")
                 updated += 1
             continue
         tracker.add_application(conn, r["company"], r["title"], status=r["status"], source="gmail",
                                 applied_on=r["applied_on"], notes=r["notes"])
+        apps = conn.execute("SELECT * FROM applications").fetchall()
         added += 1
     return added, updated
 

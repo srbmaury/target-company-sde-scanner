@@ -206,7 +206,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"dates": dates, "date": day, "lines": text.splitlines()[-2000:]})
             if parts == ["profile"]:
                 path = paths.PROFILE
-                return self._send(200, {"path": str(path), "text": path.read_text(encoding="utf-8") if path.exists() else ""})
+                return self._send(200, {"path": str(path), "text": path.read_text(encoding="utf-8") if path.exists() else "",
+                                        "mtime": path.stat().st_mtime_ns if path.exists() else 0})
             if parts == ["tasks"]:
                 return self._send(200, sorted(TASKS.values(), key=lambda t: t["started"], reverse=True)[:20])
             if parts == ["apply"]:
@@ -259,11 +260,15 @@ class Handler(BaseHTTPRequestHandler):
                 data = yaml.safe_load(text)   # refuse to save YAML that does not parse
                 if not isinstance(data, dict) or "personal" not in data:
                     return self._send(400, {"error": "The profile must be a YAML mapping with a `personal` section."})
+                if paths.PROFILE.exists() and body.get("mtime") and body["mtime"] != paths.PROFILE.stat().st_mtime_ns:
+                    # e.g. an apply run saved a learned answer since you opened the page: don't overwrite it
+                    return self._send(409, {"error": "profile.yaml changed on disk since you opened it (an apply run may "
+                                                     "have saved a learned answer). Copy your edits, reload, and save again."})
                 if paths.PROFILE.exists():
                     shutil.copy(paths.PROFILE, paths.PROFILE.with_suffix(".yaml.bak"))
                 paths.PROFILE.write_text(text, encoding="utf-8")
                 os.chmod(paths.PROFILE, 0o600)
-                return self._send(200, {"ok": True})
+                return self._send(200, {"ok": True, "mtime": paths.PROFILE.stat().st_mtime_ns})
             if len(parts) == 2 and parts[0] == "tasks":
                 return self._send(200, start_task(parts[1]))
             if parts == ["apply"]:
