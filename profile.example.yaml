@@ -30,7 +30,11 @@ work:
   current_company: Example Corp
   current_title: Software Engineer
   start_month: "2024-06"
-  total_experience_years: 2       # whole years
+  total_experience_years: 2       # whole years, non-internship
+  # Optional, for screeners that ask per area ("design or architecture", "full software development
+  # life cycle"). Leave blank to use total_experience_years.
+  design_experience_years:
+  sdlc_experience_years:
   past_employers: [Example Corp, Previous Intern Co]
   notice_period_days: 30
   current_ctc: "INR 20 LPA fixed"
@@ -48,12 +52,14 @@ education:
   gpa: "8.0/10"
   start_year: 2020
   end_year: 2024
+  cs_or_equivalent: true           # "Bachelor's degree in computer science or equivalent?"
 
 eligibility:
   authorized_countries: [India]
   needs_sponsorship: false
   willing_to_relocate: true
   background_check_ok: true
+  government_employee: "No"      # "Are you, or have you been, a government employee or official?"
   military_service: "No"         # "Have you served in the military?" (separate from the EEO veteran answer)
 
 eeo:            # set any value to "Decline" to pick the decline-to-answer option
@@ -97,10 +103,10 @@ answers:
 # Questions jobbot never answers on its own; it asks you in the terminal every time,
 # unless an entry under `answers` matches first. Extend as needed.
 always_ask:
-  - "signature|sign here|e-?sign"
+  - "signature|sign here|\\be-?sign\\b"      # word boundaries: "design" must not match
   - "criminal|convict|felony"
   - "sanction|export control|cuba|iran|north korea|syria|crimea"
-  - "government|debar|security clearance"
+  - "debar|security clearance"   # government questions: eligibility.government_employee
   - "non-?compete|conflict of interest|related to (an|any) employee"
 
 # jobbot adds entries below as you answer new questions, and reuses them for similar questions.
