@@ -198,6 +198,35 @@ class ExcludeTest(unittest.TestCase):
         self.assertFalse(excluded("Stripe", []))
 
 
+class AutonomyTest(unittest.TestCase):
+    def test_code_from_email_text(self):
+        from jobbot.gmail import extract_code
+        self.assertEqual(extract_code("Your verification code is 482913"), "482913")
+        self.assertEqual(extract_code("482913 is your Amazon verification code"), "482913")
+        self.assertEqual(extract_code("Workday: Use code AB3D9KQ2 to verify"), "AB3D9KQ2")
+        self.assertIsNone(extract_code("Welcome to the 2026 hiring season"))
+        self.assertIsNone(extract_code("Your code: please click the link below"))
+
+    def test_draft_unknown_is_not_an_answer(self):
+        from jobbot.llm import LLM
+        m = LLM(enabled=False)
+        for reply, want in (("UNKNOWN", ""), ("The provided facts do not mention Debezium.", ""),
+                            ("No, but I have built CDC pipelines with Kafka Connect.", "No, but I have built CDC pipelines with Kafka Connect.")):
+            m.chat = lambda *a, reply=reply, **k: reply
+            self.assertEqual(m.draft("Have you used Debezium?", {}, {}, ""), want)
+
+    def test_tools_from_resume_and_signature(self):
+        prof = Profile({**PROFILE, "automation": {"auto_sign": True}}, "x")
+        prof.resume_text = lambda key: "Built services in Java and Spring Boot; Redis caching; GraphQL."
+        prof.resumes = lambda: {"backend": {}}
+        r = Resolver(prof, ask=lambda *a: None)
+        yn = ["Yes", "No"]
+        self.assertEqual(r.resolve("Have you worked with Debezium, PeerDB? ✱", "choice", options=yn).display, "No")
+        self.assertEqual(r.resolve("Do you have experience with Java and Spring Boot?", "choice", options=yn).display, "Yes")
+        self.assertIsNone(r.resolve("Are you familiar with our code of conduct?", "choice", options=yn))
+        self.assertEqual(r.resolve("Signature", "text").value, "Asha Example")
+
+
 class TrackerTest(unittest.TestCase):
     def test_lifecycle(self):
         with tempfile.TemporaryDirectory() as d:

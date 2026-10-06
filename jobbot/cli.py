@@ -189,7 +189,7 @@ def cmd_apply(args):
     if not targets:
         sys.exit("Nothing to apply to. Pass job numbers or ranges from `jobbot jobs` (12 or 12-20), URLs, "
                  "--top N, or --all.")
-    if len(targets) > 3 and not args.yes:
+    if len(targets) > 3 and not args.yes and p.get("automation.confirm_batches", True):
         print(f"About to work through {len(targets)} roles:")
         for t in targets:
             fit = "" if t.get("fit_score") is None else f"{t['fit_score']:>3}"

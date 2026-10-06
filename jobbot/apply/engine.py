@@ -10,6 +10,7 @@ Sign-in pages, verification links, and CAPTCHAs are always left to you.
 """
 
 import re
+import time
 import urllib.parse
 
 from .. import paths, tracker
@@ -184,6 +185,7 @@ class Session:
 
     def apply(self, job, resume_key):
         url = job["url"]
+        self._started = time.time()   # verification emails older than this application are ignored
         ats = detect_ats(url, job)
         self._ats = ats
         resume = self.profile.resumes().get(resume_key)
@@ -463,7 +465,7 @@ class Session:
         fields = self._fields(page)
         code_boxes = [f for f in fields if f["kind"] == "text" and CODE_RE.search(f["label"] or "")]
         if code_boxes and not all(f["value"] for f in code_boxes):
-            code = self.ui.ask_code(code_boxes[0]["label"])
+            code = self._code_from_email(page) or self.ui.ask_code(code_boxes[0]["label"])
             if code:
                 code = re.sub(r"\s+", "", code)
                 single = len(code_boxes) > 1 and all(f.get("maxlength") == 1 for f in code_boxes)
@@ -611,6 +613,26 @@ class Session:
                 else:
                     note(c, c["label"][:80], "ticked (you approved)", expected="checked", kind="consent")
         return {"filled": filled, "skipped": skipped, "records": records}
+
+    def _code_from_email(self, page):
+        """Read a verification code from your latest email (Gmail, read-only), if Gmail is connected."""
+        if not self.profile.get("automation.read_codes_from_email", True):
+            return None
+        try:
+            from .. import gmail
+            if not gmail.is_connected():
+                return None
+            host = urllib.parse.urlparse(page.url).netloc.split(".")
+            hint = next((p for p in host if p not in ("www", "careers", "jobs", "apply", "com", "in", "co", "io",
+                                                        "myworkdayjobs") and not re.fullmatch(r"wd\d+", p)), "")
+            self.ui.info("Waiting for the verification email (up to 90 s)…")
+            code = gmail.latest_code(getattr(self, "_started", 0) - 120, hint=hint, wait=90)
+        except Exception as e:   # Gmail unreachable or token revoked: fall back to asking
+            self.ui.warn(f"Could not read the code from email ({type(e).__name__}); please enter it.")
+            return None
+        if code:
+            self.ui.info(f"Verification code {code} read from your latest email.")
+        return code
 
     def _text_value(self, f, label, ans, has_dial_picker):
         if f.get("type") == "number":
