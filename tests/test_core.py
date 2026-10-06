@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
 from jobbot import tracker
 from jobbot.answers import Resolver, bucket, pick
