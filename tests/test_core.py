@@ -345,6 +345,26 @@ class MailImportTest(unittest.TestCase):
             self.assertEqual([a["status"] for a in tracker.list_applications(conn)], ["offer"])
 
 
+class UnattendedTest(unittest.TestCase):
+    def test_unattended_ui_never_blocks(self):
+        from jobbot.apply.engine import NeedsYou, UnattendedUI
+
+        class Inner:
+            def info(self, m):
+                self.last = m
+        ui = UnattendedUI(Inner())
+        self.assertIsNone(ui.ask("Security clearance?", ["Yes", "No"], True, None, "x"))
+        self.assertIsNone(ui.ask("Optional note", [], False, None, "x"))
+        self.assertEqual(ui.unanswered, ["Security clearance?"])
+        self.assertFalse(ui.confirm("Tick consent boxes?"))
+        self.assertEqual(ui.next_action(True, False, False, True, final_page=True), "hold")
+        self.assertEqual(ui.next_action(False, False, False, False, final_page=False), "quit")
+        with self.assertRaises(NeedsYou):
+            ui.wait_for_user("Sign in, then press Enter")
+        ui.info("passes through")
+        self.assertEqual(ui.inner.last, "passes through")
+
+
 class TrackerTest(unittest.TestCase):
     def test_lifecycle(self):
         with tempfile.TemporaryDirectory() as d:

@@ -39,6 +39,40 @@ CODE_RE = re.compile(r"verification code|security code|one.?time (pass)?code|\bo
 CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i confirm|confirm the statement|declare", re.I)
 
 
+class NeedsYou(Exception):
+    """Unattended mode: this application needs you (sign-in, an unanswerable question, a missing code)."""
+
+
+class UnattendedUI:
+    """Wraps a UI so a batch never stops: questions nothing answers are left blank and noted, waits for you
+    become NeedsYou, and the final page is held open (in its own tab) for you to submit at the end."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.unanswered = []
+
+    def __getattr__(self, name):          # info, warn, report go straight through
+        return getattr(self.inner, name)
+
+    def ask(self, question, options, required, suggestion, reason):
+        if required:
+            self.unanswered.append(question[:120])
+        return None
+
+    def ask_code(self, prompt):
+        self.unanswered.append("verification code (none arrived by email)")
+        return None
+
+    def confirm(self, msg):
+        return False                       # consent follows automation.auto_consent; never "submit anyway"
+
+    def wait_for_user(self, msg):
+        raise NeedsYou(msg)
+
+    def next_action(self, can_submit, can_next, dry_run, check_ok=True, final_page=False):
+        return "hold" if final_page and check_ok else "quit"
+
+
 # --- where to start for each applicant-tracking system --------------------------------
 
 # Application flows jobbot knows how to drive. Jobs found through other sources (Amazon, Google, Oracle,
@@ -135,10 +169,12 @@ def _owning_jobbot(chrome_pid):
 
 
 class Session:
-    def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True):
+    def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True, unattended=False):
         self.profile = profile
         self.llm = llm
-        self.ui = ui
+        self.unattended = unattended
+        self.ui = UnattendedUI(ui) if unattended else ui
+        self.ready = {}   # url -> (page, ats): unattended applications filled, checked and waiting for your Submit
         self.dry_run = dry_run
         self.upload = upload
         self.auto_next = auto_next
@@ -184,18 +220,74 @@ class Session:
     # --- one application ---------------------------------------------------------
 
     def apply(self, job, resume_key):
+        if not self.unattended:
+            return self._apply(job, resume_key)
+        self.ui.unanswered = []
+        self._page = None
+        try:
+            status, note = self._apply(job, resume_key)
+        except Exception:
+            self._close(self._page)
+            raise
+        if status == "ready":
+            self.ready[job["url"]] = (self._page, self._ats)
+            return status, note
+        self._close(self._page)
+        if self.ui.unanswered:
+            raise NeedsYou("unanswered: " + "; ".join(dict.fromkeys(self.ui.unanswered)))
+        return status, note
+
+    @staticmethod
+    def _close(page):
+        try:
+            if page and not page.is_closed():
+                page.close()
+        except Exception:
+            pass
+
+    def submit_ready(self, url):
+        """Submit an application held open by an unattended run. Returns (status, note)."""
+        page, ats = self.ready.pop(url)
+        page.bring_to_front()
+        self._click(page, WORKDAY_SUBMIT_RE if ats == "workday" else SUBMIT_RE)
+        page.wait_for_timeout(6000)
+        confirmed = self._confirmation(page)
+        if confirmed:
+            self._close(page)
+            return "applied", confirmed
+        after = check_page(page, [], [], [])
+        if after.errors or after.captcha:
+            self.ready[url] = (page, ats)   # still open: fix it in the tab and try again, or submit it yourself
+            return None, "the site did not accept it: " + "; ".join(after.lines()[:2])
+        return "applied", "submitted; no confirmation text seen, check the tab"
+
+    def discard_ready(self, url):
+        page, _ = self.ready.pop(url, (None, None))
+        self._close(page)
+
+    def _apply(self, job, resume_key):
         url = job["url"]
         self._started = time.time()   # verification emails older than this application are ignored
         ats = detect_ats(url, job)
         self._ats = ats
         resume = self.profile.resumes().get(resume_key)
-        page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
+        if self.unattended:   # each application in its own tab, so finished ones can wait for your Submit
+            blank = [p for p in self.ctx.pages if p.url == "about:blank" and p not in [r[0] for r in self.ready.values()]]
+            page = blank[0] if blank else self.ctx.new_page()
+            self._page = page
+        else:
+            page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
         page.bring_to_front()
         page.goto(start_url(url, ats, job), wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
         self.ui.info(f"{job['company']} — {job['title']}  [{ats}]  resume: {resume_key}")
 
-        page = self._enter_form(page, ats) or page
+        entered = self._enter_form(page, ats) or page
+        if self.unattended and entered is not page:
+            self._close(page)   # Apply opened the form in a new tab: don't leave the posting behind
+        page = entered
+        if self.unattended:
+            self._page = page
         if resume and self.upload:
             self._upload_resume(page, resume["path"], ats)
 
@@ -258,6 +350,12 @@ class Session:
                 continue
             if choice == "done":
                 return "applied", "you submitted it in the browser"
+            if choice == "hold":
+                if self.dry_run:
+                    return None, "dry run: ready to submit"
+                return "ready", "filled and checked; waiting for your Submit"
+            if self.unattended and not check.ok:
+                self.ui.unanswered.extend(check.lines()[:3])
             return None, "stopped without submitting"
         return None, f"stopped after {MAX_PAGES} pages"
 

@@ -172,7 +172,7 @@ def cmd_rank(args):
 
 def cmd_apply(args):
     from .apply.engine import Session
-    from .apply.runner import run_jobs, select_targets
+    from .apply.runner import review_ready, run_jobs, select_targets
     from .apply.ui import TerminalUI
 
     p, conn, model = _profile(), tracker.connect(), _llm(args)
@@ -191,7 +191,7 @@ def cmd_apply(args):
                  "--top N, or --all.")
     if not p.resumes():
         sys.exit("No resume files found; fix `resumes:` in your profile.")
-    if len(targets) > 3 and not args.yes and p.get("automation.confirm_batches", True):
+    if len(targets) > 3 and not (args.yes or args.unattended) and p.get("automation.confirm_batches", True):
         print(f"About to work through {len(targets)} roles:")
         for t in targets:
             fit = "" if t.get("fit_score") is None else f"{t['fit_score']:>3}"
@@ -203,11 +203,14 @@ def cmd_apply(args):
 
     ui = TerminalUI()
     with Session(p, model, ui, dry_run=args.dry_run, upload=not args.no_upload,
-                 auto_next=not args.no_auto_next) as session:
+                 auto_next=not args.no_auto_next, unattended=args.unattended) as session:
         try:
-            run_jobs(session, conn, p, targets, ui, resume=args.resume, dry_run=args.dry_run,
-                     confirm_possible=True,   # -y skips the batch list only, never the duplicate check
-                     on_job=lambda n, total, job: print(f"\n=== [{n}/{total}] {job['company']} — {job['title']} ==="))
+            results = run_jobs(session, conn, p, targets, session.ui, resume=args.resume, dry_run=args.dry_run,
+                               confirm_possible=True,   # -y skips the batch list only, never the duplicate check
+                               on_job=lambda n, total, job: print(f"\n=== [{n}/{total}] {job['company']} — {job['title']} ==="))
+            if args.unattended:
+                print("\n=== Review ===")
+                review_ready(session, conn, results, ui, resume=args.resume)
         except KeyboardInterrupt:
             print("\nStopped.")
 
@@ -400,6 +403,9 @@ def build_parser():
     sp.add_argument("--force", action="store_true", help="reopen roles already marked applied")
     sp.add_argument("--no-auto-next", action="store_true",
                     help="stop after every page instead of moving on when the check passes")
+    sp.add_argument("--unattended", action="store_true",
+                    help="never stop: jobs that need you are listed at the end, and each finished application waits "
+                         "in its own tab for your Submit")
     sp.set_defaults(fn=cmd_apply)
 
     sp = sub.add_parser("ui", help="open the local dashboard in your browser")

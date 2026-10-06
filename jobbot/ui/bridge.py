@@ -134,7 +134,7 @@ def current():
     return CURRENT["run"]
 
 
-def start(keys, dry_run=False, auto_next=True, resume=None, use_llm=True, force=False):
+def start(keys, dry_run=False, auto_next=True, resume=None, use_llm=True, force=False, unattended=False):
     """Start an apply run in a background thread. Raises ValueError if one is active."""
     with START_LOCK:
         run = CURRENT["run"]
@@ -143,13 +143,14 @@ def start(keys, dry_run=False, auto_next=True, resume=None, use_llm=True, force=
         run = ApplyRun()
         run.dry_run = dry_run
         CURRENT["run"] = run
-    threading.Thread(target=_work, args=(run, keys, dry_run, auto_next, resume, use_llm, force), daemon=True).start()
+    threading.Thread(target=_work, args=(run, keys, dry_run, auto_next, resume, use_llm, force, unattended),
+                     daemon=True).start()
     return run
 
 
-def _work(run, keys, dry_run, auto_next, resume, use_llm, force):
+def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=False):
     from ..apply.engine import Session
-    from ..apply.runner import run_jobs, select_targets
+    from ..apply.runner import review_ready, run_jobs, select_targets
 
     ui = WebUI(run)
     try:
@@ -177,9 +178,13 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force):
         def on_result(job, status, note, app_id):
             run.results[job["url"]] = {"status": status, "note": note, "application": app_id}
 
-        with Session(prof, model, ui, dry_run=dry_run, upload=True, auto_next=auto_next) as session:
-            run_jobs(session, conn, prof, targets, ui, resume=resume, dry_run=dry_run, confirm_possible=True,
-                     should_stop=lambda: run.stop_requested, on_job=on_job, on_result=on_result)
+        with Session(prof, model, ui, dry_run=dry_run, upload=True, auto_next=auto_next, unattended=unattended) as session:
+            results = run_jobs(session, conn, prof, targets, session.ui, resume=resume, dry_run=dry_run,
+                               confirm_possible=True, should_stop=lambda: run.stop_requested, on_job=on_job,
+                               on_result=on_result)
+            if unattended and not run.stop_requested:
+                run.current = None
+                review_ready(session, conn, results, ui, resume=resume, on_result=on_result)
         run.status = "stopped" if run.stop_requested else "done"
     except SystemExit as e:          # e.g. jobbot's browser is already open in another run
         run.log("warn", str(e))
