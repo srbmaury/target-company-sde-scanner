@@ -1,5 +1,7 @@
 # Target-Company SDE Scanner
 
+[![tests](https://github.com/srbmaury/target-company-sde-scanner/actions/workflows/tests.yml/badge.svg)](https://github.com/srbmaury/target-company-sde-scanner/actions/workflows/tests.yml)
+
 **Find, rank, apply to, and track software-engineering roles: free, local, and private.**
 
 Built for candidates with roughly 1–3 years of experience. It reads open roles from 300+ target
@@ -139,7 +141,8 @@ it, jobbot falls back to keyword matching. Treat scores as a sort order rather t
 
 **`apply`** takes job numbers or ranges from `jobs`, a posting URL, `--top N` for the N best-ranked
 roles, or `--all`. It skips roles you have already applied to or dismissed. Before a batch of more
-than 3 roles it lists them and asks you to confirm (`-y` skips this). See the next section.
+than 3 roles it lists them and asks you to confirm (`-y` skips this list; it never skips the "you may have
+applied already" check). See the next section.
 
 ---
 
@@ -401,6 +404,8 @@ Environment variables: `JOBBOT_PROFILE` (default `./profile.yaml`), `JOBBOT_HOME
   repository folder. The tracker database (`applications.db`) and browser profile live in
   `~/.jobbot/`. The only network traffic is to the job boards themselves, to Google's Gmail API if
   you connect Gmail, and to Ollama on localhost.
+- **Your data folder is private.** `~/.jobbot` (tracker, logs with the values filled into forms, Gmail token,
+  browser profile) is readable by your user account only.
 - **No automatic submits.** The final Submit always needs your keypress, or your click in the dashboard.
 - **No passwords.** jobbot never reads, stores, or types passwords, and skips password fields.
   Gmail uses Google's own sign-in page with read-only access, and you can revoke it with

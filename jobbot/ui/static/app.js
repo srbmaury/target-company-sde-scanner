@@ -393,12 +393,14 @@ async function loadProfile() {
   $("#profile-path").textContent = p.path;
   $("#profile-text").value = p.text;
   $("#profile-msg").textContent = "";
+  state.profileMtime = p.mtime;
 }
 
 async function saveProfile() {
   const msg = $("#profile-msg");
   try {
-    await api("profile", { text: $("#profile-text").value });
+    const r = await api("profile", { text: $("#profile-text").value, mtime: state.profileMtime });
+    state.profileMtime = r.mtime;
     msg.textContent = "Saved."; msg.style.color = "var(--good)";
   } catch (e) {
     msg.textContent = e.message; msg.style.color = "var(--bad)";

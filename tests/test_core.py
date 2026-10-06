@@ -333,6 +333,18 @@ class DropdownTest(unittest.TestCase):
             self.assertTrue(m.remember("Do you have a good internet connection?", "Yes", company="Go Digit"))
 
 
+class MailImportTest(unittest.TestCase):
+    def test_email_matches_existing_and_never_downgrades_offer(self):
+        from jobbot import mailimport
+        with tempfile.TemporaryDirectory() as d:
+            conn = tracker.connect(os.path.join(d, "t.db"))
+            tracker.add_application(conn, "Salesforce", "Software Development Engineer 2", status="offer")
+            rows = [{"company": "Salesforce India", "title": "SDE II", "status": "interview", "date": "2026-10-01",
+                     "applied_on": "2026-09-01", "notes": "Interview reminder"}]
+            self.assertEqual(mailimport.import_rows(conn, rows), (0, 0))
+            self.assertEqual([a["status"] for a in tracker.list_applications(conn)], ["offer"])
+
+
 class TrackerTest(unittest.TestCase):
     def test_lifecycle(self):
         with tempfile.TemporaryDirectory() as d:
