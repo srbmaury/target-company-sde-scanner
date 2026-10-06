@@ -264,6 +264,47 @@ class AutonomyTest(unittest.TestCase):
         self.assertEqual(r.resolve("Signature", "text").value, "Asha Example")
 
 
+class ReviewFixesTest(unittest.TestCase):
+    def test_employer_needs_same_company_not_substring(self):
+        prof = Profile({**PROFILE, "work": {**PROFILE["work"], "past_employers": ["Salesforce", "Razorpay"]}}, "x")
+        yn = ["Yes", "No"]
+        r = Resolver(prof, job={"company": "Sales Hub"}, ask=lambda *a: None)
+        self.assertEqual(r.resolve("Have you worked at Sales Hub before?", "choice", options=yn).display, "No")
+        r = Resolver(prof, job={"company": "Salesforce India"}, ask=lambda *a: None)
+        self.assertEqual(r.resolve("Have you previously worked for Salesforce?", "choice", options=yn).display, "Yes")
+
+    def test_tech_years_whole_words(self):
+        prof = Profile(PROFILE, "x")
+        prof.resume_text = lambda key: "Built a Google Cloud pipeline; good test coverage; Java."
+        prof.resumes = lambda: {"backend": {}}
+        r = Resolver(prof, ask=lambda *a: None)
+        self.assertEqual(r.resolve("Years of experience with Go", "text").value, "0")
+        self.assertEqual(r.resolve("Years of experience with Java", "text").value, "2")
+
+    def test_hear_never_defaults_to_first_option(self):
+        r = Resolver(Profile({**PROFILE, "preferences": {"how_did_you_hear": "Company website"}}, "x"))
+        self.assertEqual(r.resolve("How did you hear about us?", "choice",
+                                   options=["Employee Referral", "Agency", "Other"]).display, "Other")
+        self.assertIsNone(r.resolve("How did you hear about us?", "choice", options=["Employee Referral", "Agency"]))
+        self.assertEqual(r.resolve("How did you hear about us?", "choice", options=["Employee Referral", "Event"]).display,
+                         "Event")
+
+    def test_exclude_is_exact(self):
+        self.assertFalse(excluded("Metabase", ["Meta"]))
+        self.assertTrue(excluded("Meta Platforms Inc", ["Meta"]))
+        self.assertFalse(excluded("Uberall", ["Uber"]))
+
+    def test_import_unknown_status(self):
+        with tempfile.TemporaryDirectory() as d:
+            conn = tracker.connect(os.path.join(d, "t.db"))
+            path = os.path.join(d, "in.csv")
+            with open(path, "w") as fh:
+                fh.write("company,title,status\nAcme,SDE II,Applied - phone screen\nBeta,SDE,interviewing\n")
+            self.assertEqual(tracker.import_csv(conn, path), 2)
+            got = {a["company"]: a["status"] for a in tracker.list_applications(conn)}
+            self.assertEqual(got, {"Acme": "applied", "Beta": "interview"})   # "interviewing" -> interview
+
+
 class TrackerTest(unittest.TestCase):
     def test_lifecycle(self):
         with tempfile.TemporaryDirectory() as d:

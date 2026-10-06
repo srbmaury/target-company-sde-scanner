@@ -85,7 +85,9 @@ def load_client(path=None):
 def _save_token(token):
     paths.ensure_home()
     path = token_path()
-    path.write_text(json.dumps(token))
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # never readable by others, even briefly
+    with os.fdopen(fd, "w") as fh:
+        fh.write(json.dumps(token))
     os.chmod(path, 0o600)
 
 

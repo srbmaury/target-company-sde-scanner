@@ -189,6 +189,8 @@ def cmd_apply(args):
     if not targets:
         sys.exit("Nothing to apply to. Pass job numbers or ranges from `jobbot jobs` (12 or 12-20), URLs, "
                  "--top N, or --all.")
+    if not p.resumes():
+        sys.exit("No resume files found; fix `resumes:` in your profile.")
     if len(targets) > 3 and not args.yes and p.get("automation.confirm_batches", True):
         print(f"About to work through {len(targets)} roles:")
         for t in targets:
@@ -198,15 +200,13 @@ def cmd_apply(args):
             print(f"  {num:>5} {fit:>3}  {_short(t['company'], 22):22s} {_short(t['title'], 60)}{flag}")
         if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
             sys.exit("Cancelled.")
-    if not p.resumes():
-        sys.exit("No resume files found; fix `resumes:` in your profile.")
 
     ui = TerminalUI()
     with Session(p, model, ui, dry_run=args.dry_run, upload=not args.no_upload,
                  auto_next=not args.no_auto_next) as session:
         try:
             run_jobs(session, conn, p, targets, ui, resume=args.resume, dry_run=args.dry_run,
-                     confirm_possible=not args.yes,
+                     confirm_possible=True,   # -y skips the batch list only, never the duplicate check
                      on_job=lambda n, total, job: print(f"\n=== [{n}/{total}] {job['company']} — {job['title']} ==="))
         except KeyboardInterrupt:
             print("\nStopped.")
