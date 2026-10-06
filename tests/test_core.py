@@ -6,7 +6,8 @@ from jobbot import tracker
 from jobbot.answers import Resolver, pick
 from jobbot.profile import Profile
 from jobbot.rank import keyword_rank
-from jobbot.scan import classify, stated_years
+from jobbot.careers_page import jobs_in_json
+from jobbot.scan import _pick, classify, stated_years
 
 PROFILE = {
     "personal": {"first_name": "Asha", "last_name": "Example", "email": "a@example.com", "phone": "9876543210",
@@ -86,6 +87,25 @@ class ScanParsingTest(unittest.TestCase):
         self.assertEqual(classify(job, loc, 3)[0], "2+ yrs stated")
         self.assertIsNone(classify({**job, "title": "Senior Software Engineer"}, loc, 3))
         self.assertIsNone(classify({**job, "title": "Backend Engineer - 5+ Years"}, loc, 3))
+        self.assertEqual(classify({**job, "title": "Site Reliability Engineer (1 to 4 Years)", "text": ""}, loc, 3)[0],
+                         "1+ yrs in title")
+
+    def test_json_feed_fields(self):
+        item = {"title": "SDE II", "portalJobPost": {"portalUrl": "https://x.test/1"}, "locations": ["Pune", "Remote"]}
+        self.assertEqual(_pick(item, "portalJobPost.portalUrl|applyUrl"), "https://x.test/1")
+        self.assertEqual(_pick(item, "missing|locations"), "Pune; Remote")
+        self.assertEqual(_pick(item, "missing"), "")
+
+    def test_jobs_in_json(self):
+        payload = {"data": {"search": {"all_jobs": [
+            {"id": "101", "title": "Software Engineer, Infra", "locations": ["Bangalore, India"]},
+            {"id": "102", "title": "Production Engineer", "locations": ["Hyderabad, India"]},
+            {"id": "103", "title": "Data Scientist", "location": {"city": "Pune", "country": "India"}}]},
+            "filters": [{"name": "Engineering"}, {"name": "Sales"}]}}
+        jobs = jobs_in_json(payload)
+        self.assertEqual([j["id"] for j in jobs], ["101", "102", "103"])
+        self.assertEqual(jobs[0]["location"], "Bangalore, India")
+        self.assertIn("Pune", jobs[2]["location"])
 
 
 class TrackerTest(unittest.TestCase):

@@ -26,6 +26,7 @@ JOBISH = re.compile(r"job|career|position|opening|role|requisition|vacanc|apply|
 SKIP = re.compile(r"linkedin\.com|facebook\.com|twitter\.com|x\.com/|instagram\.com|youtube\.com|glassdoor|mailto:|"
                   r"/blog|/news|/press|/events?/|privacy|cookie|terms", re.I)
 ROLE = re.compile(r"\bengineers?\b|developer|\bsde\b|\bsdet\b|programmer|architect|scientist|swe\b", re.I)
+NAV = re.compile(r"^(for )?developers?\b|\b(hub|tools|docs|documentation|portal|api|sdk|community|blog)\s*$", re.I)
 MAX_LINKS = 40          # postings read per company
 PAGE_TIMEOUT = 30000
 
@@ -140,7 +141,7 @@ async def _company(ctx, name, entry, rules, sem):
         lines = [ln.strip() for ln in x["text"].splitlines() if ln.strip()]
         title = next((ln for ln in lines if ROLE.search(ln)), "")[:140]
         href = x["href"].split("#")[0]
-        if not title or href in seen or SKIP.search(href) or not JOBISH.search(href):
+        if not title or NAV.search(title) or href in seen or SKIP.search(href) or not JOBISH.search(href):
             continue
         if not engineering.search(title) or not_engineering.search(title) or senior.search(title):
             continue
@@ -180,11 +181,13 @@ async def _scan_all(entries, rules, workers, on_done):
         ctx = await browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) "
                        "Chrome/129 Safari/537.36", locale="en-US")
-        sem = asyncio.Semaphore(workers)
+        sem = asyncio.Semaphore(workers * 2)      # open browser tabs
+        companies = asyncio.Semaphore(workers)    # companies in progress; the time limit starts once one begins
 
         async def one(name, entry):
             try:
-                jobs = await asyncio.wait_for(_company(ctx, name, entry, rules, sem), timeout=240)
+                async with companies:
+                    jobs = await asyncio.wait_for(_company(ctx, name, entry, rules, sem), timeout=180)
             except Exception as e:  # timeouts, blocked sites, redesigned pages
                 on_done(name, e)
             else:

@@ -408,14 +408,18 @@ def _pick(item, spec):
         for key in path.split("."):
             value = value.get(key) if isinstance(value, dict) else None
         if value:
-            return "; ".join(map(str, value)) if isinstance(value, list) else str(value)
+            if isinstance(value, list):  # e.g. offices: [{"name": ..., "location": "Bengaluru, India"}]
+                return "; ".join(str(v.get("location") or v.get("name") or "") if isinstance(v, dict) else str(v)
+                                 for v in value)
+            return str(value)
     return ""
 
 
 def json_feed(entry, queries, location_re):
     """A careers site's own JSON job list, described in the registry entry:
     {"url", "list" (path to the array, "" for the root), "title", "location", "link", "text" (list of specs),
-    "posted", "only" ({field: value} filter)}."""
+    "posted", "only" ({field: value} filter), "job_url" (template like "https://x.com/jobs/{id}" when
+    records carry no link)}."""
     d = http_json(entry["url"])
     items = d
     for key in filter(None, entry.get("list", "").split(".")):
@@ -426,14 +430,74 @@ def json_feed(entry, queries, location_re):
         yield {
             "title": _pick(item, entry.get("title", "title")),
             "location": _pick(item, entry.get("location", "location")),
-            "url": _pick(item, entry.get("link", "url")),
+            "url": _pick(item, entry.get("link", "url")) or entry.get("job_url", "").format_map(
+                {k: v for k, v in item.items() if isinstance(v, (str, int))}),
             "text": text_of(" ".join(_pick(item, t) for t in entry.get("text", []))),
             "posted": _pick(item, entry.get("posted", ""))[:10],
         }
 
 
+def keka(entry, queries, location_re):
+    """Keka Hire career portals ({id}.keka.com/careers), common with Indian startups."""
+    base = f"https://{entry['id']}.keka.com/careers"
+    for j in http_json(f"{base}/api/jobs/default/active"):
+        locs = "; ".join(", ".join(filter(None, [x.get("city"), x.get("state"), x.get("countryName") or x.get("name")]))
+                         for x in j.get("jobLocations") or [])
+        yield {
+            "title": j.get("title", ""),
+            "location": locs,
+            "url": f"{base}/jobdetails/{j['id']}",
+            "text": (f"Experience: {j['experience']} of experience. " if j.get("experience") else "")
+                    + text_of(j.get("description")),
+            "posted": (j.get("publishedOn") or "")[:10],
+        }
+
+
+def freshteam(entry, queries, location_re):
+    """Freshteam job boards ({id}.freshteam.com/jobs): titles from the list page, text from each posting."""
+    base = f"https://{entry['id']}.freshteam.com"
+    page = http_text(f"{base}/jobs")
+    seen = {}
+    for path, where, title in re.findall(
+            r'href="(/jobs/[A-Za-z0-9_-]+/[^"]+)"[^>]*?data-portal-location="([^"]*)".*?job-title">([^<]+)<', page, re.S):
+        seen.setdefault(path, (html.unescape(title).strip(), html.unescape(where)))
+    for path, (title, where) in seen.items():
+        if not worth_details(title, where, location_re):
+            continue
+        try:
+            body = http_text(base + path)
+        except Exception:
+            continue
+        yield {"title": title, "location": where, "url": base + path, "text": text_of(body.split("<form")[0])[:12000],
+               "posted": ""}
+
+
+def jibe(entry, queries, location_re):
+    """Jibe career sites (AMD and others): /api/jobs search with full descriptions."""
+    host = entry["host"]
+    seen = {}
+    for q in queries:
+        for page in range(1, 11):
+            d = http_json(f"https://{host}/api/jobs?" + urllib.parse.urlencode(
+                {"keywords": q, "location": "India", "page": page}))
+            jobs = [x.get("data") or {} for x in d.get("jobs", [])]
+            for j in jobs:
+                seen.setdefault(j.get("slug") or j.get("req_id"), j)
+            if not jobs or page * len(jobs) >= d.get("totalCount", 0):
+                break
+    for slug, j in seen.items():
+        yield {
+            "title": j.get("title", ""),
+            "location": j.get("full_location") or j.get("location_name", ""),
+            "url": entry.get("job_url", "https://{host}/careers-home/jobs/{slug}").format(host=host, slug=slug),
+            "text": text_of(" ".join(j.get(k) or "" for k in ("qualifications", "responsibilities", "description"))),
+            "posted": (j.get("posted_date") or "")[:10],
+        }
+
+
 SEARCH_ADAPTERS = {"microsoft": microsoft, "eightfold": eightfold, "amazon": amazon, "google": google,
-                   "apple": apple, "oracle": oracle, "workable": workable, "json-feed": json_feed}
+                   "apple": apple, "oracle": oracle, "workable": workable, "json-feed": json_feed,
+                   "keka": keka, "freshteam": freshteam, "jibe": jibe}
 
 
 def fetch(name, entry, queries, location_re):
