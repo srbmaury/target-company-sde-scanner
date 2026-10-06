@@ -224,7 +224,7 @@ class Session:
                 choice = "next"
             else:
                 choice = self.ui.next_action(can_submit=can_submit and not self.dry_run, can_next=can_next,
-                                             dry_run=self.dry_run, check_ok=check.ok)
+                                             dry_run=self.dry_run, check_ok=check.ok, final_page=can_submit)
             if choice == "submit" and not check.ok and not self.ui.confirm(
                     "The check still shows problems. Submit anyway?"):
                 continue

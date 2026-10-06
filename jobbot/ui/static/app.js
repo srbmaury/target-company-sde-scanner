@@ -212,7 +212,7 @@ function renderPrompt(p) {
     const labels = { submit: "Submit application", next: "Next step", refill: "Re-fill this page", done: "I submitted it myself", quit: "Quit without submitting" };
     const head = p.final ? "Final step: every check passed" : p.check_ok ? "Review the page in Chrome" : "The check found problems";
     html = `<div class="prompt ${p.final ? "final" : ""}"><h4>${esc(head)}</h4>
-      <div class="q">${p.final ? "Look over the application in the Chrome window, then submit." : "Fix anything in the Chrome window if needed, then choose:"}</div>
+      <div class="q">${p.final ? (p.dry_run ? "Dry run: this is the last page and nothing will be submitted. Look it over in Chrome, then quit." : "Look over the application in the Chrome window, then submit.") : "Fix anything in the Chrome window if needed, then choose:"}</div>
       <div class="actions">${p.choices.map((c) => `<button data-answer="${c}" class="${c === "submit" ? "primary" : ""}">${esc(labels[c] || c)}</button>`).join("")}</div>
       ${p.dry_run ? `<p class="reason">Dry run: submitting is disabled.</p>` : ""}</div>`;
   } else if (p.kind === "confirm") {

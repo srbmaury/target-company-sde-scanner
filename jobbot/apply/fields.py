@@ -39,7 +39,14 @@ SCAN_JS = r"""
       if (l && textOf(l)) return textOf(l);
     }
     const wrap = el.closest('label');
-    if (wrap && textOf(wrap)) return textOf(wrap);
+    if (wrap) {
+      // A label that wraps its control also "contains" the control's text (a select's options, a
+      // textarea's value): read the label without them.
+      const copy = wrap.cloneNode(true);
+      copy.querySelectorAll('select, option, textarea, input, button, [role="listbox"], [role="option"]').forEach(x => x.remove());
+      const t = clean(copy.textContent);
+      if (t) return t;
+    }
     const aria = el.getAttribute('aria-label');
     if (aria) return clean(aria);
     let node = el;
