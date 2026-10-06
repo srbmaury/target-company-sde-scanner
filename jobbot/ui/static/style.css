@@ -117,7 +117,21 @@ dialog ol.history { padding-left: 18px; color: var(--muted); max-height: 220px; 
 .queue { padding-left: 20px; margin: 0; } .queue li { margin: 6px 0; }
 .queue li.now { font-weight: 650; } .queue .sub { color: var(--muted); font-size: 12px; display: block; }
 
+.docs-grid { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; }
+.docs-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 70px; align-self: start; }
+.docs-nav a { color: var(--muted); text-decoration: none; padding: 5px 8px; border-radius: 6px; }
+.docs-nav a.on, .docs-nav a:hover { background: var(--chip); color: var(--text); }
+.md { line-height: 1.6; max-width: 820px; overflow-wrap: anywhere; }
+.md h1 { font-size: 22px; margin: 4px 0 12px; } .md h2 { font-size: 17px; margin: 24px 0 8px; } .md h3 { font-size: 15px; margin: 18px 0 6px; }
+.md code { background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+.md pre { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow-x: auto; }
+.md pre code { background: none; padding: 0; }
+.md a { color: var(--accent); }
+.md blockquote { margin: 10px 0; padding: 6px 12px; border-left: 3px solid var(--accent); background: var(--bg); }
+.md table { margin: 10px 0; } .md hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
+
 @media (max-width: 720px) {
+  .docs-grid { grid-template-columns: 1fr; } .docs-nav { position: static; flex-direction: row; flex-wrap: wrap; }
   .run-grid { grid-template-columns: 1fr; }
   .top { gap: 8px; padding: 10px 16px; } .status { margin-left: 0; width: 100%; }
   main { padding: 12px 16px 32px; }

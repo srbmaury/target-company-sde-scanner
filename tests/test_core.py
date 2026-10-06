@@ -410,6 +410,17 @@ class AnswerLogAndCapTest(unittest.TestCase):
             self.assertTrue(any("Daily limit" in w for w in warned))
 
 
+class DocsTabTest(unittest.TestCase):
+    def test_docs_pages_only_from_docs_folder(self):
+        from jobbot.ui.server import doc_page, docs_index
+        names = [p["name"] for p in docs_index()]
+        self.assertEqual(names[0], "README")
+        self.assertIn("apply", names)
+        self.assertIn("Unattended mode", doc_page("apply")["text"])
+        for bad in ("../README", "..", "../profile", "apply.md", "a/b", ""):
+            self.assertIsNone(doc_page(bad), bad)
+
+
 class TrackerTest(unittest.TestCase):
     def test_lifecycle(self):
         with tempfile.TemporaryDirectory() as d:

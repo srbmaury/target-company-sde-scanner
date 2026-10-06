@@ -18,6 +18,7 @@
       <button role="tab" data-tab="actions">Actions</button>
       <button role="tab" data-tab="logs">Logs</button>
       <button role="tab" data-tab="profile">Profile</button>
+      <button role="tab" data-tab="docs">Docs</button>
     </nav>
     <div class="status" id="status"></div>
   </header>
@@ -117,6 +118,10 @@
     </section>
 
     <!-- Profile -->
+    <section class="panel" id="tab-docs" hidden>
+      <div class="docs-grid"><nav id="docs-nav" class="docs-nav"></nav><article id="docs-page" class="md"></article></div>
+    </section>
+
     <section class="panel" id="tab-profile" hidden>
       <div class="toolbar"><span class="muted" id="profile-path"></span>
         <button class="primary" id="profile-save">Save</button><span id="profile-msg"></span></div>
