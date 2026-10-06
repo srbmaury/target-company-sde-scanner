@@ -75,6 +75,9 @@ OTHER_PERSON_RE = re.compile(r"referr(er|al|ed by)|\breference\b|emergency|next 
                              r"\bspouse\b|relative|guardian|parent'?s|supervisor|family member|immediate family", re.I)
 
 
+SIGN_RE = re.compile(r"signature|sign here|\be-?sign|type your (full |legal )?name to (sign|confirm|acknowledge)", re.I)
+
+
 def yes_no(flag):
     return "Yes" if flag else "No"
 
@@ -156,6 +159,22 @@ class Resolver:
             words = [w for w in re.findall(r"[a-z0-9+#.]+", tech) if len(w) > 1]
             return experience_years() if words and all(w in corpus for w in words) else "0"
 
+        def used_tech(question):
+            """'Have you worked with Debezium, PeerDB?': Yes only if your resumes mention every tool named."""
+            m = re.search(r"(?:worked|experience|familiar|hands.?on|used|built|exposure)\s+(?:\w+\s+){0,3}?"
+                          r"(?:with|in|on|using)\s+(.+?)\??\s*[*✱]?\s*$", question, re.I)
+            if not m:
+                return None
+            tools = [t.strip(" .?") for t in re.split(r",|/|\bor\b|\band\b", m.group(1)) if t.strip(" .?")]
+            if not tools or len(tools) > 6 or any(len(t) > 30 or len(t.split()) > 3 or re.search(
+                    r"\b(our|the|your|this|these|its|company|policy|policies|role|position|team|process|people|"
+                    r"customers?|clients?|stakeholders?|environment|industry|domain)\b", t, re.I) for t in tools):
+                return None   # a sentence, not a list of tools: leave it to the model
+            corpus = " ".join(p.resume_text(k).lower() for k in p.resumes())
+            if not corpus:
+                return None
+            return yes_no(all(re.search(rf"(?<![a-z0-9]){re.escape(t.lower())}(?![a-z0-9])", corpus) for t in tools))
+
         willing = lambda: yes_no(g("eligibility.willing_to_relocate", True))  # noqa: E731
 
         def open_to_place():
@@ -201,6 +220,8 @@ class Resolver:
              lambda: yes_no(float(g("work.total_experience_years", 0) or 0) > 0 or bool(p.resumes()))),
             (r"bachelor.?s degree in computer science|degree in (computer science|cs)\b|computer science or (an? )?(equivalent|related)",
              lambda: None if g("education.cs_or_equivalent") is None else yes_no(g("education.cs_or_equivalent"))),
+            (r"^(do|have|are) you (have )?(any )?(worked|work|experience|familiar|hands.?on|used|built|exposure)\b",
+             lambda: used_tech(self._q)),
             (r"years of (hands.?on |professional )?experience (with|in|using|on)|how many years.*(with|in|using|on) ",
              lambda: tech_years(self._q)),
             (r"years of (professional |relevant |total |industry |work )?experience|how many years", experience_years),
@@ -284,6 +305,9 @@ class Resolver:
         for pattern, value in self.custom:
             if pattern.search(question):
                 return self._fit(value, kind, options, "profile")
+
+        if self.p.get("automation.auto_sign") and kind in ("text", "textarea") and SIGN_RE.search(question):
+            return Answer(self.p.full_name, "profile")   # your typed signature; Submit stays yours
 
         if any(p.search(question) for p in self.always_ask):
             return self._once(question, kind, options, lambda: self._ask(

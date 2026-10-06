@@ -100,6 +100,14 @@ class LLM:
             f"Job: {job.get('title')} at {job.get('company')}\n{(job.get('description') or '')[:2500]}\n\n"
             f"Application question: {question}\n\n"
             f"Write the candidate's answer in first person, at most {max_words} words, plain text, no "
-            "greeting or sign-off. Use only the facts above."
+            "greeting or sign-off. Use only the facts above. A yes/no question about a skill or tool the "
+            "resume does not mention is answered \"No\" (optionally naming the closest related experience). "
+            "If the facts give no basis at all for an answer, reply with exactly UNKNOWN."
         )
-        return self.chat(GROUNDING, prompt, temperature=0.4)
+        out = self.chat(GROUNDING, prompt, temperature=0.4).strip()
+        # "UNKNOWN", or a refusal like "The provided facts don't say", is not an answer to put in a form
+        if re.fullmatch(r"\W*unknown\W*", out, re.I) or re.search(
+                r"(facts|information|profile|resume) (provided |given )?(do(es)? not|don.t|doesn.t) "
+                r"(say|mention|specify|include|answer|provide)|not enough information|cannot (determine|answer)", out, re.I):
+            return ""
+        return out

@@ -91,6 +91,9 @@ resumes:
 automation:
   auto_accept_drafts: true   # use the local model's drafts for free-text questions without asking
   auto_consent: false        # tick privacy/consent boxes without asking (true = no consent prompt)
+  auto_sign: false           # type your full name into "Signature" fields without asking
+  read_codes_from_email: true  # with Gmail connected, read verification codes from your latest email
+  confirm_batches: true      # list the roles and ask before applying to more than 3 (same as -y when false)
 
 # Your own fixed answers. `match` is a case-insensitive regex tested against the question text.
 # These win over everything else, including the questions jobbot would normally ask you about.

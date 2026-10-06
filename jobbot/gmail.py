@@ -18,6 +18,7 @@ import base64
 import hashlib
 import http.server
 import json
+import re
 import os
 import secrets
 import threading
@@ -217,6 +218,65 @@ def search(query=DEFAULT_QUERY, days=60, limit=1000, on_progress=None):
         if on_progress and i % 25 == 0:
             on_progress(i, len(ids))
     return out
+
+
+CODE_QUERY = 'newer_than:1d (code OR otp OR passcode OR "verification" OR verify OR "one-time" OR "one time")'
+# "Your verification code is 482913", "482913 is your code", "OTP: 4829", "Use code AB3D9KQ2"
+CODE_RES = [
+    re.compile(r"(?:code|otp|passcode|pin|password)\b[^A-Za-z0-9]{0,40}?(?:is|:|-)?\s*\b([A-Z0-9]{4,8})\b", re.I),
+    re.compile(r"\b([A-Z0-9]{4,8})\b\s+(?:is|as)\s+your\b[^.]{0,30}?(?:code|otp|passcode|pin)", re.I),
+]
+
+
+def extract_code(text):
+    """The verification code in an email's subject or text, or None. Codes contain at least one digit."""
+    for rx in CODE_RES:
+        for m in rx.finditer(text or ""):
+            code = m.group(1)
+            if re.search(r"\d", code) and not re.fullmatch(r"(19|20)\d\d", code):
+                return code
+    return None
+
+
+def _body_text(msg):
+    """Plain text of a message (used only for the one verification email whose preview had no code)."""
+    parts, out = [msg.get("payload", {})], []
+    while parts:
+        part = parts.pop()
+        parts += part.get("parts", []) or []
+        data = (part.get("body") or {}).get("data")
+        if data and part.get("mimeType", "").startswith("text/"):
+            text = base64.urlsafe_b64decode(data + "==").decode("utf-8", "replace")
+            out.append(re.sub(r"<[^>]+>", " ", text) if "html" in part.get("mimeType", "") else text)
+    return re.sub(r"\s+", " ", " ".join(out))
+
+
+def latest_code(since, hint="", wait=90, poll=5):
+    """Wait up to `wait` seconds for a verification email received after `since` (epoch seconds) and return
+    its code. Emails whose sender mentions `hint` (e.g. the site's name) are preferred. None if none arrives.
+
+    Reads the subject and preview first; only when those hold no code is that one email's text read.
+    """
+    deadline = time.time() + wait
+    while True:
+        ids = [m["id"] for m in _get("messages", {"q": CODE_QUERY, "maxResults": 10}).get("messages", [])]
+        found = []
+        for mid in ids:
+            meta = _get(f"messages/{mid}", {"format": "metadata", "metadataHeaders": ["From", "Subject"]})
+            if int(meta.get("internalDate", "0")) / 1000 < since:
+                continue
+            headers = {h["name"].lower(): h["value"] for h in meta.get("payload", {}).get("headers", [])}
+            sender = headers.get("from", "")
+            code = extract_code(headers.get("subject", "") + " . " + meta.get("snippet", ""))
+            if not code:
+                code = extract_code(_body_text(_get(f"messages/{mid}", {"format": "full"})))
+            if code:
+                found.append((bool(hint) and hint.lower() in sender.lower(), int(meta["internalDate"]), code))
+        if found:
+            return max(found)[2]   # from the site if any, newest first
+        if time.time() >= deadline:
+            return None
+        time.sleep(poll)
 
 
 def logout():

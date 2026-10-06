@@ -161,7 +161,9 @@ For each job you pass, one after another:
      profile and resume. By default it uses them without asking (`automation.auto_accept_drafts`);
      every draft is shown in the page report and the logs.
    - consent and privacy boxes, once per application, unless `automation.auto_consent` is on
-   - email verification codes, once, spread across Workday's separate code boxes
+   - email verification codes: with Gmail connected, jobbot reads the code from your newest
+     verification email (up to 90 s) and only asks if none arrives; Workday's separate code boxes are
+     filled one character each
 5. **Reviews the page until it is stable.** Each round it:
    - reads back every value it set, including dropdowns, radios, and Workday widgets
    - corrects values the site pre-filled wrongly (for example Workday's resume autofill), using only
@@ -262,7 +264,7 @@ contact details and CTC, so it is never committed. The main sections:
 | `resumes` | each resume variant: a key, the PDF path, and a short focus hint for ranking |
 | `answers` | your fixed answers: a regex matched against the question, and the answer to give |
 | `always_ask` | regexes for questions jobbot must always ask you about |
-| `automation` | `auto_accept_drafts` (use model drafts for free-text questions without asking; on by default), `auto_consent` (tick consent boxes without asking; off by default) |
+| `automation` | `auto_accept_drafts` (use model drafts for free-text questions without asking; on by default), `auto_consent` (tick consent boxes without asking; off by default), `auto_sign` (type your full name into signature fields; off by default), `read_codes_from_email` (on), `confirm_batches` (ask before more than 3 roles; on) |
 | `learned_answers` | answers you gave during applications, which jobbot fills in itself (see below) |
 
 **jobbot learns as you go.** When you answer a question, in the terminal or the dashboard, jobbot
@@ -353,7 +355,10 @@ Then sync whenever you like:
 ```
 
 What jobbot reads: sender, subject, a short preview, and the date of each message. It never
-downloads email bodies or attachments, and never sends, labels or deletes anything. The token is
+downloads attachments, and never sends, labels or deletes anything. Email bodies are read in one
+case only: while `apply` waits for a verification code, if the newest verification email's preview
+doesn't contain the code, that one email's text is read to find it (`read_codes_from_email: false`
+turns this off). The token is
 stored in `~/.jobbot/gmail_token.json`, readable only by you. If Gmail isn't connected yet,
 `sync-gmail` offers to connect it.
 
