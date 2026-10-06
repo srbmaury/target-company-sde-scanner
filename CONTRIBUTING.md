@@ -79,3 +79,8 @@ Before submitting a pull request:
 4. Keep unrelated formatting changes out of the pull request.
 
 Use a concise title that describes the outcome, for example: `Update the Adobe careers entry point`.
+
+## Documentation
+
+User documentation lives in [`docs/`](docs/README.md); the README stays short (overview, quick start,
+daily workflow, links). Update the matching page in the same pull request as a behaviour change.
