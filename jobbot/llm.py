@@ -18,6 +18,18 @@ GROUNDING = (
     "resume you are given. Never invent employers, dates, skills, metrics, credentials, or work "
     "authorization. If the facts do not answer the question, say so."
 )
+# What the model may reason its way to, beyond stated facts.
+INFERENCE = (
+    "Think it through before answering. Facts (skills, tools, employers, years, education, degrees, "
+    "certifications, work authorization, citizenship, visas, security clearances, criminal or legal "
+    "history, salary numbers, dates) must come from the profile or resume: if they are not there, the "
+    "answer is unknown. For questions about preferences, willingness or comfort (work style, hybrid or "
+    "on-site work, shifts, on-call, travel, learning a new technology, team or company type), you may infer "
+    "the answer a motivated candidate with this profile would give, as long as nothing in the profile "
+    "contradicts it. Willingness to learn or adopt a technology, language or process is such a question: a "
+    "motivated engineer answers Yes. For yes/no questions about having a skill, tool, certification or "
+    "license, the answer is No unless the resume shows it."
+)
 
 
 class LLM:
@@ -83,16 +95,26 @@ class LLM:
         resume = out.get("resume") if out.get("resume") in resumes else next(iter(resumes), None)
         return score, resume, str(out.get("reason", ""))[:300]
 
-    def choose(self, question, options, profile_summary, resume_text):
-        """Pick one option index for a multiple-choice question, or None."""
+    def choose(self, question, options, profile_summary, resume_text, hint=None, job=None):
+        """Pick one option index for a multiple-choice question, or None when it cannot be settled.
+
+        `hint` is the candidate's answer in their own words (e.g. "Bengaluru" for a list of office
+        locations), for the model to map onto the closest option."""
         listing = "\n".join(f"{i}: {o}" for i, o in enumerate(options))
         prompt = (
             f"Candidate facts: {json.dumps(profile_summary)}\nResume:\n{resume_text[:2500]}\n\n"
-            f"Question: {question}\nOptions:\n{listing}\n\n"
-            "Return JSON {\"index\": number of the truthful option, or -1 if the facts do not settle it}."
+            + (f"Job: {job.get('title')} at {job.get('company')}\n\n" if job else "")
+            + f"Question: {question}\nOptions:\n{listing}\n\n"
+            + (f"The candidate's own answer is: {hint}. Choose the option that means the same.\n\n" if hint else "")
+            + INFERENCE + "\n\nReturn JSON {\"reasoning\": one or two sentences, \"basis\": \"fact\" or "
+            "\"inference\" or \"unknown\", \"index\": the option number, or -1 when the basis is unknown}."
         )
-        idx = self.chat(GROUNDING, prompt, as_json=True).get("index", -1)
-        return idx if isinstance(idx, int) and 0 <= idx < len(options) else None
+        out = self.chat(GROUNDING, prompt, as_json=True)
+        idx = out.get("index", -1)
+        if out.get("basis") == "unknown" or not isinstance(idx, int) or not 0 <= idx < len(options):
+            return None
+        self.last_reasoning = str(out.get("reasoning", ""))[:300]
+        return idx
 
     def draft(self, question, job, profile_summary, resume_text, max_words=120):
         prompt = (
@@ -102,7 +124,7 @@ class LLM:
             f"Write the candidate's answer in first person, at most {max_words} words, plain text, no "
             "greeting or sign-off. Use only the facts above. A yes/no question about a skill or tool the "
             "resume does not mention is answered \"No\" (optionally naming the closest related experience). "
-            "If the facts give no basis at all for an answer, reply with exactly UNKNOWN."
+            + INFERENCE + " If the facts give no basis at all for an answer, reply with exactly UNKNOWN."
         )
         out = self.chat(GROUNDING, prompt, temperature=0.4).strip()
         # "UNKNOWN", or a refusal like "The provided facts don't say", is not an answer to put in a form

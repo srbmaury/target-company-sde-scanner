@@ -224,7 +224,7 @@ class Session:
                 choice = "next"
             else:
                 choice = self.ui.next_action(can_submit=can_submit and not self.dry_run, can_next=can_next,
-                                             dry_run=self.dry_run, check_ok=check.ok)
+                                             dry_run=self.dry_run, check_ok=check.ok, final_page=can_submit)
             if choice == "submit" and not check.ok and not self.ui.confirm(
                     "The check still shows problems. Submit anyway?"):
                 continue
@@ -560,7 +560,7 @@ class Session:
                             mine.add(label)
                             continue
                         ids = f["id"].split(",")
-                        page.locator(f'[data-jobbot-id="{ids[want.value]}"]').click(force=True)
+                        self._tick(page, ids[want.value])
                         was = next((o for o, v in zip(f["options"], f["value"]) if v), "")
                         note(f, label, want, target_id=ids[want.value], was=was)
                         continue
@@ -570,7 +570,7 @@ class Session:
                     ans = resolver.resolve(label, "choice", options=f["options"], required=f["required"])
                     if ans:
                         ids = f["id"].split(",")
-                        page.locator(f'[data-jobbot-id="{ids[ans.value]}"]').click(force=True)
+                        self._tick(page, ids[ans.value])
                         note(f, label, ans, target_id=ids[ans.value])
                     elif f["required"]:
                         skipped.append(label)
@@ -582,7 +582,7 @@ class Session:
                     else:
                         ans = resolver.resolve(label, "choice", options=["Yes", "No"], required=f["required"])
                         if ans and ans.display == "Yes":
-                            page.locator(f'[data-jobbot-id="{f["id"]}"]').click(force=True)
+                            self._tick(page, f["id"])
                             note(f, label, ans)
             except Exception as e:  # keep going; the review step lists what is left
                 skipped.append(f"{label} (error: {type(e).__name__})")
@@ -598,7 +598,7 @@ class Session:
                 + "\n  - ".join(c["label"][:160] for c in consents))
         if consents and self._consent_approved:
             for c in consents:
-                page.locator(f'[data-jobbot-id="{c["id"]}"]').click(force=True)
+                self._tick(page, c["id"])
                 if c["kind"] in ("combo", "listbutton"):
                     page.wait_for_timeout(500)
                     opts = page.locator('[role="option"]:visible')
@@ -633,6 +633,28 @@ class Session:
         if code:
             self.ui.info(f"Verification code {code} read from your latest email.")
         return code
+
+    @staticmethod
+    def _tick(page, field_id):
+        """Click a checkbox or radio. Many sites hide the real input off-screen behind a styled label
+        (Oracle, for one), where even a forced click fails: try the label, then the input, then a click
+        from inside the page."""
+        loc = page.locator(f'[data-jobbot-id="{field_id}"]')
+        label = loc.evaluate("""el => { const l = (el.labels && el.labels[0])
+            || document.getElementById((el.getAttribute('aria-labelledby') || '').split(' ')[0]);
+            if (!l || !l.getClientRects().length) return null;
+            const id = 'l' + Math.random().toString(36).slice(2, 9); l.setAttribute('data-jobbot-label', id); return id; }""")
+        attempts = ([lambda: page.locator(f'[data-jobbot-label="{label}"]').click(timeout=3000)] if label else []) + [
+            lambda: loc.click(force=True, timeout=3000), lambda: loc.evaluate("el => el.click()")]
+        before = loc.is_checked()
+        for attempt in attempts:
+            try:
+                attempt()
+            except Exception:
+                continue
+            if loc.is_checked() != before:
+                return
+        raise RuntimeError("could not tick this box")
 
     def _text_value(self, f, label, ans, has_dial_picker):
         if f.get("type") == "number":

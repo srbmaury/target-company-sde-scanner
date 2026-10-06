@@ -64,8 +64,10 @@ class TerminalUI:
             for line in check.lines():
                 print(f"    - {line}")
 
-    def next_action(self, can_submit, can_next, dry_run, check_ok=True):
-        if can_submit and check_ok:
+    def next_action(self, can_submit, can_next, dry_run, check_ok=True, final_page=False):
+        if dry_run and final_page and check_ok:
+            print("\n  Dry run: this is the final step and every check passed. Nothing will be submitted.")
+        elif can_submit and check_ok:
             print("\n  This is the final step and every check passed. Review the browser window, then submit.")
         else:
             print("\n  Review the browser window, fix anything, solve any CAPTCHA.")

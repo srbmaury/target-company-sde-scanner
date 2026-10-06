@@ -108,7 +108,7 @@ answers:
 always_ask:
   - "signature|sign here|\\be-?sign\\b"      # word boundaries: "design" must not match
   - "criminal|convict|felony"
-  - "sanction|export control|cuba|iran|north korea|syria|crimea"
+  - "sanction|export control|\\bcuba\\b|\\biran\\b|north korea|syria|crimea"   # whole words: "Cuban" in EEO text must not match
   - "debar|security clearance"   # government questions: eligibility.government_employee
   - "non-?compete|conflict of interest|related to (an|any) employee"
 

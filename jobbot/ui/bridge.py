@@ -119,10 +119,10 @@ class WebUI:
     def wait_for_user(self, msg):
         self._wait("wait", None, question=msg.replace("press Enter here", "click Done, continue"))
 
-    def next_action(self, can_submit, can_next, dry_run, check_ok=True):
+    def next_action(self, can_submit, can_next, dry_run, check_ok=True, final_page=False):
         choices = (["submit"] if can_submit else []) + (["next"] if can_next else []) + ["refill", "done", "quit"]
         value = self._wait("action", "quit", choices=choices, check_ok=check_ok, dry_run=dry_run,
-                           final=can_submit and check_ok)
+                           final=(can_submit or (dry_run and final_page)) and check_ok)
         return value if value in choices else "quit"
 
 
