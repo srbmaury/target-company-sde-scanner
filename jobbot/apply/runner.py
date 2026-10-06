@@ -4,8 +4,17 @@ command (`jobbot apply`) and the dashboard, so both behave the same."""
 from .. import tracker
 
 
-def select_targets(conn, keys=(), all_=False, top=None, min_fit=None, force=False, ask_url=None, note=print):
+def excluded(company, exclude):
+    """True when `company` is one of `exclude`, ignoring case, punctuation and suffixes ("Inito Inc" = "inito")."""
+    name = tracker.norm_company(company)
+    return any(name and x and (name == x or name.startswith(x)) for x in map(tracker.norm_company, exclude))
+
+
+def select_targets(conn, keys=(), all_=False, top=None, min_fit=None, force=False, ask_url=None, note=print,
+                   exclude=()):
     """Resolve job numbers, ranges, URLs, --top and --all into a list of job dicts.
+
+    Roles at companies in `exclude` are skipped (with a note when you named them explicitly).
 
     Already-applied roles (exact or likely matches) are skipped unless force; "possibly applied"
     roles are kept with a `_possible` explanation so the caller can ask first.
@@ -15,8 +24,9 @@ def select_targets(conn, keys=(), all_=False, top=None, min_fit=None, force=Fals
     targets = []
     if all_:
         targets = [dict(r) for r in tracker.list_jobs(conn)]
-    elif top:
-        targets = [dict(r) for r in tracker.list_jobs(conn, limit=top) if r["fit_score"] is not None]
+    elif top:   # the N best roles after exclusions, so --top 10 --exclude X still gives 10
+        ranked = [dict(r) for r in tracker.list_jobs(conn) if r["fit_score"] is not None]
+        targets = [t for t in ranked if not excluded(t["company"], exclude)][:top]
     for key in expand_job_keys(list(keys)):
         row = tracker.get_job(conn, key)
         if row and row["dismissed"]:
@@ -31,6 +41,11 @@ def select_targets(conn, keys=(), all_=False, top=None, min_fit=None, force=Fals
             note(f"Skipping {key}: not a tracked job number or URL.")
     if min_fit is not None:
         targets = [t for t in targets if (t.get("fit_score") or 0) >= min_fit]
+    if exclude:
+        skipped = [t for t in targets if excluded(t["company"], exclude)]
+        if skipped and keys:
+            note("Skipping excluded companies: " + ", ".join(sorted({t["company"] for t in skipped})) + ".")
+        targets = [t for t in targets if t not in skipped]
     seen, unique = set(), []
     for t in targets:
         if t["url"] in seen:

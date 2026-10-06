@@ -7,6 +7,7 @@ from jobbot.answers import Resolver, bucket, pick
 from jobbot.profile import Profile
 from jobbot.rank import keyword_rank
 from jobbot.apply.engine import detect_ats, start_url
+from jobbot.apply.runner import excluded
 from jobbot.careers_page import jobs_in_json
 from jobbot.scan import _pick, classify, stated_years
 
@@ -186,6 +187,15 @@ class StartUrlTest(unittest.TestCase):
                    "url": "https://www.digitalocean.com/careers/position/apply/?gh_jid=8047031"}
         self.assertEqual(detect_ats(careers["url"], careers), "greenhouse")
         self.assertNotIn("digitalocean.com/careers&", start_url(careers["url"], "greenhouse", careers))
+
+
+class ExcludeTest(unittest.TestCase):
+    def test_excluded_companies(self):
+        self.assertTrue(excluded("Inito Inc.", ["inito"]))
+        self.assertTrue(excluded("Amazon", ["Amazon", "Google"]))
+        self.assertTrue(excluded("Salesforce India", ["Salesforce"]))
+        self.assertFalse(excluded("Google", ["Goldman Sachs"]))
+        self.assertFalse(excluded("Stripe", []))
 
 
 class TrackerTest(unittest.TestCase):

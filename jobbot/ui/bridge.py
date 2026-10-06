@@ -158,7 +158,8 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force):
         model = llm_mod.LLM(enabled=use_llm)
         if use_llm and model.enabled and not model.has_model():
             model.enabled = False
-        targets = select_targets(conn, keys, force=force, note=lambda m: run.log("info", m))
+        targets = select_targets(conn, keys, force=force, note=lambda m: run.log("info", m),
+                                 exclude=prof.get("preferences.exclude_companies") or [])
         run.jobs = [{"n": t.get("n"), "company": t["company"], "title": t["title"], "url": t["url"],
                      "possible": t.get("_possible", "")} for t in targets]
         if not targets:
