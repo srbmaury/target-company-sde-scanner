@@ -182,8 +182,10 @@ def cmd_apply(args):
     def ask_url(url):
         return input(f"Company for {url}: ").strip(), input("Role title: ").strip()
 
+    exclude = list(p.get("preferences.exclude_companies") or []) + \
+        [x.strip() for x in (args.exclude or "").split(",") if x.strip()]
     targets = select_targets(conn, args.jobs, all_=args.all, top=args.top, min_fit=args.min_fit, force=args.force,
-                             ask_url=ask_url)
+                             ask_url=ask_url, exclude=exclude)
     if not targets:
         sys.exit("Nothing to apply to. Pass job numbers or ranges from `jobbot jobs` (12 or 12-20), URLs, "
                  "--top N, or --all.")
@@ -387,6 +389,8 @@ def build_parser():
     with_llm(sp)
     sp.add_argument("jobs", nargs="*", help="job numbers or ranges from `jobbot jobs` (12, 12-20, 12,15), or posting URLs")
     sp.add_argument("--top", type=int, help="apply to the N best-ranked roles, one after another")
+    sp.add_argument("--exclude", default="", help="comma-separated companies to skip (adds to "
+                                                  "preferences.exclude_companies), e.g. \"Amazon,Google\"")
     sp.add_argument("--all", action="store_true", help="apply to every tracked role you have not applied to or dismissed")
     sp.add_argument("--min-fit", type=int, help="only roles whose fit score is at least this")
     sp.add_argument("-y", "--yes", action="store_true", help="skip the confirmation before a batch of more than 3 roles")

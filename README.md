@@ -108,7 +108,10 @@ Other ways to choose which roles `apply` works through:
 ./jobbot.sh apply --top 10           # the 10 best-ranked roles
 ./jobbot.sh apply --all --min-fit 80 # every role you haven't applied to, with fit 80 or higher
 ./jobbot.sh apply --all              # every role you haven't applied to, best fit first
+./jobbot.sh apply --top 10 --exclude "Amazon,Google"   # the 10 best roles at other companies
 ```
+
+`apply` always skips companies in `preferences.exclude_companies`; `--exclude` adds more for one run.
 
 **`scan`** reads each company's jobs from where its careers site gets them:
 - public job-board APIs: Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Keka,
@@ -369,7 +372,7 @@ snippet, date).
 | `scan [--companies A,B] [--exclude C] [--locations REGEX] [--max-yoe N] [--show-all] [--no-careers-pages]` | Find matching roles and store new ones |
 | `rank [--limit N] [--rerank] [--llm none] [--model NAME]` | Score unranked roles against your resumes |
 | `jobs [--why] [--urls] [--limit N] [--include-applied]` | List tracked roles, best fit first |
-| `apply <n, x-y or URL>... [--top N] [--all] [--min-fit N] [-y] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm none]` | Fill applications in Chrome |
+| `apply <n, x-y or URL>... [--top N] [--all] [--min-fit N] [--exclude A,B] [-y] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm none]` | Fill applications in Chrome |
 | `dismiss <n>...` | Hide roles you are not interested in |
 | `logs [--date YYYY-MM-DD] [-n N]` | Show what `apply` filled, corrected and checked |
 | `ui [--port N] [--no-open]` | Open the local dashboard |
