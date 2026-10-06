@@ -1,7 +1,10 @@
 # Target-Company SDE Scanner
 
-Find, rank, apply to, and track software-engineering roles for candidates with roughly 1–3 years
-of experience, across 300+ target companies. Free, local, and private.
+**Find, rank, apply to, and track software-engineering roles: free, local, and private.**
+
+Built for candidates with roughly 1–3 years of experience. It reads open roles from 300+ target
+companies, ranks them against each of your resumes, fills applications in Chrome while you watch,
+and keeps every application in one tracker. You always press Submit yourself.
 
 It comes in two forms:
 
@@ -18,6 +21,15 @@ $ ./jobbot.sh jobs --why
    5  75  Anyscale             Software Engineer, Ray Core                  Bengaluru, Karnataka 2+ yrs stated  backend_platform
 ```
 
+| | What jobbot does |
+| --- | --- |
+| **Find** | Reads open roles from 300+ companies' job boards and careers sites, filtered to your locations and experience |
+| **Rank** | Scores each role 0–100 against every resume variant with a local model (Ollama), and picks the resume to send |
+| **Apply** | Fills forms in its own Chrome window, re-checks every value, moves through multi-page forms, and stops before Submit |
+| **Learn** | Remembers your answers to new questions and reuses them at other companies |
+| **Track** | Records every application, imports the rest from Gmail (read-only), and never reopens a role you applied to |
+| **Dashboard** | Does all of the above from a local web page: `./jobbot.sh ui` |
+
 ---
 
 ## Contents
@@ -28,6 +40,7 @@ $ ./jobbot.sh jobs --why
 - [Dashboard](#dashboard)
 - [Your profile](#your-profile)
 - [Tracking applications](#tracking-applications)
+- [Gmail sync](#gmail-sync)
 - [Command reference](#command-reference)
 - [Privacy and safety](#privacy-and-safety)
 - [Troubleshooting](#troubleshooting)
@@ -109,8 +122,9 @@ Flipkart, Walmart, Intuit, SAP, Zomato) use sites jobbot can't read reliably yet
 skill still finds those through web search.
 
 It keeps engineering roles in your locations and reads each posting's stated experience
-requirement (or a range in the title, such as "(1 to 4 Years)"). It drops roles that ask for more years than your `max_yoe`, roles
-at excluded companies, and roles you have already applied to. New roles are stored in the tracker.
+requirement (or a range in the title, such as "(1 to 4 Years)"). It drops roles that ask for more
+years than your `max_yoe`, roles at excluded companies, and roles you have already applied to. New
+roles are stored in the tracker.
 
 **`rank`** scores each new role from 0 to 100 against every resume variant and picks the best
 resume for it. With Ollama this takes about 6–7 seconds per role on an Apple-silicon Mac; without
@@ -205,11 +219,11 @@ profile and logs as the commands.
 | **Apply** | The running application batch: a live activity feed (what was filled, corrected and checked on each page), the queue, and any question jobbot needs you to answer |
 | **Applications** | Every application with status pills and history; click one to change its status or notes; add applications made elsewhere |
 | **Actions** | Run Scan, Rank, and Gmail sync in the background and watch their output; connect Gmail |
+| **Logs** | What `apply` filled, corrected and checked, page by page, with a filter |
+| **Profile** | Edit `profile.yaml`, including learned answers. Invalid YAML is refused, and a backup is kept |
 
 **Refresh jobs** (top of the Jobs tab) runs `scan` and then `rank`, shows progress beside the
 button, and reloads the list when it finishes.
-| **Logs** | What `apply` filled, corrected and checked, page by page, with a filter |
-| **Profile** | Edit `profile.yaml`, including learned answers. Invalid YAML is refused, and a backup is kept |
 
 ### Applying from the dashboard
 
@@ -222,8 +236,8 @@ every page but never submits. **Stop after this step** ends the batch without su
 current application. Only one run happens at a time. Skipping rules match `apply`: already-applied
 and dismissed roles are skipped, and for possible matches you are asked first.
 
-The dashboard listens only on `127.0.0.1`, and each run generates a random access token that is embedded in the page, so other
-websites in your browser can't call it. Stop it with Ctrl+C.
+The dashboard listens only on `127.0.0.1`, and each run generates a random access token that is
+embedded in the page, so other websites in your browser can't call it. Stop it with Ctrl+C.
 
 ---
 
@@ -248,9 +262,9 @@ contact details and CTC, so it is never committed. The main sections:
 | `automation` | `auto_accept_drafts` (use model drafts for free-text questions without asking; on by default), `auto_consent` (tick consent boxes without asking; off by default) |
 | `learned_answers` | answers you gave during applications, which jobbot fills in itself (see below) |
 
-**jobbot learns as you go.** When you answer a question, in the terminal or the dashboard, jobbot saves it under
-`learned_answers` and reuses it for the same or a very similar question at any company, so you're
-asked once. Answers that name the employer ("Why do you want to join Acme?") are not saved. You
+**jobbot learns as you go.** When you answer a question, in the terminal or the dashboard, jobbot
+saves it under `learned_answers` and reuses it for the same or a very similar question at any
+company, so you're asked once. Answers that name the employer ("Why do you want to join Acme?") are not saved. You
 can edit or delete entries in the file.
 
 **Teaching jobbot new answers by hand.** If a question keeps coming up, add a rule under `answers`. These
@@ -298,7 +312,9 @@ agree ("Software Engineer II" ≠ "Software Engineer").
   - the email didn't name the role
   - the same title was posted after you applied (big employers reuse titles for new openings)
 
-### Importing applications from Gmail
+---
+
+## Gmail sync
 
 `track sync-gmail` reads your application emails and adds them to the tracker:
 - acknowledgements become `applied`
@@ -360,6 +376,8 @@ snippet, date).
 | `track [list\|add\|update\|show\|stats\|export\|import\|import-gmail\|sync-gmail]` | Manage the application tracker |
 | `gmail login [--client FILE] \| logout \| status` | Connect Gmail read-only for `track sync-gmail` |
 
+Every command explains its options with `--help`, for example `./jobbot.sh apply --help`.
+
 Environment variables: `JOBBOT_PROFILE` (default `./profile.yaml`), `JOBBOT_HOME` (default
 `~/.jobbot`), `JOBBOT_MODEL` (default `qwen2.5:7b`), and `OLLAMA_HOST`.
 
@@ -368,8 +386,9 @@ Environment variables: `JOBBOT_PROFILE` (default `./profile.yaml`), `JOBBOT_HOME
 ## Privacy and safety
 
 - **Everything runs on your machine.** Your profile (`profile.yaml`, git-ignored) lives in the
-  repository folder. The tracker database (`applications.db`) and browser profile live in `~/.jobbot/`. The only network traffic is to the job boards themselves,
-  to Google's Gmail API if you connect Gmail, and to Ollama on localhost.
+  repository folder. The tracker database (`applications.db`) and browser profile live in
+  `~/.jobbot/`. The only network traffic is to the job boards themselves, to Google's Gmail API if
+  you connect Gmail, and to Ollama on localhost.
 - **No automatic submits.** The final Submit always needs your keypress, or your click in the dashboard.
 - **No passwords.** jobbot never reads, stores, or types passwords, and skips password fields.
   Gmail uses Google's own sign-in page with read-only access, and you can revoke it with
@@ -393,7 +412,9 @@ applications you would make anyway, not to send them in bulk.
 | --- | --- |
 | `profile is already in use` | A jobbot Chrome window is still open from an earlier run. Quit that run (`q`, or **Stop** in the dashboard) or close the window. |
 | Workday stops at "Create Account/Sign In" | Expected for many employers. Sign in or create the account in the jobbot window, then press Enter (or click **Done, continue** in the dashboard). |
-| Sign-in or account creation is refused in the jobbot window (Microsoft, Google) | Update jobbot: its Chrome no longer identifies itself as automated, which those sign-in pages reject. If a site still refuses, use its email-link or one-time-code option, or sign in once in that window and it is remembered. |
+| `apply` stops with "This site needs you to sign in" | Expected on Amazon, Google, Apple and many Workday employers. Sign in (or create the account) in the jobbot window, then press Enter. Sign-ins are remembered per site. |
+| Sign-in or account creation is refused in the jobbot window (Microsoft, Google) | Update jobbot: its Chrome no longer identifies itself as automated, which those sign-in pages reject. If a site still refuses, use its email-link or one-time-code option. |
+| A job seems stuck | Check `./jobbot.sh logs` for the last page and round. If a field keeps failing, jobbot lists it for you instead of retrying; fix it in the browser and press `r`. |
 | `Ollama is not running` | `brew services start ollama`, or pass `--llm none` |
 | A question gets a wrong or missing answer | Add a rule under `answers:` in your profile (see [Your profile](#your-profile)) |
 | The scanner errors on one company | That board moved or was retired. The rest of the scan continues; see [Contributing](CONTRIBUTING.md) to fix the registry entry. |
