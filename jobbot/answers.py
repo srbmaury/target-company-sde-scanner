@@ -72,11 +72,38 @@ EMPLOYMENT_RE = re.compile(r"employee id|employee number|(company|corporate|work
 
 
 OTHER_PERSON_RE = re.compile(r"referr(er|al|ed by)|\breference\b|emergency|next of kin|\bmanager'?s\b|hiring manager|recruiter|"
-                             r"\bspouse\b|relative|guardian|parent'?s|supervisor", re.I)
+                             r"\bspouse\b|relative|guardian|parent'?s|supervisor|family member|immediate family", re.I)
 
 
 def yes_no(flag):
     return "Yes" if flag else "No"
+
+
+def bucket(years, options):
+    """Index of the range option containing `years`: "2 years to less than 3 years", "1-3 years", "5+ years",
+    "Less than 1 year", "None". None when the options are not year ranges."""
+    def bounds(text):
+        t = text.lower().replace("–", "-")
+        if "year" not in t and not re.search(r"\bnone\b|no experience", t):
+            return None
+        if re.search(r"\bnone\b|no experience|^0 years?$", t):
+            return (0, 0.01)
+        nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", t)]
+        if re.search(r"less than|under|below|<", t) and len(nums) == 1:
+            return (0, nums[0])
+        if re.search(r"\+|or more|more than|over|above|at least", t) and len(nums) == 1:
+            return (nums[0], 99)
+        if len(nums) >= 2:
+            upper_open = bool(re.search(r"less than|to under|-\s*<|up to but", t))
+            return (nums[0], nums[1] if upper_open else nums[1] + 1)
+        if len(nums) == 1:
+            return (nums[0], nums[0] + 1)
+        return None
+    for i, o in enumerate(options):
+        b = bounds(o)
+        if b and b[0] <= years < b[1]:
+            return i
+    return None
 
 
 class Resolver:
@@ -111,6 +138,11 @@ class Resolver:
         def experience_years():
             return str(g("work.total_experience_years", ""))
 
+        def area_years(key):
+            """Years in one area (design, SDLC...) when your profile sets it; else your total."""
+            value = g(key)
+            return str(value) if value not in (None, "") else experience_years()
+
         def tech_years(question):
             """'Years of experience with Kafka': your total years if a resume mentions it, else 0."""
             m = re.search(r"(?:with|in|using|on|of)\s+([A-Za-z0-9+#./ -]{2,40}?)(?:\?|$|\s+(?:development|programming|experience))",
@@ -140,6 +172,10 @@ class Resolver:
             (r"(authori[sz]ed|eligible|right|permit(ted)?) to work|work authori[sz]ation|legally (able|eligible|authori[sz]ed)|"
              r"documentation establishing your identity", lambda: yes_no(bool(g("eligibility.authorized_countries")))),
             (r"legal age|at least 18|over (the age of )?18", lambda: "Yes"),
+            # before the "worked for / current employee" rule, which would read the government as an employer
+            (r"government (employee|official|servant|agency|entity|organi[sz]ation|body|job)|public (official|servant)|"
+             r"(worked|employed|work) (for|by|with|in) (the |a |any )?(government|govt)|\bgovt\b|state.?owned",
+             lambda: None if OTHER_PERSON_RE.search(self._q) else (g("eligibility.government_employee") or None)),
             (r"outside (business|employment|activit)|side business|board (role|seat|member)|moonlight",
              lambda: g("work.outside_business_activities") or None),
             (r"background (check|verification)", lambda: yes_no(g("eligibility.background_check_ok", True))),
@@ -155,6 +191,16 @@ class Resolver:
             (r"serving (your )?notice|on notice period|currently on notice", lambda: "No"),
             (r"willing to (work|take|do).*(shift|weekend|on.?call|night|rotational)", lambda: "Yes"),
             (r"open to (contract|full.?time|permanent)|employment type|full.?time (role|position)", lambda: "Yes"),
+            # Amazon-style screeners: "Which option best describes your total non-internship ... experience?"
+            (r"design (or|and) architecture|design patterns,? reliability", lambda: area_years("work.design_experience_years")),
+            (r"software development life ?cycle|\bsdlc\b|code reviews?,? source control", lambda: area_years("work.sdlc_experience_years")),
+            (r"(best describes|how (much|many)).*(professional|software|development|engineering|work|industry).*experience",
+             experience_years),
+            (r"experience (programming )?(with|in) (at least )?(one|a|any) (software )?programming language|"
+             r"(know|use) (at least )?one programming language",
+             lambda: yes_no(float(g("work.total_experience_years", 0) or 0) > 0 or bool(p.resumes()))),
+            (r"bachelor.?s degree in computer science|degree in (computer science|cs)\b|computer science or (an? )?(equivalent|related)",
+             lambda: None if g("education.cs_or_equivalent") is None else yes_no(g("education.cs_or_equivalent"))),
             (r"years of (hands.?on |professional )?experience (with|in|using|on)|how many years.*(with|in|using|on) ",
              lambda: tech_years(self._q)),
             (r"years of (professional |relevant |total |industry |work )?experience|how many years", experience_years),
@@ -336,6 +382,10 @@ class Resolver:
         return yes_no(worked)
 
     def _fit(self, value, kind, options, source):
+        if kind == "choice" and isinstance(value, str) and re.fullmatch(r"\d+(\.\d+)?", value):
+            idx = bucket(float(value), options)   # "2" against "2 years to less than 3 years", "1-3 years"...
+            if idx is not None:
+                return Answer(idx, source, options[idx])
         if isinstance(value, (list, tuple)):   # e.g. preferred locations: the first one the form offers
             if kind != "choice":
                 return Answer(", ".join(map(str, value)), source) if value else None

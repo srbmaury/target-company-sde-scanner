@@ -3,7 +3,7 @@ import tempfile
 import unittest
 
 from jobbot import tracker
-from jobbot.answers import Resolver, pick
+from jobbot.answers import Resolver, bucket, pick
 from jobbot.profile import Profile
 from jobbot.rank import keyword_rank
 from jobbot.apply.engine import detect_ats, start_url
@@ -73,6 +73,38 @@ class ResolverTest(unittest.TestCase):
         self.assertEqual(r.resolve("Veteran Status", "choice", options=["I am not a protected veteran", "Decline"]).display,
                          "I am not a protected veteran")
         self.assertEqual(self.asked, [])
+
+    def test_amazon_screening_questions(self):
+        ranges = ["Less than 1 year", "1 year to less than 2 years", "2 years to less than 3 years",
+                  "3 years to less than 4 years", "4 years to less than 5 years", "5 years or more"]
+        prof = {**PROFILE, "work": {**PROFILE["work"], "sdlc_experience_years": 3},
+                "education": {"cs_or_equivalent": True}, "eligibility": {**PROFILE["eligibility"], "government_employee": "No"}}
+        r = Resolver(Profile(prof, "x"), ask=lambda *a: self.asked.append(a[0]))
+        yn = ["Yes", "No"]
+        q = "Which option best describes your total non-internship professional software development experience?"
+        self.assertEqual(r.resolve(q, "choice", options=ranges).display, "2 years to less than 3 years")
+        q = ("Which option best describes your total non-internship design or architecture (design patterns, "
+             "reliability and scaling) of new and existing systems experience?")
+        self.assertEqual(r.resolve(q, "choice", options=ranges).display, "2 years to less than 3 years")
+        q = ("Which option best describes your total full software development life cycle, including coding standards, "
+             "code reviews, source control management, build processes, testing, and operations experience?")
+        self.assertEqual(r.resolve(q, "choice", options=ranges).display, "3 years to less than 4 years")
+        q = "Do you have experience programming with at least one software programming language?"
+        self.assertEqual(r.resolve(q, "choice", options=yn).display, "Yes")
+        q = "Do you have a Bachelor's degree in computer science or equivalent?"
+        self.assertEqual(r.resolve(q, "choice", options=yn).display, "Yes")
+        for q in ("Are you currently or have you ever been a government employee?",
+                  "Have you ever worked for the government or a state-owned entity?",
+                  "Are you a current or former government official?"):
+            self.assertEqual(r.resolve(q, "choice", options=yn).display, "No", q)
+        self.assertEqual(self.asked, [])
+        # about a relative, not you: never answered from your own status
+        self.assertIsNone(r.resolve("Does any immediate family member work for the government?", "choice", options=yn))
+
+    def test_bucket(self):
+        self.assertEqual(bucket(2, ["0-1 years", "1-3 years", "3-5 years", "5+ years"]), 1)
+        self.assertEqual(bucket(0.5, ["None", "Less than 1 year", "1+ years"]), 1)
+        self.assertIsNone(bucket(2, ["Yes", "No"]))
 
     def test_asks_once_per_application(self):
         # review rounds re-read the page; an unanswered question must not be asked again
