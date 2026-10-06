@@ -75,6 +75,8 @@ OTHER_PERSON_RE = re.compile(r"referr(er|al|ed by)|\breference\b|emergency|next 
                              r"\bspouse\b|relative|guardian|parent'?s|supervisor|family member|immediate family", re.I)
 
 
+EEO_RE = re.compile(r"\s*(race|ethnicity|ethnic (background|origin)|gender|sex\b|veteran|protected veteran|"
+                    r"disability|hispanic|latino|self.?identif)", re.I)
 SIGN_RE = re.compile(r"signature|sign here|\be-?sign|type your (full |legal )?name to (sign|confirm|acknowledge)", re.I)
 
 
@@ -309,7 +311,11 @@ class Resolver:
         if self.p.get("automation.auto_sign") and kind in ("text", "textarea") and SIGN_RE.search(question):
             return Answer(self.p.full_name, "profile")   # your typed signature; Submit stays yours
 
-        if any(p.search(question) for p in self.always_ask):
+        # EEO questions carry long definitions ("...Cuban, Mexican, Puerto Rican...") that must not trip
+        # always_ask patterns such as sanctioned countries; their answers come from your eeo section.
+        eeo = bool(EEO_RE.match(question)) or any(re.search(r"decline|prefer not|don.?t wish", o, re.I) and
+                                                  re.search(r"identify|answer|disclose", o, re.I) for o in options)
+        if not eeo and any(p.search(question) for p in self.always_ask):
             return self._once(question, kind, options, lambda: self._ask(
                 question, kind, options, required, None, reason="needs your confirmation", learn=False))
 
