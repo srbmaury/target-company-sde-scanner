@@ -305,6 +305,33 @@ class ReviewFixesTest(unittest.TestCase):
             self.assertEqual(got, {"Acme": "applied", "Beta": "interview"})   # "interviewing" -> interview
 
 
+class DropdownTest(unittest.TestCase):
+    def test_open_dropdown_falls_back(self):
+        from jobbot.apply.engine import Session
+        calls = []
+
+        class Loc:
+            def click(self, timeout=None, force=False):
+                calls.append("force" if force else "click")
+                if not force:
+                    raise TimeoutError("covered by an overlay")
+
+            def focus(self):
+                calls.append("focus")
+
+            def press(self, key):
+                calls.append(key)
+        Session._open_dropdown(Loc())
+        self.assertEqual(calls, ["click", "force"])
+
+    def test_memory_skips_employer_named_questions(self):
+        from jobbot.memory import Memory
+        with tempfile.TemporaryDirectory() as d:
+            m = Memory(Path(d) / "p.yaml")
+            self.assertFalse(m.remember("Why do you want to join Go Digit?", "x", company="Go Digit"))
+            self.assertTrue(m.remember("Do you have a good internet connection?", "Yes", company="Go Digit"))
+
+
 class TrackerTest(unittest.TestCase):
     def test_lifecycle(self):
         with tempfile.TemporaryDirectory() as d:

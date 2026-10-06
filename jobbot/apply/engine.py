@@ -668,7 +668,7 @@ class Session:
         searchable, nested "prompt" lists (category -> sub-option)."""
         label = f["label"]
         loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
-        loc.click()
+        self._open_dropdown(loc)
         page.wait_for_timeout(700)
         options = self._visible_options(page)
         if not options:
@@ -687,6 +687,12 @@ class Session:
                 found = self._search_options(page, loc, resolver, label)
                 typed = True
                 options = found or self._reopen(page, loc) or options
+            if ans is None and typed and getattr(self, "_typed", ""):
+                # an autocomplete answered our own search ("Hyderabad" -> "Hyderabad, Telangana, India")
+                hit = next((i for i, o in enumerate(options) if self._typed.lower() in o.lower()), None)
+                if hit is not None:
+                    from ..answers import Answer
+                    ans = Answer(hit, "rule", options[hit])
             if ans is None:
                 ans = resolver.resolve(label, "choice", options=options, required=f["required"])
             if ans is None:
@@ -706,12 +712,26 @@ class Session:
         note(f, label, ans if len(path) == 1 else " › ".join(path), expected=path[-1])
         return True
 
+    @staticmethod
+    def _open_dropdown(loc):
+        """Open a dropdown whose input may be covered by the widget's own overlay (react-select and
+        similar): a normal click, then a forced one, then focus and the keyboard."""
+        for attempt in (lambda: loc.click(timeout=3000), lambda: loc.click(force=True, timeout=3000),
+                        lambda: (loc.focus(), loc.press("ArrowDown"))):
+            try:
+                attempt()
+                return
+            except Exception:
+                continue
+        raise RuntimeError("could not open this dropdown")
+
     def _search_options(self, page, loc, resolver, label):
         """Type the answer we would give into the box and return the matching options."""
         guess = resolver.resolve(label, "text", required=False)
         if not guess:
             return []
-        loc.fill(str(guess.value).split(",")[0].split("(")[0].strip())
+        self._typed = str(guess.value).split(",")[0].split("(")[0].strip()
+        loc.fill(self._typed)
         if self._ats == "workday":
             loc.press("Enter")  # Workday searches on Enter; react-select would pick the first hit
         page.wait_for_timeout(1800)
