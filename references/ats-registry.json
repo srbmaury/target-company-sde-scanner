@@ -1,7 +1,11 @@
 {
-  "verified": "2026-10-05",
+  "verified": "2026-10-06",
   "note": "Public job-board API identifiers. Verified by fetching each board on the date above. These identify where a company's jobs live; they never prove a specific role is open.",
   "companies": {
+    "1X": {
+      "ats": "ashby",
+      "id": "1x"
+    },
     "6sense": {
       "ats": "greenhouse",
       "id": "6sense"
@@ -52,6 +56,12 @@
       "ats": "ashby",
       "id": "airwallex"
     },
+    "Alegeus": {
+      "ats": "workday",
+      "host": "alegeus.wd1.myworkdayjobs.com",
+      "tenant": "alegeus",
+      "site": "Alegeus_External_Careers"
+    },
     "Algolia": {
       "ats": "greenhouse",
       "id": "algolia"
@@ -59,6 +69,17 @@
     "Alif Semiconductor": {
       "ats": "lever",
       "id": "alifsemi"
+    },
+    "Alloy": {
+      "ats": "greenhouse",
+      "id": "alloy"
+    },
+    "Amazon": {
+      "ats": "amazon"
+    },
+    "AMD": {
+      "ats": "jibe",
+      "host": "careers.amd.com"
     },
     "Amplitude": {
       "ats": "ashby",
@@ -72,6 +93,27 @@
       "ats": "ashby",
       "id": "anyscale"
     },
+    "Appian": {
+      "ats": "greenhouse",
+      "id": "appian"
+    },
+    "Apple": {
+      "ats": "apple"
+    },
+    "Aptiv": {
+      "ats": "workday",
+      "host": "aptiv.wd5.myworkdayjobs.com",
+      "tenant": "aptiv",
+      "site": "Aptiv_Careers"
+    },
+    "Arcadia": {
+      "ats": "lever",
+      "id": "arcadia"
+    },
+    "Arista Networks": {
+      "ats": "smartrecruiters",
+      "id": "aristanetworks"
+    },
     "Arize AI": {
       "ats": "greenhouse",
       "id": "arizeai"
@@ -80,19 +122,48 @@
       "ats": "ashby",
       "id": "atlan"
     },
+    "Atlassian": {
+      "ats": "json-feed",
+      "url": "https://www.atlassian.com/endpoint/careers/listings",
+      "list": "",
+      "title": "title",
+      "location": "locations",
+      "link": "portalJobPost.portalUrl|applyUrl",
+      "text": [
+        "qualifications",
+        "responsibilities",
+        "overview"
+      ]
+    },
     "Autodesk": {
       "ats": "workday",
       "tenant": "autodesk",
       "host": "autodesk.wd1.myworkdayjobs.com",
       "site": "Ext"
     },
+    "Availity": {
+      "ats": "workday",
+      "host": "availity.wd1.myworkdayjobs.com",
+      "tenant": "availity",
+      "site": "Availity_Careers_India"
+    },
     "Axonius": {
       "ats": "greenhouse",
       "id": "axonius"
     },
+    "Barclays": {
+      "ats": "workday",
+      "host": "barclays.wd3.myworkdayjobs.com",
+      "tenant": "barclays",
+      "site": "External_Career_Site_Barclays"
+    },
     "Baseten": {
       "ats": "ashby",
       "id": "baseten"
+    },
+    "Baya Systems": {
+      "ats": "greenhouse",
+      "id": "bayasystems"
     },
     "BJAK": {
       "ats": "ashby",
@@ -108,6 +179,11 @@
       "ats": "greenhouse",
       "id": "block"
     },
+    "BNY": {
+      "ats": "oracle",
+      "host": "eofe.fa.us2.oraclecloud.com",
+      "site": "BNY"
+    },
     "Braze": {
       "ats": "greenhouse",
       "id": "braze"
@@ -122,9 +198,40 @@
       "host": "broadcom.wd1.myworkdayjobs.com",
       "site": "External_Career"
     },
+    "BrowserStack": {
+      "ats": "workday",
+      "host": "browserstack.wd3.myworkdayjobs.com",
+      "tenant": "browserstack",
+      "site": "External"
+    },
     "Buildkite": {
       "ats": "greenhouse",
       "id": "buildkite"
+    },
+    "ByteDance": {
+      "ats": "smartrecruiters",
+      "id": "bytedance"
+    },
+    "Canva": {
+      "ats": "smartrecruiters",
+      "id": "canva"
+    },
+    "Cars24": {
+      "ats": "smartrecruiters",
+      "id": "cars24"
+    },
+    "Cashfree Payments": {
+      "ats": "json-feed",
+      "url": "https://careers.kula.ai/api/internal/ats_job_posts?accountName=cashfree&page=1&type=ats_job_post.index&items=99",
+      "list": "data",
+      "title": "title",
+      "location": "ats_job.offices",
+      "link": "",
+      "job_url": "https://careers.kula.ai/cashfree/{id}",
+      "text": [
+        "ats_job.job_description"
+      ],
+      "posted": "launch_at"
     },
     "Cato Networks": {
       "ats": "greenhouse",
@@ -142,6 +249,28 @@
       "ats": "greenhouse",
       "id": "chainguard"
     },
+    "Character.AI": {
+      "ats": "ashby",
+      "id": "character"
+    },
+    "Chewy": {
+      "ats": "workday",
+      "host": "chewy.wd5.myworkdayjobs.com",
+      "tenant": "chewy",
+      "site": "External"
+    },
+    "Ciena": {
+      "ats": "workday",
+      "host": "ciena.wd5.myworkdayjobs.com",
+      "tenant": "ciena",
+      "site": "Careers"
+    },
+    "Cigna": {
+      "ats": "workday",
+      "host": "cigna.wd5.myworkdayjobs.com",
+      "tenant": "cigna",
+      "site": "cignacareers"
+    },
     "CircleCI": {
       "ats": "greenhouse",
       "id": "circleci"
@@ -151,6 +280,12 @@
       "tenant": "cisco",
       "host": "cisco.wd5.myworkdayjobs.com",
       "site": "Cisco_Careers"
+    },
+    "Clarivate": {
+      "ats": "workday",
+      "host": "clarivate.wd3.myworkdayjobs.com",
+      "tenant": "clarivate",
+      "site": "Clarivate_Careers"
     },
     "Clerk": {
       "ats": "ashby",
@@ -180,6 +315,12 @@
       "ats": "ashby",
       "id": "cohere"
     },
+    "Cohesity": {
+      "ats": "workday",
+      "host": "cohesity.wd5.myworkdayjobs.com",
+      "tenant": "cohesity",
+      "site": "Cohesity_Careers"
+    },
     "Column": {
       "ats": "ashby",
       "id": "column"
@@ -187,6 +328,10 @@
     "Commure": {
       "ats": "ashby",
       "id": "commure"
+    },
+    "ConductorOne": {
+      "ats": "ashby",
+      "id": "C1"
     },
     "Confluent": {
       "ats": "ashby",
@@ -199,6 +344,18 @@
     "Contentstack": {
       "ats": "greenhouse",
       "id": "contentstack"
+    },
+    "Continental": {
+      "ats": "smartrecruiters",
+      "id": "continental"
+    },
+    "Convex": {
+      "ats": "ashby",
+      "id": "convex-dev"
+    },
+    "Coram AI": {
+      "ats": "ashby",
+      "id": "coram-ai"
     },
     "CoreWeave": {
       "ats": "greenhouse",
@@ -244,9 +401,17 @@
       "ats": "greenhouse",
       "id": "devrev"
     },
+    "Dezerv": {
+      "ats": "careers-page",
+      "url": "https://www.dezerv.in/careers/"
+    },
     "Dialpad": {
       "ats": "greenhouse",
       "id": "dialpad"
+    },
+    "DigitalOcean": {
+      "ats": "careers-page",
+      "url": "https://www.digitalocean.com/careers"
     },
     "Discord": {
       "ats": "greenhouse",
@@ -272,6 +437,12 @@
       "ats": "greenhouse",
       "id": "duolingo"
     },
+    "eBay": {
+      "ats": "workday",
+      "host": "ebay.wd5.myworkdayjobs.com",
+      "tenant": "ebay",
+      "site": "apply"
+    },
     "Elastic": {
       "ats": "greenhouse",
       "id": "elastic"
@@ -288,6 +459,10 @@
       "ats": "ashby",
       "id": "ema"
     },
+    "Emergent": {
+      "ats": "greenhouse",
+      "id": "emergentlabsinc"
+    },
     "Epic Games": {
       "ats": "greenhouse",
       "id": "epicgames"
@@ -298,11 +473,31 @@
       "host": "equinix.wd1.myworkdayjobs.com",
       "site": "External"
     },
+    "Etsy": {
+      "ats": "workday",
+      "host": "etsy.wd5.myworkdayjobs.com",
+      "tenant": "etsy",
+      "site": "Etsy_Careers"
+    },
+    "Exotel": {
+      "ats": "careers-page",
+      "url": "https://exotel.com/about-us/careers/"
+    },
     "Expedia Group": {
       "ats": "workday",
       "tenant": "expedia",
       "host": "expedia.wd108.myworkdayjobs.com",
       "site": "search"
+    },
+    "FactSet": {
+      "ats": "workday",
+      "host": "factset.wd108.myworkdayjobs.com",
+      "tenant": "factset",
+      "site": "factsetcareers"
+    },
+    "Fampay": {
+      "ats": "lever",
+      "id": "fampay"
     },
     "Fastly": {
       "ats": "greenhouse",
@@ -324,15 +519,28 @@
       "ats": "ashby",
       "id": "fireworks"
     },
+    "Fiserv": {
+      "ats": "careers-page",
+      "url": "https://careers.fiserv.com/us/en"
+    },
     "Fivetran": {
       "ats": "greenhouse",
       "id": "fivetran"
+    },
+    "Ford": {
+      "ats": "oracle",
+      "host": "efds.fa.em5.oraclecloud.com",
+      "site": "CX_1"
     },
     "Fractal Analytics": {
       "ats": "workday",
       "tenant": "fractal",
       "host": "fractal.wd1.myworkdayjobs.com",
       "site": "Careers"
+    },
+    "Freshworks": {
+      "ats": "smartrecruiters",
+      "id": "Freshworks"
     },
     "GE HealthCare": {
       "ats": "workday",
@@ -352,6 +560,28 @@
       "ats": "greenhouse",
       "id": "gocardless"
     },
+    "GoDaddy": {
+      "ats": "greenhouse",
+      "id": "godaddy"
+    },
+    "Goldman Sachs": {
+      "ats": "oracle",
+      "host": "hdpc.fa.us2.oraclecloud.com",
+      "site": "LateralHiring"
+    },
+    "Google": {
+      "ats": "google"
+    },
+    "GoTo": {
+      "ats": "workday",
+      "host": "goto.wd5.myworkdayjobs.com",
+      "tenant": "goto",
+      "site": "gotocareers"
+    },
+    "Grab": {
+      "ats": "smartrecruiters",
+      "id": "grab"
+    },
     "Grafana Labs": {
       "ats": "greenhouse",
       "id": "grafanalabs"
@@ -363,6 +593,14 @@
     "Gusto": {
       "ats": "greenhouse",
       "id": "gusto"
+    },
+    "HackerRank": {
+      "ats": "greenhouse",
+      "id": "hackerrank"
+    },
+    "Haptik": {
+      "ats": "freshteam",
+      "id": "haptik"
     },
     "Harness": {
       "ats": "greenhouse",
@@ -380,6 +618,20 @@
       "ats": "greenhouse",
       "id": "highradius"
     },
+    "Hinge Health": {
+      "ats": "ashby",
+      "id": "hinge-health"
+    },
+    "Hitachi": {
+      "ats": "workday",
+      "host": "hitachi.wd1.myworkdayjobs.com",
+      "tenant": "hitachi",
+      "site": "hitachi"
+    },
+    "Hugging Face": {
+      "ats": "workable",
+      "id": "huggingface"
+    },
     "Huntress": {
       "ats": "greenhouse",
       "id": "huntress"
@@ -387,6 +639,14 @@
     "Illumio": {
       "ats": "ashby",
       "id": "illumio"
+    },
+    "Imply": {
+      "ats": "greenhouse",
+      "id": "imply"
+    },
+    "InMobi": {
+      "ats": "greenhouse",
+      "id": "inmobi"
     },
     "Instacart": {
       "ats": "greenhouse",
@@ -402,6 +662,43 @@
       "ats": "greenhouse",
       "id": "intercom",
       "note": "Greenhouse board is branded \"Fin\"."
+    },
+    "IQVIA": {
+      "ats": "workday",
+      "host": "iqvia.wd1.myworkdayjobs.com",
+      "tenant": "iqvia",
+      "site": "iqvia"
+    },
+    "JLL": {
+      "ats": "workday",
+      "host": "jll.wd1.myworkdayjobs.com",
+      "tenant": "jll",
+      "site": "jllcareers"
+    },
+    "JPMorgan Chase": {
+      "ats": "oracle",
+      "host": "jpmc.fa.oraclecloud.com",
+      "site": "CX_1001"
+    },
+    "Jupiter": {
+      "ats": "keka",
+      "id": "jupiter"
+    },
+    "Juspay": {
+      "ats": "json-feed",
+      "url": "https://joinus.juspay.in/api/careerJobOpening?limit=1000&isGlobal=true",
+      "list": "allJobs",
+      "title": "job_title",
+      "location": "job_location",
+      "link": "",
+      "job_url": "https://joinus.juspay.in/jobs/{job_id}",
+      "text": [
+        "experience_year",
+        "job_description_career"
+      ],
+      "only": {
+        "opening_status": "True"
+      }
     },
     "Klaviyo": {
       "ats": "greenhouse",
@@ -433,9 +730,27 @@
       "ats": "greenhouse",
       "id": "launchdarkly"
     },
+    "Lenskart": {
+      "ats": "json-feed",
+      "url": "https://ainterviews.com/api/job_board/lenskart_ho/jobs/",
+      "list": "jobs",
+      "title": "title",
+      "location": "location",
+      "link": "",
+      "job_url": "https://ainterviews.com{apply_url}",
+      "text": [
+        "experience_level",
+        "description"
+      ],
+      "posted": "posted_date"
+    },
     "Linear": {
       "ats": "ashby",
       "id": "linear"
+    },
+    "LinkedIn": {
+      "ats": "smartrecruiters",
+      "id": "LinkedIn3"
     },
     "Lithic": {
       "ats": "greenhouse",
@@ -445,9 +760,25 @@
       "ats": "ashby",
       "id": "llamaindex"
     },
+    "Lokal": {
+      "ats": "smartrecruiters",
+      "id": "lokal"
+    },
     "Lovable": {
       "ats": "ashby",
       "id": "lovable"
+    },
+    "Lowe's": {
+      "ats": "workday",
+      "host": "lowes.wd5.myworkdayjobs.com",
+      "tenant": "lowes",
+      "site": "LWS_External_CS"
+    },
+    "LSEG": {
+      "ats": "workday",
+      "host": "lseg.wd3.myworkdayjobs.com",
+      "tenant": "lseg",
+      "site": "Careers"
     },
     "Lucid Motors": {
       "ats": "greenhouse",
@@ -456,6 +787,20 @@
     "Lyft": {
       "ats": "greenhouse",
       "id": "lyft"
+    },
+    "M2P Fintech": {
+      "ats": "careers-page",
+      "url": "https://careers.m2pfintech.com/view-jobs/"
+    },
+    "Magna": {
+      "ats": "workday",
+      "host": "magna.wd3.myworkdayjobs.com",
+      "tenant": "magna",
+      "site": "magna"
+    },
+    "Marqeta": {
+      "ats": "ashby",
+      "id": "marqeta-inc"
     },
     "Mastercard": {
       "ats": "workday",
@@ -467,6 +812,12 @@
       "ats": "ashby",
       "id": "materialize"
     },
+    "Medtronic": {
+      "ats": "workday",
+      "host": "medtronic.wd1.myworkdayjobs.com",
+      "tenant": "medtronic",
+      "site": "medtroniccareers"
+    },
     "Meesho": {
       "ats": "lever",
       "id": "meesho"
@@ -474,6 +825,11 @@
     "Mercury": {
       "ats": "greenhouse",
       "id": "mercury"
+    },
+    "Meta": {
+      "ats": "careers-page",
+      "url": "https://www.metacareers.com/jobsearch?offices[0]=Bangalore%2C%20India&offices[1]=Hyderabad%2C%20India&offices[2]=Gurgaon%2C%20India&q=software%20engineer",
+      "job_url": "https://www.metacareers.com/jobs/{id}/"
     },
     "Method Financial": {
       "ats": "ashby",
@@ -487,9 +843,21 @@
       "ats": "lever",
       "id": "mindtickle"
     },
+    "Minitab": {
+      "ats": "greenhouse",
+      "id": "minitab"
+    },
     "Miro": {
       "ats": "ashby",
       "id": "miro"
+    },
+    "MishiPay": {
+      "ats": "keka",
+      "id": "mishipay"
+    },
+    "Mistral AI": {
+      "ats": "ashby",
+      "id": "mistral.ai"
     },
     "Mixpanel": {
       "ats": "greenhouse",
@@ -517,9 +885,21 @@
       "ats": "ashby",
       "id": "motherduck"
     },
+    "Nasdaq": {
+      "ats": "workday",
+      "host": "nasdaq.wd1.myworkdayjobs.com",
+      "tenant": "nasdaq",
+      "site": "Global_External_Site"
+    },
     "Neo4j": {
       "ats": "greenhouse",
       "id": "neo4j"
+    },
+    "Netflix": {
+      "ats": "workday",
+      "host": "netflix.wd108.myworkdayjobs.com",
+      "tenant": "netflix",
+      "site": "netflix"
     },
     "Netskope": {
       "ats": "greenhouse",
@@ -528,6 +908,14 @@
     "New Relic": {
       "ats": "greenhouse",
       "id": "newrelic"
+    },
+    "Niramai": {
+      "ats": "careers-page",
+      "url": "https://niramai.com/careers/"
+    },
+    "NoBroker": {
+      "ats": "smartrecruiters",
+      "id": "nobroker"
     },
     "Notion": {
       "ats": "ashby",
@@ -556,19 +944,38 @@
       "ats": "ashby",
       "id": "openai"
     },
+    "Oracle": {
+      "ats": "oracle",
+      "host": "eeho.fa.us2.oraclecloud.com",
+      "site": "CX_45001"
+    },
     "Orca Security": {
       "ats": "greenhouse",
       "id": "orcasecurity"
     },
+    "Ownwell": {
+      "ats": "greenhouse",
+      "id": "ownwell"
+    },
     "Palantir": {
       "ats": "lever",
       "id": "palantir"
+    },
+    "Palo Alto Networks": {
+      "ats": "workday",
+      "host": "paloaltonetworks.wd5.myworkdayjobs.com",
+      "tenant": "paloaltonetworks",
+      "site": "panwexternalcareers"
     },
     "PayPal": {
       "ats": "workday",
       "tenant": "paypal",
       "host": "paypal.wd1.myworkdayjobs.com",
       "site": "jobs"
+    },
+    "Paytm": {
+      "ats": "lever",
+      "id": "paytm"
     },
     "Perplexity": {
       "ats": "ashby",
@@ -578,11 +985,21 @@
       "ats": "ashby",
       "id": "persona"
     },
+    "Pfizer": {
+      "ats": "workday",
+      "host": "pfizer.wd1.myworkdayjobs.com",
+      "tenant": "pfizer",
+      "site": "pfizercareers"
+    },
     "Philips": {
       "ats": "workday",
       "tenant": "philips",
       "host": "philips.wd3.myworkdayjobs.com",
       "site": "jobs-and-careers"
+    },
+    "PhonePe": {
+      "ats": "smartrecruiters",
+      "id": "PHONEPELIMITED"
     },
     "Physical Intelligence": {
       "ats": "ashby",
@@ -620,9 +1037,19 @@
       "ats": "ashby",
       "id": "polygon-labs"
     },
+    "Poshmark": {
+      "ats": "ashby",
+      "id": "poshmark"
+    },
     "PostHog": {
       "ats": "ashby",
       "id": "posthog"
+    },
+    "Postman": {
+      "ats": "workday",
+      "host": "postman.wd108.myworkdayjobs.com",
+      "tenant": "postman",
+      "site": "Careers"
     },
     "Prefect": {
       "ats": "ashby",
@@ -638,10 +1065,25 @@
       "ats": "greenhouse",
       "id": "project44"
     },
+    "Pulumi": {
+      "ats": "greenhouse",
+      "id": "pulumicorporation"
+    },
     "Pure Storage": {
       "ats": "greenhouse",
       "id": "purestorage",
       "note": "Greenhouse board is branded \"Everpure\"."
+    },
+    "Qualcomm": {
+      "ats": "eightfold",
+      "host": "careers.qualcomm.com",
+      "domain": "qualcomm.com"
+    },
+    "R1 RCM": {
+      "ats": "workday",
+      "host": "r1rcm.wd1.myworkdayjobs.com",
+      "tenant": "r1rcm",
+      "site": "r1rcm"
     },
     "Ramp": {
       "ats": "ashby",
@@ -650,6 +1092,10 @@
     "Razorpay": {
       "ats": "greenhouse",
       "id": "razorpaysoftwareprivatelimited"
+    },
+    "Rebel Foods": {
+      "ats": "smartrecruiters",
+      "id": "rebelfoods"
     },
     "Red Hat": {
       "ats": "workday",
@@ -669,13 +1115,39 @@
       "ats": "ashby",
       "id": "redpanda-data"
     },
+    "Redwood Software": {
+      "ats": "greenhouse",
+      "id": "redwoodsoftware"
+    },
+    "RELX": {
+      "ats": "workday",
+      "host": "relx.wd3.myworkdayjobs.com",
+      "tenant": "relx",
+      "site": "relx"
+    },
     "Replit": {
       "ats": "ashby",
       "id": "replit"
     },
+    "Retool": {
+      "ats": "careers-page",
+      "url": "https://retool.com/careers"
+    },
+    "RingCentral": {
+      "ats": "workday",
+      "host": "ringcentral.wd1.myworkdayjobs.com",
+      "tenant": "ringcentral",
+      "site": "Ringcentral_Careers"
+    },
     "Roblox": {
       "ats": "greenhouse",
       "id": "roblox"
+    },
+    "Roche": {
+      "ats": "workday",
+      "host": "roche.wd3.myworkdayjobs.com",
+      "tenant": "roche",
+      "site": "roche-ext"
     },
     "Roku": {
       "ats": "greenhouse",
@@ -689,6 +1161,14 @@
     "RunPod": {
       "ats": "ashby",
       "id": "runpod"
+    },
+    "Sakana AI": {
+      "ats": "workable",
+      "id": "sakana-ai"
+    },
+    "Salary Finance": {
+      "ats": "greenhouse",
+      "id": "salaryfinance"
     },
     "Salesforce": {
       "ats": "workday",
@@ -738,13 +1218,33 @@
       "ats": "smartrecruiters",
       "id": "ServiceNow"
     },
+    "ServiceTitan": {
+      "ats": "smartrecruiters",
+      "id": "servicetitan"
+    },
     "Shield AI": {
       "ats": "lever",
       "id": "shieldai"
     },
+    "Signzy": {
+      "ats": "careers-page",
+      "url": "https://www.signzy.com/careers"
+    },
     "SingleStore": {
       "ats": "greenhouse",
       "id": "singlestore"
+    },
+    "Skild AI": {
+      "ats": "greenhouse",
+      "id": "skildai-careers"
+    },
+    "Slice": {
+      "ats": "greenhouse",
+      "id": "slice"
+    },
+    "Snap": {
+      "ats": "careers-page",
+      "url": "https://careers.snap.com/jobs?lang=en-US"
     },
     "Snorkel AI": {
       "ats": "greenhouse",
@@ -766,6 +1266,20 @@
       "ats": "greenhouse",
       "id": "solarwinds"
     },
+    "Sony": {
+      "ats": "workday",
+      "host": "sonyglobal.wd1.myworkdayjobs.com",
+      "tenant": "sonyglobal",
+      "site": "SonyGlobalCareers"
+    },
+    "Sourcegraph": {
+      "ats": "greenhouse",
+      "id": "sourcegraph91"
+    },
+    "Spektra Systems": {
+      "ats": "careers-page",
+      "url": "https://careers.spektrasystems.com/jobs/Careers"
+    },
     "SpotDraft": {
       "ats": "ashby",
       "id": "spotdraft"
@@ -774,9 +1288,17 @@
       "ats": "lever",
       "id": "spotify"
     },
+    "Sprinto": {
+      "ats": "lever",
+      "id": "Sprinto"
+    },
     "Starburst": {
       "ats": "greenhouse",
       "id": "starburst"
+    },
+    "Starburst Data": {
+      "ats": "greenhouse",
+      "id": "starbursttalentcommunity"
     },
     "Storyblok": {
       "ats": "greenhouse",
@@ -789,6 +1311,14 @@
     "Sumo Logic": {
       "ats": "greenhouse",
       "id": "sumologic"
+    },
+    "Supabase": {
+      "ats": "ashby",
+      "id": "supabase"
+    },
+    "Swiggy": {
+      "ats": "smartrecruiters",
+      "id": "swiggy"
     },
     "Sysdig": {
       "ats": "lever",
@@ -803,11 +1333,23 @@
       "id": "taketwo",
       "note": "Zynga roles post on the Take-Two board."
     },
+    "Take-Two Interactive": {
+      "ats": "greenhouse",
+      "id": "taketwo"
+    },
     "Target": {
       "ats": "workday",
       "tenant": "target",
       "host": "target.wd5.myworkdayjobs.com",
       "site": "targetcareers"
+    },
+    "Teachmint": {
+      "ats": "keka",
+      "id": "teachmint"
+    },
+    "Teleport": {
+      "ats": "ashby",
+      "id": "goteleport"
     },
     "Temporal Technologies": {
       "ats": "ashby",
@@ -816,6 +1358,16 @@
     "Tenable": {
       "ats": "greenhouse",
       "id": "tenableinc"
+    },
+    "Tencent": {
+      "ats": "workday",
+      "host": "tencent.wd1.myworkdayjobs.com",
+      "tenant": "tencent",
+      "site": "Tencent_Careers"
+    },
+    "Thinking Machines Lab": {
+      "ats": "ashby",
+      "id": "ThinkingMachines"
     },
     "Thomson Reuters": {
       "ats": "workday",
@@ -839,6 +1391,16 @@
       "ats": "greenhouse",
       "id": "togetherai"
     },
+    "Toyota Connected": {
+      "ats": "greenhouse",
+      "id": "toyotaconnected"
+    },
+    "Trimble": {
+      "ats": "workday",
+      "host": "trimble.wd1.myworkdayjobs.com",
+      "tenant": "trimble",
+      "site": "TrimbleCareers"
+    },
     "Tripadvisor": {
       "ats": "greenhouse",
       "id": "tripadvisor"
@@ -846,6 +1408,10 @@
     "TrueLayer": {
       "ats": "greenhouse",
       "id": "truelayer"
+    },
+    "Truveta": {
+      "ats": "greenhouse",
+      "id": "truveta"
     },
     "Turing": {
       "ats": "greenhouse",
@@ -859,6 +1425,15 @@
       "ats": "greenhouse",
       "id": "twitch"
     },
+    "Uber": {
+      "ats": "oracle",
+      "host": "iaziqy.fa.ocs.oraclecloud.com",
+      "site": "UberCareers"
+    },
+    "Ubisoft": {
+      "ats": "smartrecruiters",
+      "id": "Ubisoft2"
+    },
     "Udacity": {
       "ats": "greenhouse",
       "id": "udacity"
@@ -871,9 +1446,31 @@
       "ats": "ashby",
       "id": "uipath"
     },
+    "Unacademy": {
+      "ats": "smartrecruiters",
+      "id": "unacademy"
+    },
+    "Uniphore": {
+      "ats": "workday",
+      "host": "uniphore.wd503.myworkdayjobs.com",
+      "tenant": "uniphore",
+      "site": "Uniphore"
+    },
+    "Upstash": {
+      "ats": "careers-page",
+      "url": "https://upstash.com/careers"
+    },
     "Vanta": {
       "ats": "ashby",
       "id": "vanta"
+    },
+    "Vectra AI": {
+      "ats": "greenhouse",
+      "id": "vectranetworks"
+    },
+    "Veeva Systems": {
+      "ats": "lever",
+      "id": "veeva"
     },
     "Vercel": {
       "ats": "greenhouse",
@@ -888,6 +1485,10 @@
       "tenant": "visa",
       "host": "visa.wd5.myworkdayjobs.com",
       "site": "Visa"
+    },
+    "Wayfair": {
+      "ats": "smartrecruiters",
+      "id": "wayfair"
     },
     "Waymo": {
       "ats": "greenhouse",
@@ -906,6 +1507,22 @@
     "Welo Global": {
       "ats": "lever",
       "id": "weloglobal"
+    },
+    "Western Digital": {
+      "ats": "smartrecruiters",
+      "id": "westerndigital"
+    },
+    "Whatfix": {
+      "ats": "smartrecruiters",
+      "id": "whatfix"
+    },
+    "Wingify/VWO": {
+      "ats": "keka",
+      "id": "wingify"
+    },
+    "Wise": {
+      "ats": "careers-page",
+      "url": "https://wise.jobs/jobs"
     },
     "Wiz": {
       "ats": "greenhouse",
@@ -928,6 +1545,12 @@
     "Yugabyte": {
       "ats": "greenhouse",
       "id": "yugabyte"
+    },
+    "Zendesk": {
+      "ats": "workday",
+      "host": "zendesk.wd1.myworkdayjobs.com",
+      "tenant": "zendesk",
+      "site": "zendesk"
     },
     "Zeta": {
       "ats": "lever",

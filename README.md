@@ -1,7 +1,7 @@
 # Target-Company SDE Scanner
 
 Find, rank, apply to, and track software-engineering roles for candidates with roughly 1–3 years
-of experience, across 220+ target companies. Free, local, and private.
+of experience, across 300+ target companies. Free, local, and private.
 
 It comes in two forms:
 
@@ -77,7 +77,7 @@ ln -s "$PWD/jobbot.sh" /opt/homebrew/bin/jobbot
 ## Daily workflow
 
 ```bash
-./jobbot.sh scan          # 1. sweep 220+ company job boards (about 2 minutes)
+./jobbot.sh scan          # 1. sweep 300+ companies' job boards and careers sites (a few minutes)
 ./jobbot.sh rank          # 2. score new roles against each of your resumes
 ./jobbot.sh jobs --why    # 3. best fits first, with the reason and the resume to use
 ./jobbot.sh apply --top 5 # 4. apply to the 5 best-ranked roles, one after another
@@ -97,9 +97,19 @@ Other ways to choose which roles `apply` works through:
 ./jobbot.sh apply --all              # every role you haven't applied to, best fit first
 ```
 
-**`scan`** queries each company's public job-board API (Greenhouse, Lever, Ashby, Workday,
-SmartRecruiters, Microsoft). It keeps engineering roles in your locations and reads each posting's
-stated experience requirement. It drops roles that ask for more years than your `max_yoe`, roles
+**`scan`** reads each company's jobs from where its careers site gets them:
+- public job-board APIs: Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Keka,
+  Freshteam, Eightfold, and Oracle Recruiting Cloud
+- the Amazon, Google, Apple, Microsoft, and Atlassian careers sites' own job feeds
+- for companies with none of these, the careers page itself, opened in headless Chrome (links and
+  the job lists the page loads). This is less precise, and `--no-careers-pages` skips it.
+
+About half of the companies in `target-companies.md` are covered this way. The rest (for example
+Flipkart, Walmart, Intuit, SAP, Zomato) use sites jobbot can't read reliably yet; the AI-assistant
+skill still finds those through web search.
+
+It keeps engineering roles in your locations and reads each posting's stated experience
+requirement (or a range in the title, such as "(1 to 4 Years)"). It drops roles that ask for more years than your `max_yoe`, roles
 at excluded companies, and roles you have already applied to. New roles are stored in the tracker.
 
 **`rank`** scores each new role from 0 to 100 against every resume variant and picks the best
@@ -195,6 +205,9 @@ profile and logs as the commands.
 | **Apply** | The running application batch: a live activity feed (what was filled, corrected and checked on each page), the queue, and any question jobbot needs you to answer |
 | **Applications** | Every application with status pills and history; click one to change its status or notes; add applications made elsewhere |
 | **Actions** | Run Scan, Rank, and Gmail sync in the background and watch their output; connect Gmail |
+
+**Refresh jobs** (top of the Jobs tab) runs `scan` and then `rank`, shows progress beside the
+button, and reloads the list when it finishes.
 | **Logs** | What `apply` filled, corrected and checked, page by page, with a filter |
 | **Profile** | Edit `profile.yaml`, including learned answers. Invalid YAML is refused, and a backup is kept |
 
@@ -337,7 +350,7 @@ snippet, date).
 | --- | --- |
 | `init [--force]` | Create `profile.yaml` (git-ignored) from the template |
 | `doctor` | Check profile, resume files, Playwright, Ollama, and the tracker |
-| `scan [--companies A,B] [--exclude C] [--locations REGEX] [--max-yoe N] [--show-all]` | Find matching roles and store new ones |
+| `scan [--companies A,B] [--exclude C] [--locations REGEX] [--max-yoe N] [--show-all] [--no-careers-pages]` | Find matching roles and store new ones |
 | `rank [--limit N] [--rerank] [--llm none] [--model NAME]` | Score unranked roles against your resumes |
 | `jobs [--why] [--urls] [--limit N] [--include-applied]` | List tracked roles, best fit first |
 | `apply <n, x-y or URL>... [--top N] [--all] [--min-fit N] [-y] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm none]` | Fill applications in Chrome |
@@ -407,7 +420,8 @@ are in [`SKILL.md`](SKILL.md).
 
 ## Running only the scanner
 
-The scanner needs only Python 3, with no dependencies:
+The scanner needs only Python 3, with no dependencies (companies read from their careers page also
+need Playwright and Chrome; without them they are reported as skipped, or pass `--no-careers-pages`):
 
 ```bash
 python3 scripts/ats_scan.py --companies "Stripe,MongoDB,Adobe,ServiceNow"
@@ -429,7 +443,7 @@ Rows are candidates: open each link before treating it as a live opening.
 | `jobbot/ui/` | The dashboard: `server.py` (local API), `bridge.py` (runs `apply` for the page), `static/` |
 | `jobbot.sh` | Launcher that uses the project virtualenv |
 | `profile.example.yaml` | Template for your private profile |
-| `references/ats-registry.json` | Verified job-board API identifiers for 220+ companies |
+| `references/ats-registry.json` | Where each of 300+ companies' jobs are read from (job-board IDs, feeds, careers pages) |
 | `target-companies.md` | Tiered company list and official career-site entry points |
 | `references/job-platforms.md` | Supplemental job boards and how to treat each |
 | `scripts/ats_scan.py` | Standalone scanner command |

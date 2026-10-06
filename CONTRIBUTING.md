@@ -33,7 +33,12 @@ global employers, and later tiers broaden coverage.
 
 1. Fetch the board's public API (for example `boards-api.greenhouse.io/v1/boards/<id>`,
    `api.lever.co/v0/postings/<id>`, `api.ashbyhq.com/posting-api/job-board/<id>`, or a Workday
-   `/wday/cxs/<tenant>/<site>/jobs` search) and confirm it returns postings.
+   `/wday/cxs/<tenant>/<site>/jobs` search) and confirm it returns postings. Entry shapes by
+   source (`ats`): `greenhouse`/`lever`/`ashby`/`smartrecruiters`/`workable`/`keka`/`freshteam`
+   take an `id`; `workday` takes `host`, `tenant`, `site`; `oracle` takes `host`, `site`;
+   `eightfold` takes `host`, `domain`; `json-feed` takes a `url` plus field paths; `careers-page`
+   takes the careers `url` (and optionally `job_url`, a template like
+   `https://example.com/jobs/{id}`). Prefer an API source: `careers-page` is the last resort.
 2. Confirm the postings belong to the intended employer. Short slugs collide often: `capital`,
    `neon`, `circle`, `pine`, and `disney` all resolve to unrelated companies.
 3. Add a `note` for rebrands or shared boards (for example Zynga on Take-Two's board).

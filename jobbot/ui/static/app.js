@@ -34,7 +34,7 @@ function showTab(name) {
   remember("tab", name);
   $$(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
   $$(".panel").forEach((p) => (p.hidden = p.id !== "tab-" + name));
-  ({ jobs: loadJobs, apply: loadRun, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile }[name])();
+  ({ jobs: () => { loadJobs(); loadTasks(); }, apply: loadRun, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile }[name])();
 }
 
 // ---------- summary ----------
@@ -340,6 +340,7 @@ async function loadTasks() {
       <pre>${esc(t.lines.slice(-200).join("\n")) || "…"}</pre></div>`).join("")
     : `<div class="empty">Nothing has run yet in this session.</div>`;
   $$(".task pre").forEach((p) => (p.scrollTop = p.scrollHeight));
+  renderRefresh(tasks);
   const running = tasks.some((t) => t.status === "running");
   $$("[data-task]").forEach((b) => (b.disabled = running && !b.dataset.task.startsWith("gmail") ? true : b.disabled));
   if (running && !state.polling) state.polling = setInterval(loadTasks, 1500);
@@ -348,7 +349,24 @@ async function loadTasks() {
     state.polling = null;
     $$("[data-task]").forEach((b) => (b.disabled = false));
     await loadSummary();
+    if (state.tab === "jobs") await loadJobs();
   }
+}
+
+// The Jobs tab's "Refresh jobs" = scan + rank. Shows the latest such task's progress.
+function renderRefresh(tasks) {
+  const t = tasks.find((x) => ["refresh", "scan", "rank"].includes(x.name));
+  const el = $("#refresh-status"), btn = $("#jobs-refresh");
+  const busy = t && t.status === "running";
+  btn.disabled = busy;
+  btn.textContent = busy ? (t.step === "rank" ? "Ranking…" : "Scanning…") : "Refresh jobs";
+  if (!t) { el.hidden = true; return; }
+  const last = t.lines.filter((l) => l.trim() && !l.startsWith("$ ")).slice(-1)[0] || "";
+  el.hidden = false;
+  el.className = "refresh-status " + (t.status === "failed" ? "bad" : "");
+  el.textContent = busy ? `${t.step === "rank" ? "Ranking new roles" : "Scanning job boards"}… ${last}`
+    : t.status === "failed" ? `${t.name} failed: ${last} (details in Actions)`
+    : `Last ${t.name} finished ${t.ended ? t.ended.slice(11, 16) : ""}. ${last}`;
 }
 
 // ---------- logs ----------
@@ -431,6 +449,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }));
   }
   $$("[data-task]").forEach((b) => b.addEventListener("click", () => startTask(b.dataset.task)));
+  $("#jobs-refresh").addEventListener("click", () => startTask("refresh"));
   $("#logs-date").addEventListener("change", () => loadLogs($("#logs-date").value));
   $("#logs-q").addEventListener("input", debounce(renderLogs, 150));
   $("#profile-save").addEventListener("click", saveProfile);
