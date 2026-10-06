@@ -235,13 +235,13 @@ contact details and CTC, so it is never committed. The main sections:
 
 | Section | What it holds |
 | --- | --- |
-| `personal` | name, email, phone and country code, city, state, address |
+| `personal` | name, email, phone, country code and phone type, city, state, address, languages besides English |
 | `links` | LinkedIn (use the `www.` form), GitHub, website |
-| `work` | current company and title, start month, years of experience, past employers, notice period, current and expected CTC, reason for change |
+| `work` | current company and title, start month, years of experience, past employers, notice period, current and expected CTC, reason for change, outside business activities |
 | `education` | school, degree, field, GPA, years |
-| `eligibility` | work authorization, sponsorship, relocation, background check |
+| `eligibility` | work authorization, sponsorship, relocation, background check, military service |
 | `eeo` | gender, ethnicity, veteran and disability answers (`Decline` picks the decline option) |
-| `preferences` | location regex, `max_yoe`, excluded companies, "how did you hear about us" |
+| `preferences` | location regex, `max_yoe`, excluded companies, "how did you hear about us", preferred work locations (for location dropdowns) |
 | `resumes` | each resume variant: a key, the PDF path, and a short focus hint for ranking |
 | `answers` | your fixed answers: a regex matched against the question, and the answer to give |
 | `always_ask` | regexes for questions jobbot must always ask you about |

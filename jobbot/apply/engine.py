@@ -24,6 +24,8 @@ MAX_PAGES = 15
 
 SUBMIT_RE = r"^(submit( (my )?application)?|send application|apply|finish|complete application)$"
 WORKDAY_SUBMIT_RE = r"^submit$"   # Workday keeps "Apply" buttons around; only Review has "Submit"
+APPLY_RE = r"^(apply( now| online| here)?|apply (for|to) (this|the) (job|position|role)|start (your )?application|i.?m interested|submit (your )?(resume|cv))$"
+SIGNIN_RE = re.compile(r"sign ?in|log ?in|create (an )?account|register", re.I)
 NEXT_RE = r"^(next|continue|save and continue|save & continue|proceed)$"
 CONFIRM_RE = re.compile(
     r"thank(s| you) for (applying|your (application|interest))|application (has been |was )?(submitted|received)|"
@@ -38,8 +40,13 @@ CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i con
 
 # --- where to start for each applicant-tracking system --------------------------------
 
+# Application flows jobbot knows how to drive. Jobs found through other sources (Amazon, Google, Oracle,
+# Eightfold, careers pages...) are applied to by their URL, which may still point at one of these.
+FORM_ATS = ("greenhouse", "lever", "lever-eu", "ashby", "smartrecruiters", "workday")
+
+
 def detect_ats(url, job=None):
-    if job and job.get("ats"):
+    if job and job.get("ats") in FORM_ATS:
         return job["ats"]
     host = urllib.parse.urlparse(url).netloc
     query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
@@ -64,7 +71,10 @@ def start_url(url, ats, job=None):
         query = urllib.parse.parse_qs(parsed.query)
         job_id = (query.get("gh_jid") or query.get("token") or [None])[0]
         m = re.search(r"/([^/]+)/jobs/(\d+)", parsed.path)
-        board = (job or {}).get("board") or (m.group(1) if m and "greenhouse.io" in parsed.netloc else None)
+        # A job's "board" is a Greenhouse board id only when the scan read it from Greenhouse; a careers
+        # page (e.g. digitalocean.com/careers/...?gh_jid=) stores its own URL there instead.
+        board = (job or {}).get("board") if (job or {}).get("ats") == "greenhouse" else None
+        board = board or (m.group(1) if m and "greenhouse.io" in parsed.netloc else None)
         job_id = job_id or (m.group(2) if m else None)
         if board and job_id:
             return f"https://job-boards.greenhouse.io/embed/job_app?for={board}&token={job_id}"
@@ -74,7 +84,8 @@ def start_url(url, ats, job=None):
     if ats == "ashby":
         return url if url.rstrip("/").endswith("/application") else url.rstrip("/") + "/application"
     if ats == "workday":
-        return re.sub(r"/apply(/.*)?$", "", url)
+        # ".../job/<loc>/<title>/apply/..." -> the posting. Only after /job/: some sites are named "apply".
+        return re.sub(r"(/job/[^?#]+?)/apply(/.*)?$", r"\1", url)
     return url
 
 
@@ -157,6 +168,10 @@ class Session:
             self.ctx = self._pw.chromium.launch_persistent_context(channel="chrome", **opts)
         except Exception:
             self.ctx = self._pw.chromium.launch_persistent_context(**opts)  # needs `playwright install chromium`
+        # A field that is hidden or covered (e.g. a follow-up shown only after "Yes") would otherwise make each
+        # click or fill wait Playwright's default 30 s, in every review round.
+        self.ctx.set_default_timeout(10000)
+        self.ctx.set_default_navigation_timeout(45000)
         return self
 
     def __exit__(self, *exc):
@@ -178,7 +193,7 @@ class Session:
         page.wait_for_timeout(2500)
         self.ui.info(f"{job['company']} — {job['title']}  [{ats}]  resume: {resume_key}")
 
-        self._enter_form(page, ats)
+        page = self._enter_form(page, ats) or page
         if resume and self.upload:
             self._upload_resume(page, resume["path"], ats)
 
@@ -187,6 +202,7 @@ class Session:
                             auto_drafts=bool(self.profile.get("automation.auto_accept_drafts", True)))
         self._consent_approved = bool(self.profile.get("automation.auto_consent", False))
         self._mine = set()   # labels jobbot has filled or confirmed during this application
+        self._broken = set()  # labels whose field could not be filled; not retried in later review rounds
         self._log(f"=== {job['company']} — {job['title']} [{ats}] {url} resume={resume_key}")
         for step in range(1, MAX_PAGES + 1):
             signed_in = self._ensure_signed_in(page, attempts=1) if ats == "workday" else True
@@ -307,18 +323,81 @@ class Session:
     # --- steps ---------------------------------------------------------------------
 
     def _enter_form(self, page, ats):
+        if ats == "greenhouse" and not self._fields(page):
+            # Company careers pages embed the Greenhouse form in an iframe; open the form itself.
+            frame = next((f for f in page.frames if "greenhouse.io/embed/job_app" in f.url), None)
+            if frame:
+                page.goto(frame.url, wait_until="domcontentloaded")
+                page.wait_for_timeout(2000)
         if ats == "smartrecruiters":
             self._click(page, r"^i.?m interested$|^apply now$", wait=4000)
         elif ats == "workday":
-            self._click(page, r"^apply$", wait=3000)
-            if self._buttons(page, r"^autofill with resume$"):
-                self._click(page, r"^autofill with resume$", wait=3000)
-            elif self._buttons(page, r"^apply manually$"):
-                self._click(page, r"^apply manually$", wait=3000)
+            # Workday draws the posting late: wait for its Apply button, then for the start-application choice.
+            if self._wait_for_button(page, r"^apply$", 20000):
+                self._click(page, r"^apply$")
+                choice = self._wait_for_button(page, r"^(autofill with resume|apply manually)$", 10000)
+                if choice:
+                    pick = r"^autofill with resume$" if any(re.match(r"autofill", c["text"], re.I) for c in choice) \
+                        else r"^apply manually$"
+                    self._click(page, pick, wait=2000)
             self._workday_settle(page)
             self._ensure_signed_in(page)
-        elif ats == "generic" and not [f for f in self._fields(page) if f["kind"] not in ("listbutton", "file")]:
-            self.ui.wait_for_user("Open the application form in the browser window, then press Enter here.")
+        elif ats == "generic" and not self._form_fields(page):
+            page = self._open_application(page)
+            if self._signin_page(page):
+                self.ui.wait_for_user("This site needs you to sign in (or create an account) in the browser "
+                                      "window; jobbot never handles passwords. When the application form "
+                                      "appears, press Enter here.")
+            elif not self._form_fields(page):
+                self.ui.wait_for_user("Open the application form in the browser window, then press Enter here.")
+            return page
+
+    def _form_fields(self, page):
+        """Fields that belong to an application, not to a job page's search box or language picker."""
+        return [f for f in self._fields(page) if f["kind"] not in ("listbutton", "file")
+                and not re.search(r"search|keyword|language|locale|subscribe|newsletter", f["label"] or "", re.I)]
+
+    def _open_application(self, page):
+        """On a job posting, click its Apply control; follow it into a new tab if it opens one."""
+        hits = page.evaluate(BUTTONS_JS, [APPLY_RE, True])
+        if not hits:
+            return page
+        target = page.locator(f'[data-jobbot-btn="{hits[0]["id"]}"]')
+        try:
+            with self.ctx.expect_page(timeout=4000) as popup:
+                target.click(timeout=8000)
+            page = popup.value
+            page.bring_to_front()
+        except Exception:
+            pass   # same tab (or nothing opened)
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=15000)
+        except Exception:
+            pass
+        page.wait_for_timeout(3000)
+        return page
+
+    @staticmethod
+    def _signin_page(page):
+        try:
+            if page.locator("input[type=password]:visible").count():
+                return True
+            heading = " ".join(page.locator("h1, h2, button").all_inner_texts()[:20])
+        except Exception:
+            return False
+        host = urllib.parse.urlparse(page.url).netloc
+        return bool(re.search(r"^(passport|login|signin|accounts?|auth|sso|id)\.", host)
+                    or SIGNIN_RE.search(urllib.parse.urlparse(page.url).path) or SIGNIN_RE.search(heading))
+
+    def _wait_for_button(self, page, pattern, timeout_ms):
+        """Poll for a button matching pattern; returns the matches ([] after timeout_ms)."""
+        waited = 0
+        while True:
+            hits = self._buttons(page, pattern)
+            if hits or waited >= timeout_ms:
+                return hits
+            page.wait_for_timeout(500)
+            waited += 500
 
     @staticmethod
     def _workday_settle(page, timeout_ms=15000):
@@ -406,6 +485,10 @@ class Session:
                 continue
             if kind == "listbutton" and not f["label"]:
                 continue  # Workday's language picker and similar chrome
+            if label in getattr(self, "_broken", ()):
+                if f["required"]:
+                    skipped.append(f"{label} (could not be filled; please check it)")
+                continue
             try:
                 if kind in ("text", "textarea"):
                     was = None
@@ -455,7 +538,9 @@ class Session:
                             mine.add(label)
                             continue
                         # pre-filled with something your profile disagrees with: choose again below
-                    elif kind == "combo" and f["value"] and label not in force:
+                    elif kind == "combo" and (f["value"] or label in mine) and label not in force:
+                        # Already set (react-select shows its choice outside the input, so the value can
+                        # read empty): choose again only when the check says it did not stick.
                         continue
                     if CONSENT_RE.search(label):
                         consents.append(f)
@@ -499,6 +584,11 @@ class Session:
                             note(f, label, ans)
             except Exception as e:  # keep going; the review step lists what is left
                 skipped.append(f"{label} (error: {type(e).__name__})")
+                getattr(self, "_broken", set()).add(label)
+                try:
+                    page.keyboard.press("Escape")   # close a menu the failed attempt may have opened
+                except Exception:
+                    pass
 
         if consents and not self._consent_approved:
             self._consent_approved = self.ui.confirm(

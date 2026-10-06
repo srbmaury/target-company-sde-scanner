@@ -93,6 +93,9 @@ class Resolver:
         self._q = ""
         self._first_personal_rule = next(i for i, (pat, _) in enumerate(self.rules) if pat.startswith("preferred (first )?name"))
         self.memory = memory
+        # Answers that cost a model call or a question to you, settled once per application: review
+        # rounds re-read the page, and must not ask you (or the model) the same thing again.
+        self._settled = {}
 
     # --- built-in rules: (pattern, function returning the answer or None) -------------
     def _rules(self):
@@ -122,6 +125,14 @@ class Resolver:
             return experience_years() if words and all(w in corpus for w in words) else "0"
 
         willing = lambda: yes_no(g("eligibility.willing_to_relocate", True))  # noqa: E731
+
+        def open_to_place():
+            """'Are you open for Bangalore location?': Yes for a place in your preferred locations or city."""
+            places = g("preferences.locations") or ""
+            if (places and re.search(places, self._q, re.I)) or (g("personal.city") and
+                                                                  g("personal.city").lower() in self._q.lower()):
+                return "Yes"
+            return willing()
         # Order matters: specific yes/no policy questions first, so e.g. "relocation" never reaches the
         # location rule and "mobile development" never reaches the phone rule.
         return [
@@ -129,11 +140,15 @@ class Resolver:
             (r"(authori[sz]ed|eligible|right|permit(ted)?) to work|work authori[sz]ation|legally (able|eligible|authori[sz]ed)|"
              r"documentation establishing your identity", lambda: yes_no(bool(g("eligibility.authorized_countries")))),
             (r"legal age|at least 18|over (the age of )?18", lambda: "Yes"),
+            (r"outside (business|employment|activit)|side business|board (role|seat|member)|moonlight",
+             lambda: g("work.outside_business_activities") or None),
             (r"background (check|verification)", lambda: yes_no(g("eligibility.background_check_ok", True))),
             (r"(have you )?(ever |previously )?(worked|been employed) (at|for|by)|former employee|current(ly)? .*employee|"
              r"employed by .* in the past", worked_here),
             (r"\bhybrid\b|in.?office|\bon.?site\b|work (from|in|at) (the|our) .*office|days a week|come (in )?to the office|"
              r"based in our .* office|office.?based", willing),
+            (r"(open|okay|ok|comfortable|fine|willing) (for|to|with|in) .*\b(location|city|office)\b|"
+             r"(open|willing|able) to (work|be based|move) (in|from|at|to) ", open_to_place),
             (r"relocat|work (on a daily basis )?in the (work )?location|able to work from|\bcommute", willing),
             (r"currently (based|located|living|residing) in|do you (live|reside) in", lambda: None),
             (r"notice period.*(negotiable|buy ?out|serve)|can you (join|start) (early|sooner|immediately)|buy ?out", lambda: "Yes"),
@@ -156,12 +171,16 @@ class Resolver:
             (r"^(full |legal |your )?name\b", lambda: p.full_name),
             (r"\be-?mail\b", lambda: g("personal.email")),
             (r"country (phone )?code|phone country|dialing code", lambda: g("personal.phone_country")),
+            (r"phone (device )?type|type of (phone|device)", lambda: g("personal.phone_device_type") or None),
+            (r"language.*\b(fluent|speak|spoken|written|proficien)|\bfluent in\b",
+             lambda: g("personal.languages") or None),
             (r"\b(phone|mobile|contact) (number|no\.?)\b|^\s*(phone|mobile|telephone)\b(?!.*(app|develop|experience))",
              lambda: g("personal.phone")),
             (r"linkedin", lambda: g("links.linkedin")),
             (r"github", lambda: g("links.github")),
             (r"\bwebsite\b|portfolio|personal (site|url)|\bblog\b|other link", lambda: g("links.website")),
-            (r"preferred (work )?location|locations? (are you|would you)", lambda: g("personal.city")),
+            (r"preferred (work |job )?location|locations? (are you|would you)",
+             lambda: (g("preferences.preferred_work_locations") or []) + [g("personal.city")]),
             (r"address line 1|street address", lambda: g("personal.address_line1") or None),
             (r"\bpostal|\bzip\b|pin ?code", lambda: g("personal.postal_code") or None),
             (r"\bstate\b|\bprovince\b|\bregion\b", lambda: g("personal.state")),
@@ -172,6 +191,8 @@ class Resolver:
             (r"hispanic|latin[oa]", lambda: g("eeo.hispanic_latino")),
             (r"\bgender\b|\bsex\b", lambda: g("eeo.gender")),
             (r"\brace\b|ethnic", lambda: g("eeo.race")),
+            (r"(served|serve|service) in the (military|armed forces)|military service|armed forces",
+             lambda: g("eligibility.military_service") or None),
             (r"veteran|military", lambda: g("eeo.veteran")),
             (r"disabilit", lambda: g("eeo.disability")),
             (r"how did you (hear|learn|find|come across)|source of (application|referral)|where did you (hear|find)",
@@ -197,6 +218,9 @@ class Resolver:
                 return None  # never put your own name/email/phone into a referrer or contact field
             if re.search(pattern, q, re.I):
                 value = fn()
+                if isinstance(value, (list, tuple)):   # alternatives, best first (empty entries dropped)
+                    value = [str(v) for v in value if v not in (None, "")]
+                    return value or None
                 if value not in (None, ""):
                     return str(value)
                 return None
@@ -216,7 +240,8 @@ class Resolver:
                 return self._fit(value, kind, options, "profile")
 
         if any(p.search(question) for p in self.always_ask):
-            return self._ask(question, kind, options, required, None, reason="needs your confirmation", learn=False)
+            return self._once(question, kind, options, lambda: self._ask(
+                question, kind, options, required, None, reason="needs your confirmation", learn=False))
 
         if self.memory and kind != "checkbox":
             learned = self.memory.lookup(question, options if kind == "choice" else None)
@@ -245,7 +270,16 @@ class Resolver:
 
         if quick:
             return None
+        return self._once(question, kind, options, lambda: self._slow(question, kind, options, required))
 
+    def _once(self, question, kind, options, get):
+        key = (question.lower(), kind, tuple(options))
+        if key not in self._settled:
+            self._settled[key] = get()
+        return self._settled[key]
+
+    def _slow(self, question, kind, options, required):
+        """The model's answer, else yours."""
         if self.llm and self.llm.enabled:
             try:
                 resume = self.p.resume_text(self.resume_key) if self.resume_key else ""
@@ -302,6 +336,10 @@ class Resolver:
         return yes_no(worked)
 
     def _fit(self, value, kind, options, source):
+        if isinstance(value, (list, tuple)):   # e.g. preferred locations: the first one the form offers
+            if kind != "choice":
+                return Answer(", ".join(map(str, value)), source) if value else None
+            return next((a for a in (self._fit(v, kind, options, source) for v in value) if a), None)
         if kind == "choice":
             idx = pick(value, options)
             return Answer(idx, source, options[idx]) if idx is not None else None
