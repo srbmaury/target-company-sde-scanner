@@ -33,10 +33,12 @@ READBACK_JS = r"""
     else if (tag === 'button') value = clean(el.innerText);
     else if (r.kind === 'combo') {
       // react-select and friends show the chosen value next to the input, not in it
+      // (an open option list must not count: it contains the expected text whether or not it was chosen)
+      const textOf = n => { const c = n.cloneNode(true); c.querySelectorAll('[role="listbox"], [role="option"]').forEach(x => x.remove()); return c.textContent; };
       let node = el, text = el.value || '';
-      for (let i = 0; i < 4 && node && !clean(text); i++) { node = node.parentElement; text = node ? node.innerText : ''; }
+      for (let i = 0; i < 4 && node && !clean(text); i++) { node = node.parentElement; text = node ? textOf(node) : ''; }
       if (node && !(text || '').toLowerCase().includes((r.expected || '').toLowerCase().slice(0, 12))) {
-        for (let i = 0; i < 3 && node; i++) { node = node.parentElement; if (node && node.innerText.toLowerCase().includes((r.expected || '').toLowerCase().slice(0, 12))) { text = node.innerText; break; } }
+        for (let i = 0; i < 3 && node; i++) { node = node.parentElement; if (node && textOf(node).toLowerCase().includes((r.expected || '').toLowerCase().slice(0, 12))) { text = textOf(node); break; } }
       }
       value = clean(text);
     } else value = clean(el.value);
@@ -132,7 +134,8 @@ def check_page(page, records, unresolved, fields_now):
                 (kind == "select" and (not value or value in ("0", "-1"))) or \
                 (kind in ("radio", "checkgroup", "yesno") and not any(value or [])) or \
                 (kind == "checkbox" and not (value and value[0])) or \
-                (kind == "listbutton" and (not value or value.lower().startswith("select")))
+                (kind == "listbutton" and (not value or value.lower().startswith("select"))) or \
+                (kind == "combo" and not value and not f.get("shown"))
         if empty and f["label"] and f["label"] not in result.missing:
             result.missing.append(f["label"])
     problems = page.evaluate(PAGE_PROBLEMS_JS)

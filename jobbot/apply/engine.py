@@ -9,13 +9,17 @@ submits on its own: on the final page you choose submit, refill, done, or quit.
 Sign-in pages, verification links, and CAPTCHAs are always left to you.
 """
 
+import os
 import re
 import time
 import urllib.parse
 
 from .. import paths, tracker
 from ..answers import Resolver, real_options
+from . import sites
 from .fields import BUTTONS_JS, SCAN_JS
+from .sites import detect_ats, start_url
+from .unattended import NeedsYou, UnattendedUI
 from .verify import check_page, matches
 
 MAX_ROUNDS = 5           # review rounds per page before asking you
@@ -26,7 +30,6 @@ MAX_PAGES = 15
 SUBMIT_RE = r"^(submit( (my )?application)?|send application|apply|finish|complete application)$"
 WORKDAY_SUBMIT_RE = r"^submit$"   # Workday keeps "Apply" buttons around; only Review has "Submit"
 APPLY_RE = r"^(apply( now| online| here)?|apply (for|to) (this|the) (job|position|role)|start (your )?application|i.?m interested|submit (your )?(resume|cv))$"
-SIGNIN_RE = re.compile(r"sign ?in|log ?in|create (an )?account|register", re.I)
 NEXT_RE = r"^(next|continue|save and continue|save & continue|proceed)$"
 CONFIRM_RE = re.compile(
     r"thank(s| you) for (applying|your (application|interest))|application (has been |was )?(submitted|received)|"
@@ -37,57 +40,6 @@ ACCOUNT_STEP_RE = re.compile(r"current step \d+ of \d+\s*\|?\s*create account\s*
 CODE_RE = re.compile(r"verification code|security code|one.?time (pass)?code|\botp\b|enter the \d*.?character code|"
                      r"code (was )?sent to|confirmation code", re.I)
 CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i confirm|confirm the statement|declare", re.I)
-
-
-# --- where to start for each applicant-tracking system --------------------------------
-
-# Application flows jobbot knows how to drive. Jobs found through other sources (Amazon, Google, Oracle,
-# Eightfold, careers pages...) are applied to by their URL, which may still point at one of these.
-FORM_ATS = ("greenhouse", "lever", "lever-eu", "ashby", "smartrecruiters", "workday")
-
-
-def detect_ats(url, job=None):
-    if job and job.get("ats") in FORM_ATS:
-        return job["ats"]
-    host = urllib.parse.urlparse(url).netloc
-    query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-    if "greenhouse.io" in host or "gh_jid" in query:
-        return "greenhouse"
-    if "lever.co" in host:
-        return "lever"
-    if "ashbyhq.com" in host:
-        return "ashby"
-    if "smartrecruiters.com" in host:
-        return "smartrecruiters"
-    if "myworkdayjobs.com" in host:
-        return "workday"
-    return "generic"
-
-
-def start_url(url, ats, job=None):
-    parsed = urllib.parse.urlparse(url)
-    if ats == "greenhouse":
-        if "/embed/job_app" in parsed.path:
-            return url
-        query = urllib.parse.parse_qs(parsed.query)
-        job_id = (query.get("gh_jid") or query.get("token") or [None])[0]
-        m = re.search(r"/([^/]+)/jobs/(\d+)", parsed.path)
-        # A job's "board" is a Greenhouse board id only when the scan read it from Greenhouse; a careers
-        # page (e.g. digitalocean.com/careers/...?gh_jid=) stores its own URL there instead.
-        board = (job or {}).get("board") if (job or {}).get("ats") == "greenhouse" else None
-        board = board or (m.group(1) if m and "greenhouse.io" in parsed.netloc else None)
-        job_id = job_id or (m.group(2) if m else None)
-        if board and job_id:
-            return f"https://job-boards.greenhouse.io/embed/job_app?for={board}&token={job_id}"
-        return url
-    if ats in ("lever", "lever-eu"):
-        return url if url.rstrip("/").endswith("/apply") else url.rstrip("/") + "/apply"
-    if ats == "ashby":
-        return url if url.rstrip("/").endswith("/application") else url.rstrip("/") + "/application"
-    if ats == "workday":
-        # ".../job/<loc>/<title>/apply/..." -> the posting. Only after /job/: some sites are named "apply".
-        return re.sub(r"(/job/[^?#]+?)/apply(/.*)?$", r"\1", url)
-    return url
 
 
 def browser_profile_holder():
@@ -135,10 +87,12 @@ def _owning_jobbot(chrome_pid):
 
 
 class Session:
-    def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True):
+    def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True, unattended=False):
         self.profile = profile
         self.llm = llm
-        self.ui = ui
+        self.unattended = unattended
+        self.ui = UnattendedUI(ui) if unattended else ui
+        self.ready = {}   # url -> (page, ats): unattended applications filled, checked and waiting for your Submit
         self.dry_run = dry_run
         self.upload = upload
         self.auto_next = auto_next
@@ -162,7 +116,9 @@ class Session:
         self._pw = sync_playwright().start()
         # Sign-in pages (Microsoft, Google) refuse browsers that announce automation, which blocks you from
         # signing in or creating an account yourself in this window. Launch it like a normal Chrome instead.
-        opts = dict(user_data_dir=str(paths.BROWSER_PROFILE), headless=False, viewport=None,
+        # JOBBOT_HEADLESS=1 runs without a window (tests and CI); you normally watch the window.
+        opts = dict(user_data_dir=str(paths.BROWSER_PROFILE), headless=os.environ.get("JOBBOT_HEADLESS") == "1",
+                    viewport=None,
                     args=["--start-maximized", "--disable-blink-features=AutomationControlled"],
                     ignore_default_args=["--enable-automation"])
         try:
@@ -184,18 +140,74 @@ class Session:
     # --- one application ---------------------------------------------------------
 
     def apply(self, job, resume_key):
+        if not self.unattended:
+            return self._apply(job, resume_key)
+        self.ui.unanswered = []
+        self._page = None
+        try:
+            status, note = self._apply(job, resume_key)
+        except Exception:
+            self._close(self._page)
+            raise
+        if status == "ready":
+            self.ready[job["url"]] = (self._page, self._ats)
+            return status, note
+        self._close(self._page)
+        if self.ui.unanswered:
+            raise NeedsYou("unanswered: " + "; ".join(dict.fromkeys(self.ui.unanswered)))
+        return status, note
+
+    @staticmethod
+    def _close(page):
+        try:
+            if page and not page.is_closed():
+                page.close()
+        except Exception:
+            pass
+
+    def submit_ready(self, url):
+        """Submit an application held open by an unattended run. Returns (status, note)."""
+        page, ats = self.ready.pop(url)
+        page.bring_to_front()
+        self._click(page, WORKDAY_SUBMIT_RE if ats == "workday" else SUBMIT_RE)
+        page.wait_for_timeout(6000)
+        confirmed = self._confirmation(page)
+        if confirmed:
+            self._close(page)
+            return "applied", confirmed
+        after = check_page(page, [], [], [])
+        if after.errors or after.captcha:
+            self.ready[url] = (page, ats)   # still open: fix it in the tab and try again, or submit it yourself
+            return None, "the site did not accept it: " + "; ".join(after.lines()[:2])
+        return "applied", "submitted; no confirmation text seen, check the tab"
+
+    def discard_ready(self, url):
+        page, _ = self.ready.pop(url, (None, None))
+        self._close(page)
+
+    def _apply(self, job, resume_key):
         url = job["url"]
         self._started = time.time()   # verification emails older than this application are ignored
         ats = detect_ats(url, job)
         self._ats = ats
         resume = self.profile.resumes().get(resume_key)
-        page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
+        if self.unattended:   # each application in its own tab, so finished ones can wait for your Submit
+            blank = [p for p in self.ctx.pages if p.url == "about:blank" and p not in [r[0] for r in self.ready.values()]]
+            page = blank[0] if blank else self.ctx.new_page()
+            self._page = page
+        else:
+            page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
         page.bring_to_front()
         page.goto(start_url(url, ats, job), wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
         self.ui.info(f"{job['company']} — {job['title']}  [{ats}]  resume: {resume_key}")
 
-        page = self._enter_form(page, ats) or page
+        entered = self._enter_form(page, ats) or page
+        if self.unattended and entered is not page:
+            self._close(page)   # Apply opened the form in a new tab: don't leave the posting behind
+        page = entered
+        if self.unattended:
+            self._page = page
         if resume and self.upload:
             self._upload_resume(page, resume["path"], ats)
 
@@ -258,6 +270,12 @@ class Session:
                 continue
             if choice == "done":
                 return "applied", "you submitted it in the browser"
+            if choice == "hold":
+                if self.dry_run:
+                    return None, "dry run: ready to submit"
+                return "ready", "filled and checked; waiting for your Submit"
+            if self.unattended and not check.ok:
+                self.ui.unanswered.extend(check.lines()[:3])
             return None, "stopped without submitting"
         return None, f"stopped after {MAX_PAGES} pages"
 
@@ -379,17 +397,7 @@ class Session:
         page.wait_for_timeout(3000)
         return page
 
-    @staticmethod
-    def _signin_page(page):
-        try:
-            if page.locator("input[type=password]:visible").count():
-                return True
-            heading = " ".join(page.locator("h1, h2, button").all_inner_texts()[:20])
-        except Exception:
-            return False
-        host = urllib.parse.urlparse(page.url).netloc
-        return bool(re.search(r"^(passport|login|signin|accounts?|auth|sso|id)\.", host)
-                    or SIGNIN_RE.search(urllib.parse.urlparse(page.url).path) or SIGNIN_RE.search(heading))
+    _signin_page = staticmethod(sites.signin_page)
 
     def _wait_for_button(self, page, pattern, timeout_ms):
         """Poll for a button matching pattern; returns the matches ([] after timeout_ms)."""
@@ -401,19 +409,7 @@ class Session:
             page.wait_for_timeout(500)
             waited += 500
 
-    @staticmethod
-    def _workday_settle(page, timeout_ms=15000):
-        """Workday renders each step after a 'Loading' placeholder; wait for real content."""
-        waited = 0
-        while waited < timeout_ms:
-            try:
-                text = page.inner_text("body")
-            except Exception:
-                text = ""
-            if "Loading" not in text[:3000] and page.locator("input, button[aria-haspopup='listbox']").count() > 1:
-                return
-            page.wait_for_timeout(1000)
-            waited += 1000
+    _workday_settle = staticmethod(sites.workday_settle)
 
     def _needs_account(self, page):
         try:
@@ -540,7 +536,7 @@ class Session:
                             mine.add(label)
                             continue
                         # pre-filled with something your profile disagrees with: choose again below
-                    elif kind == "combo" and (f["value"] or label in mine) and label not in force:
+                    elif kind == "combo" and (f["value"] or f.get("shown") or label in mine) and label not in force:
                         # Already set (react-select shows its choice outside the input, so the value can
                         # read empty): choose again only when the check says it did not stick.
                         continue
@@ -709,7 +705,7 @@ class Session:
             page.keyboard.press("Escape")
         if not path:
             return False
-        note(f, label, ans if len(path) == 1 else " › ".join(path), expected=path[-1])
+        note(f, label, ans if len(path) == 1 and ans is not None else " › ".join(path), expected=path[-1])
         return True
 
     @staticmethod

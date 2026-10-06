@@ -172,7 +172,7 @@ def cmd_rank(args):
 
 def cmd_apply(args):
     from .apply.engine import Session
-    from .apply.runner import run_jobs, select_targets
+    from .apply.runner import review_ready, run_jobs, select_targets
     from .apply.ui import TerminalUI
 
     p, conn, model = _profile(), tracker.connect(), _llm(args)
@@ -191,7 +191,7 @@ def cmd_apply(args):
                  "--top N, or --all.")
     if not p.resumes():
         sys.exit("No resume files found; fix `resumes:` in your profile.")
-    if len(targets) > 3 and not args.yes and p.get("automation.confirm_batches", True):
+    if len(targets) > 3 and not (args.yes or args.unattended) and p.get("automation.confirm_batches", True):
         print(f"About to work through {len(targets)} roles:")
         for t in targets:
             fit = "" if t.get("fit_score") is None else f"{t['fit_score']:>3}"
@@ -203,11 +203,14 @@ def cmd_apply(args):
 
     ui = TerminalUI()
     with Session(p, model, ui, dry_run=args.dry_run, upload=not args.no_upload,
-                 auto_next=not args.no_auto_next) as session:
+                 auto_next=not args.no_auto_next, unattended=args.unattended) as session:
         try:
-            run_jobs(session, conn, p, targets, ui, resume=args.resume, dry_run=args.dry_run,
-                     confirm_possible=True,   # -y skips the batch list only, never the duplicate check
-                     on_job=lambda n, total, job: print(f"\n=== [{n}/{total}] {job['company']} — {job['title']} ==="))
+            results = run_jobs(session, conn, p, targets, session.ui, resume=args.resume, dry_run=args.dry_run,
+                               confirm_possible=True,   # -y skips the batch list only, never the duplicate check
+                               on_job=lambda n, total, job: print(f"\n=== [{n}/{total}] {job['company']} — {job['title']} ==="))
+            if args.unattended:
+                print("\n=== Review ===")
+                review_ready(session, conn, results, ui, resume=args.resume)
         except KeyboardInterrupt:
             print("\nStopped.")
 
@@ -325,6 +328,41 @@ def sync_gmail(conn, args):
     print(f"Read {len(messages)} emails: {len(rows)} about applications, {added} new applications, {updated} status updates.")
 
 
+def cmd_answers(args):
+    from . import answerlog
+    from .memory import Memory
+
+    rows = answerlog.load()
+    if args.action in ("ok", "fix"):
+        if not args.n or not 1 <= args.n <= len(rows):
+            sys.exit("Give the answer number from `jobbot answers`.")
+        row = rows[args.n - 1]
+        if args.action == "fix":
+            if not args.text:
+                sys.exit('Give the right answer: jobbot answers fix N "your answer"')
+            saved = Memory.for_profile(_profile()).remember(row["question"], args.text, company=row.get("company"))
+            row["verdict"], row["fixed_to"] = "fixed", args.text
+            print("Corrected" + (" and saved as a learned answer." if saved else
+                                 " (not saved: the question names the employer, so it would be wrong elsewhere)."))
+        else:
+            row["verdict"] = "ok"
+            print("Marked correct.")
+        answerlog.save(rows)
+        return
+    shown = [(i, r) for i, r in enumerate(rows, 1) if args.all or not r.get("verdict")][-args.limit:]
+    if not shown:
+        print("No model answers to review." if rows else "The model hasn't answered anything yet.")
+    for i, r in shown:
+        print(f"{i:>4}  {r['at'][:16]}  {_short(r.get('company') or '', 18):18s} {_short(r['question'], 70)}")
+        print(f"{'':6}→ {_short(r['answer'], 110)}")
+        if r.get("reasoning") and r["reasoning"] != "drafted":
+            print(f"{'':6}  because: {_short(r['reasoning'], 110)}")
+    ok, fixed = answerlog.accuracy(rows)
+    if ok + fixed:
+        print(f"\nReviewed {ok + fixed}: {ok} right, {fixed} corrected ({100 * ok // (ok + fixed)}% accurate).")
+    print('Mark: jobbot answers ok N   ·   correct: jobbot answers fix N "right answer"')
+
+
 def cmd_ui(args):
     from .ui.server import serve
 
@@ -400,7 +438,18 @@ def build_parser():
     sp.add_argument("--force", action="store_true", help="reopen roles already marked applied")
     sp.add_argument("--no-auto-next", action="store_true",
                     help="stop after every page instead of moving on when the check passes")
+    sp.add_argument("--unattended", action="store_true",
+                    help="never stop: jobs that need you are listed at the end, and each finished application waits "
+                         "in its own tab for your Submit")
     sp.set_defaults(fn=cmd_apply)
+
+    sp = sub.add_parser("answers", help="review the local model's answers and correct wrong ones")
+    sp.add_argument("action", nargs="?", choices=("list", "ok", "fix"), default="list")
+    sp.add_argument("n", nargs="?", type=int, help="answer number from the list")
+    sp.add_argument("text", nargs="?", help="the right answer (for fix)")
+    sp.add_argument("--all", action="store_true", help="include answers you already reviewed")
+    sp.add_argument("--limit", type=int, default=30)
+    sp.set_defaults(fn=cmd_answers)
 
     sp = sub.add_parser("ui", help="open the local dashboard in your browser")
     sp.add_argument("--port", type=int, default=8765)

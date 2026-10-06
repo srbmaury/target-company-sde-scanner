@@ -1,0 +1,35 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Apply - TestCo</title>
+<style>body{font:14px sans-serif;padding:20px;max-width:700px} .f{margin:10px 0} .ctl{position:relative;border:1px solid #999;padding:4px}
+.cover{position:absolute;inset:0;background:#fff;padding:4px} .hp{position:absolute;left:-9999px} .hidden-control{position:absolute;left:-9999px}
+[role=listbox]{border:1px solid #ccc} [role=option]{padding:3px;cursor:pointer}</style><script src="widgets.js"></script></head><body>
+<h1>Backend Engineer II</h1>
+<form id="f">
+<div class="f"><label for="fn">First Name*</label><input id="fn" required></div>
+<div class="f"><label for="ln">Last Name*</label><input id="ln" required></div>
+<div class="f"><label for="em">Email*</label><input id="em" type="email" required></div>
+<div class="f"><label for="ph">Phone*</label><input id="ph" required></div>
+<div class="f"><label for="cv">Resume/CV*</label><input id="cv" type="file"></div>
+<div class="f"><label id="country-l">Country*</label><div class="rs" id="country"><div class="ctl"><span class="sv"></span>
+  <input role="combobox" aria-labelledby="country-l" aria-required="true" aria-autocomplete="list"></div><div role="listbox" hidden></div></div></div>
+<div class="f"><label id="hear-l">How did you hear about this job?*</label><div class="rs" id="hear"><div class="ctl"><span class="sv"></span>
+  <input role="combobox" aria-labelledby="hear-l" aria-required="true" aria-autocomplete="list"></div><div role="listbox" hidden></div></div></div>
+<div class="f"><label id="loc-l">Location (City)*</label><div class="rs" id="loc"><div class="ctl"><span class="sv"></span>
+  <input role="combobox" aria-labelledby="loc-l" aria-required="true" aria-autocomplete="list"></div><div role="listbox" hidden></div></div></div>
+<div class="f"><label>Have you worked with Debezium, PeerDB?*
+  <select id="dbz" required><option value="">Select...</option><option>Yes</option><option>No</option></select></label></div>
+<div class="f"><label for="why">Why do you want to join TestCo?*</label><textarea id="why" required></textarea></div>
+<div class="f"><label for="extra">Anything else you would like us to know?</label><textarea id="extra"></textarea></div>
+<div class="hp"><label for="hp">Leave this field blank</label><input id="hp"></div>
+<div class="f"><label for="race">Race - A person of Cuban, Mexican, Puerto Rican, South or Central American, or other Spanish culture or origin regardless of race.</label>
+  <select id="race"><option value="">Select...</option><option>Hispanic or Latino</option><option>White (Not Hispanic or Latino)</option>
+  <option>Asian (Not Hispanic or Latino)</option><option>Decline to self-identify</option></select></div>
+<div class="f"><label for="gender">Gender</label><select id="gender"><option value="">Select...</option><option>Male</option><option>Female</option><option>Decline to self-identify</option></select></div>
+<div class="f"><input type="checkbox" id="terms" class="hidden-control" required><label for="terms">I agree with the privacy policy and terms</label></div>
+<button type="submit">Submit application</button>
+</form>
+<script>
+reactSelect(document.getElementById('country'), ['Indonesia', 'India', 'Ireland', 'United States']);
+reactSelect(document.getElementById('hear'), ['Employee Referral', 'LinkedIn', 'Company Website', 'Other'], { overlay: true });
+reactSelect(document.getElementById('loc'), ['Hyderabad, Telangana, India', 'Bengaluru, Karnataka, India', 'Pune, Maharashtra, India'], { typeahead: true });
+document.getElementById('f').addEventListener('submit', e => { e.preventDefault(); document.body.innerHTML = '<h1>Thank you for applying</h1>'; });
+</script></body></html>

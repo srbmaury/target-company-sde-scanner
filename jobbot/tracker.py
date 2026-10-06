@@ -292,6 +292,12 @@ def update_status(conn, key, status, note=None):
     return find_application(conn, app["id"])
 
 
+def submitted_today(conn):
+    """Applications jobbot submitted today (for automation.max_applications_per_day)."""
+    return conn.execute("SELECT COUNT(*) FROM applications WHERE source = 'jobbot' AND applied_on = ?",
+                        (today(),)).fetchone()[0]
+
+
 def list_applications(conn, status=None, company=None):
     sql, args = "SELECT * FROM applications WHERE 1=1", []
     if status:

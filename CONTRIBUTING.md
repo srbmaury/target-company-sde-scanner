@@ -47,7 +47,10 @@ global employers, and later tiers broaden coverage.
 
 ## Working on jobbot
 
-- Run `python3 -m unittest discover -s tests` before opening a pull request.
+- Run `python3 -m unittest discover -s tests` before opening a pull request. `tests/test_forms.py` drives the real
+  apply engine against local copies of real-site form patterns (`tests/fixtures/forms/`) in headless Chrome;
+  when a site breaks jobbot, add its pattern there. `tests/test_golden.py` holds real questions and the answer
+  each must get: add the question whenever you fix an answer.
 - Test form-filling changes with `./jobbot.sh apply <n> --dry-run --no-upload`, which never
   submits or records anything.
 - Keep jobbot conservative: no automatic submits, no password or CAPTCHA handling, and legal or
@@ -79,3 +82,8 @@ Before submitting a pull request:
 4. Keep unrelated formatting changes out of the pull request.
 
 Use a concise title that describes the outcome, for example: `Update the Adobe careers entry point`.
+
+## Documentation
+
+User documentation lives in [`docs/`](docs/README.md); the README stays short (overview, quick start,
+daily workflow, links). Update the matching page in the same pull request as a behaviour change.

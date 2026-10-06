@@ -140,7 +140,7 @@ async function startRun(dry) {
     (dry ? "" : " You'll confirm each Submit here.");
   if (!confirm(msg)) return;
   try {
-    await api("apply", { jobs, dry_run: dry });
+    await api("apply", { jobs, dry_run: dry, unattended: $("#unattended").checked });
     state.selected.clear(); updateSelection();
     showTab("apply");
   } catch (e) { alert(e.message); }
@@ -175,7 +175,7 @@ function renderRun(run) {
   $("#run-stop").hidden = !active;
   $("#queue").innerHTML = run.jobs.map((j, i) => {
     const r = run.results[j.url];
-    const pill = r ? `<span class="pill ${r.status === "applied" ? "applied" : "rejected"}">${esc(r.status)}</span>` : i === run.current ? `<span class="pill interview">now</span>` : "";
+    const pill = r ? `<span class="pill ${r.status === "applied" ? "applied" : r.status === "ready" ? "interview" : r.status === "needs you" ? "maybe" : "rejected"}">${esc(r.status)}</span>` : i === run.current ? `<span class="pill interview">now</span>` : "";
     return `<li class="${i === run.current ? "now" : ""}">${esc(j.company)} ${pill}<span class="sub">${esc(j.title)}</span></li>`;
   }).join("");
   const feed = $("#feed");

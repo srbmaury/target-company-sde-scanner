@@ -1,5 +1,11 @@
 import os
 import tempfile
+
+# Never touch your real ~/.jobbot from tests (tracker, logs, answer log, browser profile).
+os.environ["JOBBOT_HOME"] = tempfile.mkdtemp(prefix="jobbot-test-")
+
+import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -343,6 +349,65 @@ class MailImportTest(unittest.TestCase):
                      "applied_on": "2026-09-01", "notes": "Interview reminder"}]
             self.assertEqual(mailimport.import_rows(conn, rows), (0, 0))
             self.assertEqual([a["status"] for a in tracker.list_applications(conn)], ["offer"])
+
+
+class UnattendedTest(unittest.TestCase):
+    def test_unattended_ui_never_blocks(self):
+        from jobbot.apply.engine import NeedsYou, UnattendedUI
+
+        class Inner:
+            def info(self, m):
+                self.last = m
+        ui = UnattendedUI(Inner())
+        self.assertIsNone(ui.ask("Security clearance?", ["Yes", "No"], True, None, "x"))
+        self.assertIsNone(ui.ask("Optional note", [], False, None, "x"))
+        self.assertEqual(ui.unanswered, ["Security clearance?"])
+        self.assertFalse(ui.confirm("Tick consent boxes?"))
+        self.assertEqual(ui.next_action(True, False, False, True, final_page=True), "hold")
+        self.assertEqual(ui.next_action(False, False, False, False, final_page=False), "quit")
+        with self.assertRaises(NeedsYou):
+            ui.wait_for_user("Sign in, then press Enter")
+        ui.info("passes through")
+        self.assertEqual(ui.inner.last, "passes through")
+
+
+class AnswerLogAndCapTest(unittest.TestCase):
+    def test_model_answers_logged_and_reviewed(self):
+        from jobbot import answerlog, paths
+        with tempfile.TemporaryDirectory() as d:
+            old = paths.HOME
+            paths.HOME = Path(d)
+            try:
+                class FakeLLM:
+                    enabled, last_reasoning = True, "A motivated engineer would."
+                    def choose(self, *a, **k): return 0
+                r = Resolver(Profile(PROFILE, "x"), llm=FakeLLM(), job={"company": "Acme"})
+                self.assertEqual(r.resolve("Are you comfortable with on-call rotations?", "choice", ["Yes", "No"]).display, "Yes")
+                rows = answerlog.load()
+                self.assertEqual((rows[0]["answer"], rows[0]["reasoning"]), ("Yes", "A motivated engineer would."))
+                rows[0]["verdict"] = "ok"
+                answerlog.save(rows)
+                self.assertEqual(answerlog.accuracy(answerlog.load()), (1, 0))
+            finally:
+                paths.HOME = old
+
+    def test_daily_cap_stops_batch(self):
+        from jobbot.apply.runner import run_jobs
+        with tempfile.TemporaryDirectory() as d:
+            conn = tracker.connect(os.path.join(d, "t.db"))
+            tracker.add_application(conn, "Acme", "SDE", source="jobbot")
+            prof = Profile({**PROFILE, "automation": {"max_applications_per_day": 1}}, "x")
+            prof.resumes = lambda: {"backend": {}}
+            warned = []
+
+            class UI:
+                def warn(self, m): warned.append(m)
+                def info(self, m): pass
+
+            class S:
+                def apply(self, *a): raise AssertionError("must not apply past the daily limit")
+            run_jobs(S(), conn, prof, [{"url": "u", "company": "B", "title": "t"}], UI())
+            self.assertTrue(any("Daily limit" in w for w in warned))
 
 
 class TrackerTest(unittest.TestCase):

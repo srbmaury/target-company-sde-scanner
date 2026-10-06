@@ -1,0 +1,44 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Careers - TestCo</title>
+<style>body{font:14px sans-serif;padding:20px} .f{margin:10px 0} [role=listbox]{border:1px solid #ccc} [role=option]{padding:3px;cursor:pointer}</style>
+<script src="widgets.js"></script></head><body>
+<div id="posting"><h1>Software Engineer II</h1><p>Hyderabad, India</p><button id="apply">Apply</button></div>
+<div id="choice" hidden><button id="manual">Apply Manually</button></div>
+<div id="steps" hidden>
+ <p id="marker"></p>
+ <section data-step="1"><h2>My Information</h2>
+  <div class="f"><label for="wfn">First Name*</label><input id="wfn" required></div>
+  <div class="f"><label for="wln">Last Name*</label><input id="wln" required></div>
+  <div class="f"><label id="pc-l">Country Phone Code*</label><button id="pc" aria-haspopup="listbox" aria-labelledby="pc-l">Select One</button></div>
+  <div class="f"><label id="hh-l">How Did You Hear About Us?*</label><button id="hh" aria-haspopup="listbox" aria-labelledby="hh-l">Select One</button></div>
+ </section>
+ <section data-step="2" hidden><h2>Application Questions</h2>
+  <div class="f"><label id="au-l">Are you legally authorized to work in India?*</label><button id="au" aria-haspopup="listbox" aria-labelledby="au-l">Select One</button></div>
+  <div class="f"><label id="sp-l">Will you now or in the future require sponsorship?*</label><button id="sp" aria-haspopup="listbox" aria-labelledby="sp-l">Select One</button></div>
+ </section>
+ <section data-step="3" hidden><h2>Review</h2><p>Check your application.</p></section>
+ <button id="next">Next</button><button id="submit" hidden>Submit</button>
+</div>
+<script>
+let step = 1;
+const show = () => {
+  document.querySelectorAll('section').forEach(s => s.hidden = +s.dataset.step !== step);
+  document.getElementById('marker').textContent = `current step ${step} of 3`;
+  document.getElementById('next').hidden = step === 3; document.getElementById('submit').hidden = step !== 3;
+};
+document.getElementById('apply').onclick = () => setTimeout(() => { document.getElementById('choice').hidden = false; }, 400);
+document.getElementById('manual').onclick = () => { document.getElementById('posting').hidden = true; document.getElementById('choice').hidden = true;
+  document.getElementById('steps').hidden = false; show(); };
+document.getElementById('next').onclick = () => {
+  const sec = document.querySelector(`section[data-step="${step}"]`);
+  const empty = [...sec.querySelectorAll('input[required]')].some(i => !i.value) || [...sec.querySelectorAll('button[aria-haspopup]')].some(b => b.textContent === 'Select One');
+  if (empty) { alert('Errors Found'); return; }
+  step++; show();
+};
+document.getElementById('submit').onclick = () => { document.body.innerHTML = '<h1>Thank you for applying</h1>'; };
+listButton(document.getElementById('pc'), ['Indonesia (+62)', 'India (+91)', 'Ireland (+353)']);
+listButton(document.getElementById('hh'), [{ name: 'Social Media', children: ['LinkedIn', 'Twitter'] }, { name: 'Website', children: ['Company Website', 'Job Board'] }]);
+listButton(document.getElementById('au'), ['Yes', 'No']);
+listButton(document.getElementById('sp'), ['Yes', 'No']);
+// the posting renders late, like Workday
+document.getElementById('apply').style.visibility = 'hidden'; setTimeout(() => document.getElementById('apply').style.visibility = 'visible', 1500);
+</script></body></html>

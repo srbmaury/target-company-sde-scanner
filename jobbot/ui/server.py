@@ -278,7 +278,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, {"error": "Choose at least one role."})
                 run = bridge.start(keys, dry_run=bool(body.get("dry_run")), auto_next=body.get("auto_next", True),
                                    resume=body.get("resume") or None, use_llm=body.get("llm", True) is not False,
-                                   force=bool(body.get("force")))
+                                   force=bool(body.get("force")), unattended=bool(body.get("unattended")))
                 return self._send(200, run.snapshot())
             if parts == ["apply", "answer"]:
                 run = bridge.current()
