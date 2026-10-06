@@ -148,8 +148,11 @@ class Session:
                 f"jobbot's browser is already open from another run (process {holder}). "
                 f"Finish or quit that run (press q there), or stop it with: kill {holder}")
         self._pw = sync_playwright().start()
+        # Sign-in pages (Microsoft, Google) refuse browsers that announce automation, which blocks you from
+        # signing in or creating an account yourself in this window. Launch it like a normal Chrome instead.
         opts = dict(user_data_dir=str(paths.BROWSER_PROFILE), headless=False, viewport=None,
-                    args=["--start-maximized"])
+                    args=["--start-maximized", "--disable-blink-features=AutomationControlled"],
+                    ignore_default_args=["--enable-automation"])
         try:
             self.ctx = self._pw.chromium.launch_persistent_context(channel="chrome", **opts)
         except Exception:

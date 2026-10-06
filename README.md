@@ -393,6 +393,7 @@ applications you would make anyway, not to send them in bulk.
 | --- | --- |
 | `profile is already in use` | A jobbot Chrome window is still open from an earlier run. Quit that run (`q`, or **Stop** in the dashboard) or close the window. |
 | Workday stops at "Create Account/Sign In" | Expected for many employers. Sign in or create the account in the jobbot window, then press Enter (or click **Done, continue** in the dashboard). |
+| Sign-in or account creation is refused in the jobbot window (Microsoft, Google) | Update jobbot: its Chrome no longer identifies itself as automated, which those sign-in pages reject. If a site still refuses, use its email-link or one-time-code option, or sign in once in that window and it is remembered. |
 | `Ollama is not running` | `brew services start ollama`, or pass `--llm none` |
 | A question gets a wrong or missing answer | Add a rule under `answers:` in your profile (see [Your profile](#your-profile)) |
 | The scanner errors on one company | That board moved or was retired. The rest of the scan continues; see [Contributing](CONTRIBUTING.md) to fix the registry entry. |
