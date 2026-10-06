@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
 from jobbot import tracker
 from jobbot.answers import Resolver, bucket, pick
@@ -262,6 +263,74 @@ class AutonomyTest(unittest.TestCase):
         self.assertEqual(r.resolve("Do you have experience with Java and Spring Boot?", "choice", options=yn).display, "Yes")
         self.assertIsNone(r.resolve("Are you familiar with our code of conduct?", "choice", options=yn))
         self.assertEqual(r.resolve("Signature", "text").value, "Asha Example")
+
+
+class ReviewFixesTest(unittest.TestCase):
+    def test_employer_needs_same_company_not_substring(self):
+        prof = Profile({**PROFILE, "work": {**PROFILE["work"], "past_employers": ["Salesforce", "Razorpay"]}}, "x")
+        yn = ["Yes", "No"]
+        r = Resolver(prof, job={"company": "Sales Hub"}, ask=lambda *a: None)
+        self.assertEqual(r.resolve("Have you worked at Sales Hub before?", "choice", options=yn).display, "No")
+        r = Resolver(prof, job={"company": "Salesforce India"}, ask=lambda *a: None)
+        self.assertEqual(r.resolve("Have you previously worked for Salesforce?", "choice", options=yn).display, "Yes")
+
+    def test_tech_years_whole_words(self):
+        prof = Profile(PROFILE, "x")
+        prof.resume_text = lambda key: "Built a Google Cloud pipeline; good test coverage; Java."
+        prof.resumes = lambda: {"backend": {}}
+        r = Resolver(prof, ask=lambda *a: None)
+        self.assertEqual(r.resolve("Years of experience with Go", "text").value, "0")
+        self.assertEqual(r.resolve("Years of experience with Java", "text").value, "2")
+
+    def test_hear_never_defaults_to_first_option(self):
+        r = Resolver(Profile({**PROFILE, "preferences": {"how_did_you_hear": "Company website"}}, "x"))
+        self.assertEqual(r.resolve("How did you hear about us?", "choice",
+                                   options=["Employee Referral", "Agency", "Other"]).display, "Other")
+        self.assertIsNone(r.resolve("How did you hear about us?", "choice", options=["Employee Referral", "Agency"]))
+        self.assertEqual(r.resolve("How did you hear about us?", "choice", options=["Employee Referral", "Event"]).display,
+                         "Event")
+
+    def test_exclude_is_exact(self):
+        self.assertFalse(excluded("Metabase", ["Meta"]))
+        self.assertTrue(excluded("Meta Platforms Inc", ["Meta"]))
+        self.assertFalse(excluded("Uberall", ["Uber"]))
+
+    def test_import_unknown_status(self):
+        with tempfile.TemporaryDirectory() as d:
+            conn = tracker.connect(os.path.join(d, "t.db"))
+            path = os.path.join(d, "in.csv")
+            with open(path, "w") as fh:
+                fh.write("company,title,status\nAcme,SDE II,Applied - phone screen\nBeta,SDE,interviewing\n")
+            self.assertEqual(tracker.import_csv(conn, path), 2)
+            got = {a["company"]: a["status"] for a in tracker.list_applications(conn)}
+            self.assertEqual(got, {"Acme": "applied", "Beta": "interview"})   # "interviewing" -> interview
+
+
+class DropdownTest(unittest.TestCase):
+    def test_open_dropdown_falls_back(self):
+        from jobbot.apply.engine import Session
+        calls = []
+
+        class Loc:
+            def click(self, timeout=None, force=False):
+                calls.append("force" if force else "click")
+                if not force:
+                    raise TimeoutError("covered by an overlay")
+
+            def focus(self):
+                calls.append("focus")
+
+            def press(self, key):
+                calls.append(key)
+        Session._open_dropdown(Loc())
+        self.assertEqual(calls, ["click", "force"])
+
+    def test_memory_skips_employer_named_questions(self):
+        from jobbot.memory import Memory
+        with tempfile.TemporaryDirectory() as d:
+            m = Memory(Path(d) / "p.yaml")
+            self.assertFalse(m.remember("Why do you want to join Go Digit?", "x", company="Go Digit"))
+            self.assertTrue(m.remember("Do you have a good internet connection?", "Yes", company="Go Digit"))
 
 
 class TrackerTest(unittest.TestCase):

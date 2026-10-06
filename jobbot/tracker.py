@@ -158,6 +158,19 @@ def norm_company(name):
     return re.sub(r"\s+", "", name)
 
 
+def same_company(a, b):
+    """Same employer? Whole words after cleanup, one name a word-prefix of the other: "Cisco" = "Cisco
+    Systems", "Meta" = "Meta Platforms", but "Sales Hub" != "Salesforce" and "Meta" != "Metabase"."""
+    def words(name):
+        name = re.sub(r"[^a-z0-9 ]", " ", (name or "").lower())
+        return _COMPANY_SUFFIX.sub(" ", name).split()
+    wa, wb = words(a), words(b)
+    if not wa or not wb:
+        return False
+    short, long_ = sorted((wa, wb), key=len)
+    return long_[:len(short)] == short
+
+
 def title_tokens(title):
     t = (title or "").lower()
     t = re.sub(r"\((?:[^)]*\d{4,}[^)]*|job number[^)]*)\)", " ", t)      # (200047960), (Job number: ...)
@@ -319,6 +332,9 @@ def import_csv(conn, path):
             if not row.get("company") or not row.get("title"):
                 continue
             status = (row.get("status") or "applied").strip().lower()
+            if status not in STATUSES:   # e.g. "Applied - phone screen": keep the row, note the original
+                row["notes"] = "; ".join(filter(None, [row.get("notes"), f"status in file: {row.get('status')}"]))
+                status = next((s for s in STATUSES if s in status), "applied")
             url = (row.get("url") or "").strip() or None
             if not url and is_applied(conn, company=row["company"], title=row["title"]):
                 continue

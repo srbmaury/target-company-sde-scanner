@@ -18,6 +18,12 @@ EXAMPLE_PROFILE = REPO / "profile.example.yaml"
 
 
 def ensure_home():
+    """~/.jobbot holds your tracker, logs (with the values filled into forms), Gmail token and
+    browser profile: readable by you only."""
     HOME.mkdir(parents=True, exist_ok=True)
     CACHE.mkdir(exist_ok=True)
+    try:
+        os.chmod(HOME, 0o700)
+    except OSError:
+        pass
     return HOME

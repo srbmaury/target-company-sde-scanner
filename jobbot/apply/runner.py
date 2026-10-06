@@ -6,8 +6,7 @@ from .. import tracker
 
 def excluded(company, exclude):
     """True when `company` is one of `exclude`, ignoring case, punctuation and suffixes ("Inito Inc" = "inito")."""
-    name = tracker.norm_company(company)
-    return any(name and x and (name == x or name.startswith(x)) for x in map(tracker.norm_company, exclude))
+    return any(tracker.same_company(company, x) for x in exclude)
 
 
 def select_targets(conn, keys=(), all_=False, top=None, min_fit=None, force=False, ask_url=None, note=print,

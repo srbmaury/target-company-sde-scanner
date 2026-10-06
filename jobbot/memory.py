@@ -53,8 +53,8 @@ class Memory:
     def remember(self, question, answer, company=None):
         if not answer or not question:
             return False
-        if company and company.split()[0].lower() in question.lower():
-            return False
+        if company and re.search(rf"\b{re.escape(company.split()[0])}\b", question, re.I):
+            return False   # names the employer ("Why Acme?"): would be wrong at the next company
         key = _tokens(question)
         self.items = [i for i in self.items if _tokens(i.get("question")) != key]
         self.items.append({"question": re.sub(r"\s+", " ", question).strip()[:400], "answer": str(answer)})

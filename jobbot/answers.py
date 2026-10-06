@@ -2,16 +2,20 @@
 
 Order of precedence for each question:
   1. your own `answers:` rules in the profile
-  2. `always_ask:` patterns (attestations, legal questions)  -> ask you
-  3. built-in rules mapped to profile facts
-  4. the local model, if enabled (multiple choice or free text)
-  5. ask you (required fields) or skip (optional fields)
+  2. `always_ask:` patterns (attestations, legal questions) -> ask you; EEO questions are exempt
+  3. answers you gave before (`learned_answers:`)
+  4. built-in rules mapped to profile facts and your resumes
+  5. the local model, if enabled: it reasons from your facts, may infer preferences, and returns
+     "unknown" otherwise; fact-only questions (citizenship, visas, clearances...) never reach it
+  6. ask you (required fields) or skip (optional fields)
 
 Every answer carries a `source` so the review summary shows where it came from.
 """
 
 import re
 from dataclasses import dataclass
+
+from .tracker import same_company
 
 PLACEHOLDER = re.compile(r"^(select|choose|please select|--|—|none selected|select one|select\.\.\.)\b", re.I)
 DECLINE = re.compile(r"decline|prefer not|don.?t wish|do not wish|not to (say|disclose|answer)|choose not", re.I)
@@ -86,6 +90,12 @@ OPEN_EXTRA_RE = re.compile(r"anything else|additional (information|comments|deta
 SIGN_RE = re.compile(r"signature|sign here|\be-?sign|type your (full |legal )?name to (sign|confirm|acknowledge)", re.I)
 
 
+def same_employer(company, past):
+    """Is `company` one of your past employers? Compares cleaned names ("Salesforce India" = "salesforce"),
+    never substrings, so "Sales Hub" is not Salesforce."""
+    return any(same_company(company, e) for e in past)
+
+
 def yes_no(flag):
     return "Yes" if flag else "No"
 
@@ -144,7 +154,7 @@ class Resolver:
         def worked_here():
             if not company:
                 return None
-            return yes_no(any(company.split()[0] in e or e.split()[0] in company for e in past))
+            return yes_no(same_employer(company, past))
 
         def experience_years():
             return str(g("work.total_experience_years", ""))
@@ -156,8 +166,10 @@ class Resolver:
 
         def tech_years(question):
             """'Years of experience with Kafka': your total years if a resume mentions it, else 0."""
-            m = re.search(r"(?:with|in|using|on|of)\s+([A-Za-z0-9+#./ -]{2,40}?)(?:\?|$|\s+(?:development|programming|experience))",
-                          question, re.I)
+            m = (re.search(r"(?:experience|years|worked|working)\s+(?:\w+\s+){0,2}?(?:with|in|using|on)\s+"
+                           r"([A-Za-z0-9+#./ -]{2,40}?)\s*(?:\?|$|\*|\s+(?:development|programming))", question, re.I)
+                 or re.search(r"(?:with|in|using|on|of)\s+([A-Za-z0-9+#./ -]{2,40}?)(?:\?|$|\s+(?:development|programming|experience))",
+                              question, re.I))
             if not m:
                 return experience_years()
             tech = m.group(1).strip().lower()
@@ -165,7 +177,9 @@ class Resolver:
                 return experience_years()
             corpus = " ".join(p.resume_text(k).lower() for k in p.resumes())
             words = [w for w in re.findall(r"[a-z0-9+#.]+", tech) if len(w) > 1]
-            return experience_years() if words and all(w in corpus for w in words) else "0"
+            # whole words: "go" must not match "google" or "good"
+            found = words and all(re.search(rf"(?<![a-z0-9]){re.escape(w)}(?![a-z0-9])", corpus) for w in words)
+            return experience_years() if found else "0"
 
         def used_tech(question):
             """'Have you worked with Debezium, PeerDB?': Yes only if your resumes mention every tool named."""
@@ -427,7 +441,12 @@ class Resolver:
                     return Answer(idx, "model", options[idx])
             except Exception:
                 pass
-        return Answer(0, "rule", options[0])
+        # Never an option that claims a person sent you ("Employee referral", "Recruiter"): that would be untrue.
+        safe = [i for i, o in enumerate(options) if not re.search(r"referr|employee|friend|recruiter|colleague|agency|"
+                                                                  r"staffing|headhunter", o, re.I)]
+        other = next((i for i in safe if re.match(r"\s*other\b", options[i], re.I)), None)
+        idx = other if other is not None else (safe[0] if safe else None)
+        return Answer(idx, "rule", options[idx]) if idx is not None else None
 
     def _employer_history(self, question):
         """'Have you been issued a Cisco employee ID / worked at Cisco…' -> No unless Cisco is a past employer."""
@@ -439,9 +458,7 @@ class Resolver:
             return None
         if not EMPLOYMENT_RE.search(question):
             return None
-        past = [e.lower() for e in (self.p.get("work.past_employers") or [])]
-        worked = any(n in e or e.split()[0] in n for n in names for e in past)
-        return yes_no(worked)
+        return yes_no(same_employer(company, self.p.get("work.past_employers") or []))
 
     def _fit(self, value, kind, options, source):
         if kind == "choice" and isinstance(value, str) and re.fullmatch(r"\d+(\.\d+)?", value):

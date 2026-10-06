@@ -3,4 +3,5 @@
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 PY="$DIR/.venv/bin/python"
 [ -x "$PY" ] || PY=python3
-cd "$DIR" && exec "$PY" -m jobbot "$@"
+# Stay in your current folder, so relative paths (track export out.csv) land where you expect.
+PYTHONPATH="$DIR${PYTHONPATH:+:$PYTHONPATH}" exec "$PY" -m jobbot "$@"
