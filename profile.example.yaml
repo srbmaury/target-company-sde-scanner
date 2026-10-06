@@ -10,6 +10,7 @@ personal:
   phone: "9876543210"          # national number, without the country code
   phone_country: India         # the name shown in phone-country pickers
   phone_country_code: "+91"
+  phone_device_type: Mobile    # "Phone Device Type" on Workday: Mobile, Home, Work
   city: Bengaluru
   state: Karnataka
   country: India
@@ -17,6 +18,8 @@ personal:
   postal_code: ""
   # Text to pick when a location box offers autocomplete suggestions.
   location_autocomplete: "Bengaluru, Karnataka, India"
+  # Languages you can work in besides English ("In which languages are you fluent?"). Leave [] to be asked.
+  languages: [English, Hindi]
 
 links:
   linkedin: https://www.linkedin.com/in/example   # include www.; some Workday sites reject the short form
@@ -34,6 +37,8 @@ work:
   expected_ctc: "INR 28 LPA fixed, negotiable"
   reason_for_change: >-
     I'm looking to broaden my technical experience and take on more ownership.
+  # "Do you have outside business activities (advisory, consulting, board roles, side businesses)?"
+  outside_business_activities: "No"
 
 education:
   school: Example Institute of Technology
@@ -49,6 +54,7 @@ eligibility:
   needs_sponsorship: false
   willing_to_relocate: true
   background_check_ok: true
+  military_service: "No"         # "Have you served in the military?" (separate from the EEO veteran answer)
 
 eeo:            # set any value to "Decline" to pick the decline-to-answer option
   gender: Decline
@@ -62,6 +68,8 @@ preferences:
   max_yoe: 3
   exclude_companies: [Example Corp]
   how_did_you_hear: Company website
+  # "What is your preferred work location?" when it is a list: the first of these the form offers wins.
+  preferred_work_locations: [Bengaluru, Bangalore, Hyderabad, Remote]
 
 # Resume variants. jobbot ranks each job against every resume and uses the best match.
 # `focus` is a short hint for the ranker.

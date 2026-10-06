@@ -6,6 +6,7 @@ from jobbot import tracker
 from jobbot.answers import Resolver, pick
 from jobbot.profile import Profile
 from jobbot.rank import keyword_rank
+from jobbot.apply.engine import detect_ats, start_url
 from jobbot.careers_page import jobs_in_json
 from jobbot.scan import _pick, classify, stated_years
 
@@ -46,6 +47,38 @@ class ResolverTest(unittest.TestCase):
         self.asked = []
         ask = lambda q, opts, req, sug, why: self.asked.append(q) or None
         self.r = Resolver(Profile(PROFILE, "x"), job={"company": "Acme"}, ask=ask)
+
+    def test_open_to_preferred_location(self):
+        r = Resolver(Profile({**PROFILE, "preferences": {"locations": "bengaluru|bangalore|pune"}}, "x"),
+                     ask=lambda *a: self.asked.append(a[0]))
+        self.assertEqual(r.resolve("Are you open for Bangalore location ?", "choice", options=["Yes", "No"]).display, "Yes")
+        self.assertEqual(self.asked, [])
+
+    def test_new_profile_fields(self):
+        prof = {**PROFILE, "personal": {**PROFILE["personal"], "languages": ["Hindi"], "phone_device_type": "Mobile"},
+                "work": {**PROFILE["work"], "outside_business_activities": "No"},
+                "eligibility": {**PROFILE["eligibility"], "military_service": "No"},
+                "eeo": {**PROFILE["eeo"], "veteran": "I am not a protected veteran"},
+                "preferences": {"preferred_work_locations": ["Bengaluru", "Hyderabad"]}}
+        r = Resolver(Profile(prof, "x"), ask=lambda *a: self.asked.append(a[0]))
+        yn = ["Yes", "No"]
+        self.assertEqual(r.resolve("Have you served in the military?", "choice", options=yn).display, "No")
+        self.assertEqual(r.resolve("Do you have any outside business activity(ies) (advisory, consulting, or board "
+                                   "roles, or side businesses)?", "choice", options=yn).display, "No")
+        self.assertEqual(r.resolve("In which language(s) are you fluent (spoken) other than English?", "text").value,
+                         "Hindi")
+        self.assertEqual(r.resolve("Phone Device Type", "choice", options=["Home", "Mobile"]).display, "Mobile")
+        self.assertEqual(r.resolve("What is your preferred work location?", "choice",
+                                   options=["New York", "Hyderabad", "London"]).display, "Hyderabad")
+        self.assertEqual(r.resolve("Veteran Status", "choice", options=["I am not a protected veteran", "Decline"]).display,
+                         "I am not a protected veteran")
+        self.assertEqual(self.asked, [])
+
+    def test_asks_once_per_application(self):
+        # review rounds re-read the page; an unanswered question must not be asked again
+        for _ in range(3):
+            self.assertIsNone(self.r.resolve("Have you worked with Debezium, PeerDB?", "text", required=True))
+        self.assertEqual(len(self.asked), 1)
 
     def test_basic_fields(self):
         self.assertEqual(self.r.resolve("First Name*").value, "Asha")
@@ -106,6 +139,21 @@ class ScanParsingTest(unittest.TestCase):
         self.assertEqual([j["id"] for j in jobs], ["101", "102", "103"])
         self.assertEqual(jobs[0]["location"], "Bangalore, India")
         self.assertIn("Pune", jobs[2]["location"])
+
+
+class StartUrlTest(unittest.TestCase):
+    def test_workday_site_named_apply(self):
+        url = "https://ebay.wd5.myworkdayjobs.com/apply/job/Bengaluru-India/Capacity-Planning-Engineer_R0074934"
+        self.assertEqual(start_url(url, "workday"), url)
+        self.assertEqual(start_url("https://c.wd5.myworkdayjobs.com/Careers/job/Pune/SWE_1/apply/applyManually", "workday"),
+                         "https://c.wd5.myworkdayjobs.com/Careers/job/Pune/SWE_1")
+
+    def test_sources_map_to_apply_flows(self):
+        self.assertEqual(detect_ats("https://www.amazon.jobs/en/jobs/1/x", {"ats": "amazon"}), "generic")
+        careers = {"ats": "careers-page", "board": "https://www.digitalocean.com/careers",
+                   "url": "https://www.digitalocean.com/careers/position/apply/?gh_jid=8047031"}
+        self.assertEqual(detect_ats(careers["url"], careers), "greenhouse")
+        self.assertNotIn("digitalocean.com/careers&", start_url(careers["url"], "greenhouse", careers))
 
 
 class TrackerTest(unittest.TestCase):
