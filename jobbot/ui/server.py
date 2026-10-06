@@ -244,7 +244,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, sorted(TASKS.values(), key=lambda t: t["started"], reverse=True)[:20])
             if parts == ["apply"]:
                 run = bridge.current()
-                return self._send(200, run.snapshot() if run else {"status": "idle"})
+                if run:
+                    return self._send(200, run.snapshot())
+                last = bridge.history()
+                return self._send(200, {**bridge.saved_run(last[0]["id"]), "history": True} if last else {"status": "idle"})
+            if parts == ["runs"]:
+                return self._send(200, bridge.history())
+            if len(parts) == 2 and parts[0] == "runs":
+                saved = bridge.saved_run(parts[1])
+                return self._send(200, {**saved, "history": True}) if saved else self._send(404, {"error": "no such run"})
             if len(parts) == 2 and parts[0] == "tasks":
                 task = TASKS.get(parts[1])
                 return self._send(200, task) if task else self._send(404, {"error": "no such task"})

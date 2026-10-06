@@ -13,7 +13,7 @@
     <div class="brand">jobbot</div>
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="jobs" aria-selected="true">Jobs</button>
-      <button role="tab" data-tab="apply">Apply <span class="badge" id="apply-badge" hidden></span></button>
+      <button role="tab" data-tab="apply">Runs <span class="badge" id="apply-badge" hidden></span></button>
       <button role="tab" data-tab="applications">Applications</button>
       <button role="tab" data-tab="actions">Actions</button>
       <button role="tab" data-tab="logs">Logs</button>
@@ -28,6 +28,7 @@
 
     <!-- Jobs -->
     <section class="panel" id="tab-jobs">
+      <div class="run-strip" id="run-strip" hidden></div>
       <div class="toolbar">
         <input type="search" id="jobs-q" placeholder="Filter company, role, location">
         <label>Min fit <input type="number" id="jobs-min" min="0" max="100" step="5" placeholder="0"></label>
@@ -67,12 +68,15 @@
       <div class="run-grid">
         <div>
           <div id="prompt"></div>
+          <div id="needs"></div>
           <h3 class="section-title">Activity</h3>
           <div id="feed" class="feed"></div>
         </div>
         <aside>
           <h3 class="section-title">Queue</h3>
           <ol id="queue" class="queue"></ol>
+                  <h3 class="section-title">Earlier runs</h3>
+          <ol id="history" class="queue history"></ol>
         </aside>
       </div>
     </section>

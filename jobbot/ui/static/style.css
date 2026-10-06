@@ -130,6 +130,14 @@ dialog ol.history { padding-left: 18px; color: var(--muted); max-height: 220px; 
 .md blockquote { margin: 10px 0; padding: 6px 12px; border-left: 3px solid var(--accent); background: var(--bg); }
 .md table { margin: 10px 0; } .md hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
 
+.run-strip { margin: -4px 0 12px; padding: 8px 12px; border-radius: 8px; background: var(--chip); }
+.run-strip.waiting { background: var(--bg); border: 2px solid var(--accent); }
+.needs { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-top: 12px; }
+.needs h4 { margin: 0 0 6px; color: var(--warn); }
+.needs ul { margin: 0 0 8px; padding-left: 18px; } .needs li { margin: 8px 0; }
+.needs li a { margin-right: 10px; }
+.history li { font-weight: 400; }
+
 @media (max-width: 720px) {
   .docs-grid { grid-template-columns: 1fr; } .docs-nav { position: static; flex-direction: row; flex-wrap: wrap; }
   .run-grid { grid-template-columns: 1fr; }

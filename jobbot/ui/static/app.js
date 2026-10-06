@@ -34,7 +34,7 @@ function showTab(name) {
   remember("tab", name);
   $$(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
   $$(".panel").forEach((p) => (p.hidden = p.id !== "tab-" + name));
-  ({ jobs: () => { loadJobs(); loadTasks(); }, apply: loadRun, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile, docs: () => loadDocs() }[name])();
+  ({ jobs: () => { loadJobs(); loadTasks(); }, apply: () => { state.viewing = false; loadRun(); }, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile, docs: () => loadDocs() }[name])();
 }
 
 // ---------- summary ----------
@@ -154,20 +154,49 @@ async function loadRun() {
   $("#apply-badge").hidden = run.status !== "waiting";
   document.title = run.status === "waiting" ? "● jobbot needs you" : "jobbot";
   if (active && !state.runPoll) state.runPoll = setInterval(loadRun, 1000);
-  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary(); }
-  if (state.tab === "apply") renderRun(run);
+  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary(); state.historyStale = true; }
+  renderStrip(run, active);
+  if (state.tab === "apply" && !state.viewing) renderRun(run);
+  if (state.tab === "apply" && (state.historyStale || !state.historyLoaded)) loadHistory();
+}
+
+// The Jobs tab's one-line view of a run in progress.
+function renderStrip(run, active) {
+  const strip = $("#run-strip");
+  if (!active) { strip.hidden = true; return; }
+  const done = Object.keys(run.results || {}).length, total = (run.jobs || []).length;
+  const waiting = run.status === "waiting";
+  strip.hidden = false;
+  strip.className = "run-strip" + (waiting ? " waiting" : "");
+  strip.innerHTML = (total ? `${run.dry_run ? "Dry run" : "Applying"} ${Math.min(done + 1, total)}/${total}` : "Starting a run…") +
+    (waiting ? " · <b>a question is waiting for you</b>" : " · working in Chrome") +
+    ` <button class="link" data-view-run>View run →</button>`;
+}
+
+async function loadHistory() {
+  state.historyLoaded = true; state.historyStale = false;
+  let runs = [];
+  try { runs = await api("runs"); } catch (e) { return; }
+  const label = (r) => Object.entries(r.counts || {}).map(([k, v]) => `${v} ${k}`).join(", ") || "nothing finished";
+  $("#history").innerHTML = runs.length ? runs.map((r) => `<li><a href="#" data-run="${esc(r.id)}">${esc((r.started || "").replace("T", " ").slice(0, 16))}</a>
+      <span class="sub">${r.dry_run ? "dry run · " : ""}${r.unattended ? "unattended · " : ""}${esc(r.status || "")} · ${esc(label(r))}</span></li>`).join("")
+    : `<li class="muted">None yet.</li>`;
 }
 
 function renderRun(run) {
   if (run.status === "idle") {
-    $("#run-title").textContent = "No apply run yet";
+    $("#run-title").textContent = "No runs yet";
     $("#run-status").textContent = ""; $("#run-progress").textContent = "";
-    $("#prompt").innerHTML = `<div class="empty">Select roles in the Jobs tab and choose “Apply to selected”.</div>`;
-    $("#feed").innerHTML = ""; $("#queue").innerHTML = ""; $("#run-stop").hidden = true;
+    $("#prompt").innerHTML = `<div class="empty"><p><b>To start a run:</b> tick roles in the Jobs tab, then <b>Apply to selected</b>
+      (or <b>Dry run</b> to fill and check without submitting).</p><p>Tick <b>Don't stop for me</b> to run the whole batch unattended:
+      jobs that need you are listed here, and finished applications wait for your Submit.</p></div>`;
+    $("#feed").innerHTML = ""; $("#queue").innerHTML = ""; $("#needs").innerHTML = ""; $("#run-stop").hidden = true;
     return;
   }
   const active = ["starting", "running", "waiting"].includes(run.status);
-  $("#run-title").textContent = run.dry_run ? "Dry run" : "Applying";
+  const when = (run.started || "").replace("T", " ").slice(0, 16);
+  $("#run-title").textContent = (run.history ? (state.viewing ? "Run of " + when : "Last run · " + when) + " · " : "")
+    + (run.dry_run ? "Dry run" : run.unattended ? "Unattended run" : "Applying");
   $("#run-status").textContent = run.status;
   $("#run-status").className = "pill " + ({ waiting: "maybe", running: "interview", done: "applied", failed: "rejected", stopped: "withdrawn" }[run.status] || "");
   const done = Object.keys(run.results).length;
@@ -182,7 +211,28 @@ function renderRun(run) {
   const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
   feed.innerHTML = run.events.map(renderEvent).join("");
   if (nearBottom) feed.scrollTop = feed.scrollHeight;
-  renderPrompt(run.prompt);
+  renderPrompt(run.history ? null : run.prompt);
+  renderNeeds(run, active);
+}
+
+// Jobs that need you, as actions: open the posting, or retry once you've sorted it out.
+function renderNeeds(run, active) {
+  const needs = run.jobs.filter((j) => (run.results[j.url] || {}).status === "needs you");
+  if (!needs.length) { $("#needs").innerHTML = run.history && !active ? `<div class="empty">Nothing from this run needs you.</div>` : ""; return; }
+  $("#needs").innerHTML = `<div class="needs"><h4>Needs you (${needs.length})</h4><ul>${needs.map((j) => `<li>
+      <b>${esc(j.company)}</b> — ${esc(j.title)}<div class="reason">${esc(run.results[j.url].note || "")}</div>
+      <a href="${esc(j.url)}" target="_blank" rel="noopener">Open posting</a>
+      ${active ? "" : `<button class="link" data-retry="${esc(String(j.n || j.url))}">Retry</button>`}</li>`).join("")}</ul>
+      ${active || needs.length < 2 ? "" : `<button data-retry-all="${esc(needs.map((j) => j.n || j.url).join("\n"))}">Retry all ${needs.length}</button>`}
+      <p class="hint">Sign in or answer what's missing (in jobbot's Chrome window, or with an <code>answers:</code> rule in your profile), then retry.</p></div>`;
+}
+
+async function retry(keys) {
+  try {
+    await api("apply", { jobs: keys, unattended: true });
+    state.viewing = false;
+    loadRun();
+  } catch (e) { alert(e.message); }
 }
 
 function renderEvent(e) {
@@ -537,6 +587,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   $$("[data-task]").forEach((b) => b.addEventListener("click", () => startTask(b.dataset.task)));
   $("#jobs-refresh").addEventListener("click", () => startTask("refresh"));
+  $("#run-strip").addEventListener("click", (ev) => { if (ev.target.closest("[data-view-run]")) { state.viewing = false; showTab("apply"); } });
+  $("#tab-apply").addEventListener("click", async (ev) => {
+    const r = ev.target.closest("[data-retry]"), all = ev.target.closest("[data-retry-all]"), h = ev.target.closest("a[data-run]");
+    if (r) retry([r.dataset.retry]);
+    if (all) retry(all.dataset.retryAll.split("\n"));
+    if (h) {
+      ev.preventDefault();
+      const saved = await api("runs/" + encodeURIComponent(h.dataset.run));
+      const current = state.run && !state.run.history && ["starting", "running", "waiting"].includes(state.run.status);
+      state.viewing = !current;
+      if (!current) renderRun(saved);
+    }
+  });
   $("#tab-docs").addEventListener("click", (ev) => {
     const a = ev.target.closest("a[data-doc], a[data-anchor]");
     if (!a) return;

@@ -421,6 +421,28 @@ class DocsTabTest(unittest.TestCase):
             self.assertIsNone(doc_page(bad), bad)
 
 
+class BridgeTest(unittest.TestCase):
+    def test_prompt_round_trip_and_history(self):
+        import threading
+        from jobbot.ui import bridge
+        run = bridge.ApplyRun()
+        ui = bridge.WebUI(run)
+        got = {}
+        t = threading.Thread(target=lambda: got.setdefault("v", ui.next_action(True, False, False, True, final_page=True)))
+        t.start()
+        for _ in range(50):
+            if run.prompt:
+                break
+            threading.Event().wait(0.02)
+        run.answer(run.prompt["id"], "submit")
+        t.join(2)
+        self.assertEqual(got["v"], "submit")
+        run.results["u"] = {"status": "needs you", "note": "sign in", "application": None}
+        run.save()
+        self.assertEqual(bridge.history()[0]["counts"], {"needs you": 1})
+        self.assertEqual(bridge.saved_run(run.id)["results"]["u"]["note"], "sign in")
+
+
 class TrackerTest(unittest.TestCase):
     def test_lifecycle(self):
         with tempfile.TemporaryDirectory() as d:

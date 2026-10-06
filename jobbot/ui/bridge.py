@@ -7,11 +7,13 @@ Only one apply run at a time, because jobbot's browser profile can be open only 
 """
 
 import datetime as dt
+import json
 import secrets
 import threading
 import traceback
 
 from .. import llm as llm_mod
+from .. import paths
 from .. import profile as profile_mod
 from .. import tracker
 
@@ -29,6 +31,7 @@ class ApplyRun:
         self.started = dt.datetime.now().isoformat(timespec="seconds")
         self.ended = None
         self.dry_run = False
+        self.unattended = False
         self.jobs = []                # [{n, company, title, url, possible}]
         self.current = None           # index into jobs
         self.results = {}             # url -> {status, note, application}
@@ -46,9 +49,21 @@ class ApplyRun:
     def snapshot(self):
         return {
             "id": self.id, "status": self.status, "started": self.started, "ended": self.ended,
-            "dry_run": self.dry_run, "jobs": self.jobs, "current": self.current,
+            "dry_run": self.dry_run, "unattended": self.unattended, "jobs": self.jobs, "current": self.current,
             "results": self.results, "events": self.events[-400:], "prompt": self.prompt,
         }
+
+    def save(self):
+        """Keep this run (results and the last of its activity) in ~/.jobbot/runs.json, newest 20 runs."""
+        try:
+            runs = [r for r in _load_runs() if r.get("id") != self.id]
+            snap = {**self.snapshot(), "events": self.events[-150:], "prompt": None}
+            runs.append(snap)
+            paths.ensure_home()
+            RUNS_FILE().write_text(json.dumps(runs[-20:]), encoding="utf-8")
+        except OSError:
+            pass
+
 
     # --- answering prompts from the page -------------------------------------------
     def answer(self, prompt_id, value):
@@ -62,6 +77,34 @@ class ApplyRun:
         self.stop_requested = True
         self.log("warn", "Stop requested: finishing the current step without submitting.")
         self._event.set()
+
+
+def RUNS_FILE():
+    return paths.HOME / "runs.json"
+
+
+def _load_runs():
+    try:
+        return json.loads(RUNS_FILE().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+
+def history():
+    """Earlier runs, newest first: when, how it ended, and how many roles ended which way."""
+    out = []
+    for r in reversed(_load_runs()):
+        counts = {}
+        for res in (r.get("results") or {}).values():
+            counts[res.get("status") or "?"] = counts.get(res.get("status") or "?", 0) + 1
+        out.append({"id": r["id"], "started": r.get("started"), "ended": r.get("ended"), "status": r.get("status"),
+                    "dry_run": r.get("dry_run"), "unattended": r.get("unattended"), "total": len(r.get("jobs") or []),
+                    "counts": counts})
+    return out
+
+
+def saved_run(run_id):
+    return next((r for r in _load_runs() if r.get("id") == run_id), None)
 
 
 class WebUI:
@@ -141,7 +184,7 @@ def start(keys, dry_run=False, auto_next=True, resume=None, use_llm=True, force=
         if run and run.status in ("starting", "running", "waiting"):
             raise ValueError("An apply run is already in progress. Stop it first.")
         run = ApplyRun()
-        run.dry_run = dry_run
+        run.dry_run, run.unattended = dry_run, unattended
         CURRENT["run"] = run
     threading.Thread(target=_work, args=(run, keys, dry_run, auto_next, resume, use_llm, force, unattended),
                      daemon=True).start()
@@ -177,6 +220,7 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
 
         def on_result(job, status, note, app_id):
             run.results[job["url"]] = {"status": status, "note": note, "application": app_id}
+            run.save()
 
         with Session(prof, model, ui, dry_run=dry_run, upload=True, auto_next=auto_next, unattended=unattended) as session:
             results = run_jobs(session, conn, prof, targets, session.ui, resume=resume, dry_run=dry_run,
@@ -197,3 +241,4 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
         run.current = None
         run.ended = dt.datetime.now().isoformat(timespec="seconds")
         run.log("info", f"Run {run.status}.")
+        run.save()
