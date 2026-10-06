@@ -89,6 +89,25 @@ application** button.
 already" check: those roles are skipped. jobbot never presses Submit by itself and never types
 passwords.
 
+## Checking the model's answers
+
+Every answer the local model gives is logged with its reasoning. Review them now and then:
+
+```bash
+./jobbot.sh answers                         # unreviewed model answers, newest last
+./jobbot.sh answers ok 12                   # it got #12 right
+./jobbot.sh answers fix 13 "No"             # #13 was wrong; "No" is saved as a learned answer
+```
+
+The list ends with your measured accuracy (right vs corrected), so you can see whether the model is
+good enough to trust with `--unattended`.
+
+## Daily limit
+
+jobbot stops a batch once it has submitted `automation.max_applications_per_day` applications today
+(25 by default; 0 turns the limit off). Many job sites discourage high-volume applying; a modest
+daily number keeps your accounts in good standing.
+
 ## Dry run
 
 `--dry-run` does everything a real run does (opens the posting, clicks Apply, attaches your resume,

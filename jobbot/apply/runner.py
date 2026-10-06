@@ -72,9 +72,14 @@ def run_jobs(session, conn, profile, targets, ui, resume=None, dry_run=False, co
     from .engine import NeedsYou, record
 
     resumes = profile.resumes()
+    cap = int(profile.get("automation.max_applications_per_day", 25) or 0)
     results = []
     for n, job in enumerate(targets, 1):
         if should_stop():
+            break
+        if cap and not dry_run and tracker.submitted_today(conn) >= cap:
+            ui.warn(f"Daily limit reached ({cap} applications today, automation.max_applications_per_day); "
+                    "stopping. Many job sites discourage high-volume applying.")
             break
         if job.get("_possible") and confirm_possible and not ui.confirm(
                 f"{job['company']} — {job['title']}: {job['_possible']}. Apply anyway?"):

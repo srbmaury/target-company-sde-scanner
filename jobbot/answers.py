@@ -15,6 +15,7 @@ Every answer carries a `source` so the review summary shows where it came from.
 import re
 from dataclasses import dataclass
 
+from . import answerlog
 from .tracker import same_company
 
 PLACEHOLDER = re.compile(r"^(select|choose|please select|--|—|none selected|select one|select\.\.\.)\b", re.I)
@@ -94,6 +95,20 @@ def same_employer(company, past):
     """Is `company` one of your past employers? Compares cleaned names ("Salesforce India" = "salesforce"),
     never substrings, so "Sales Hub" is not Salesforce."""
     return any(same_company(company, e) for e in past)
+
+
+COUNTRIES = {"United States": r"\bunited states\b|\bU\.?S\.?A?\.?(?![a-z])|\bamerica\b",
+             "United Kingdom": r"\bunited kingdom\b|\bU\.?K\.?(?![a-z])|\bbritain\b",
+             "India": r"\bindia\b", "Canada": r"\bcanada\b", "Germany": r"\bgermany\b", "Singapore": r"\bsingapore\b",
+             "Ireland": r"\bireland\b", "Australia": r"\baustralia\b", "Netherlands": r"\bnetherlands\b",
+             "United Arab Emirates": r"\buae\b|united arab emirates", "Japan": r"\bjapan\b", "France": r"\bfrance\b",
+             "Poland": r"\bpoland\b", "Israel": r"\bisrael\b", "Spain": r"\bspain\b"}
+INDIA_CITIES = (r"bengaluru|bangalore|hyderabad|noida|gurugram|gurgaon|delhi|pune|chennai|mumbai|kolkata|"
+                r"ahmedabad|jaipur|kochi|trivandrum|coimbatore|indore|chandigarh")
+GENDER_SYNONYMS = {"male": "Man", "female": "Woman", "man": "Male", "woman": "Female"}
+# Follow-ups that depend on an earlier answer ("If yes, ..."): built-in rules would answer the wrong question.
+CONDITIONAL_RE = re.compile(r"^\s*(if (yes|so|no|applicable|you (answered|selected|chose))|please specify|"
+                            r"(please )?(provide|share) (more )?details)", re.I)
 
 
 def yes_no(flag):
@@ -210,6 +225,35 @@ class Resolver:
             n = re.escape(name.lower())   # named as a credential, not just as a skill ("AWS" alone is not a cert)
             return yes_no(bool(re.search(rf"{n}[\w ]{{0,20}}(certif|licen)|(certif|licen)\w*[\w :]{{0,20}}{n}", corpus)))
 
+        def where(question):
+            """The country a work-authorization question is about: named in it, the job's country, or where you
+            live ("the country you reside"). None when it can't be told."""
+            for name, aliases in COUNTRIES.items():
+                if re.search(aliases, question, re.I):
+                    return name
+            if re.search(r"\breside\b|\blive\b|your (current )?country", question, re.I):
+                return g("personal.country")
+            # otherwise: the job's country (from its location), or where you live when there is no job
+            if not (self.job.get("location") or "").strip():
+                return g("personal.country")   # no job location (e.g. added by URL): scans keep only your locations
+            loc = f"{self.job.get('location') or ''} {self.job.get('title') or ''}"
+            return next((n for n, a in COUNTRIES.items() if re.search(a, loc, re.I)), None) or (
+                "India" if re.search(INDIA_CITIES, loc, re.I) else None)
+
+        def authorized_for(question):
+            country = where(question)
+            if country is None:
+                return None
+            return yes_no(any(country.lower() == c.lower() for c in g("eligibility.authorized_countries") or []))
+
+        def sponsorship(question):
+            country = where(question)
+            if country is None:
+                return None
+            if any(country.lower() == c.lower() for c in g("eligibility.authorized_countries") or []):
+                return yes_no(g("eligibility.needs_sponsorship", False))
+            return "Yes"   # not authorized there: you would need sponsorship
+
         willing = lambda: yes_no(g("eligibility.willing_to_relocate", True))  # noqa: E731
 
         def open_to_place():
@@ -222,9 +266,9 @@ class Resolver:
         # Order matters: specific yes/no policy questions first, so e.g. "relocation" never reaches the
         # location rule and "mobile development" never reaches the phone rule.
         return [
-            (r"sponsor", lambda: yes_no(g("eligibility.needs_sponsorship", False))),
+            (r"sponsor", lambda: sponsorship(self._q)),
             (r"(authori[sz]ed|eligible|right|permit(ted)?) to work|work authori[sz]ation|legally (able|eligible|authori[sz]ed)|"
-             r"documentation establishing your identity", lambda: yes_no(bool(g("eligibility.authorized_countries")))),
+             r"documentation establishing your identity", lambda: authorized_for(self._q)),
             (r"legal age|at least 18|over (the age of )?18", lambda: "Yes"),
             # before the "worked for / current employee" rule, which would read the government as an employer
             (r"government (employee|official|servant|agency|entity|organi[sz]ation|body|job)|public (official|servant)|"
@@ -261,7 +305,8 @@ class Resolver:
             (r"years of (hands.?on |professional )?experience (with|in|using|on)|how many years.*(with|in|using|on) ",
              lambda: tech_years(self._q)),
             (r"years of (professional |relevant |total |industry |work )?experience|how many years", experience_years),
-            (r"\bnotice period\b|when can you (start|join)|earliest start|availability to join|"
+            (r"experi\w*ce in (number of )?years|years of experi\w*ce", experience_years),
+            (r"\bnotice period\b|when can you (start|join)|how soon can you (start|join)|earliest start|availability to join|"
              r"(preferred|expected|available) (start|joining) date|\bstart date\b", lambda: f"{g('work.notice_period_days')} days notice"),
             (r"current (total |annual |fixed )?(ctc|compensation|salary|cost to company|package)|present (ctc|salary)",
              lambda: g("work.current_ctc")),
@@ -277,6 +322,7 @@ class Resolver:
             (r"phone (device )?type|type of (phone|device)", lambda: g("personal.phone_device_type") or None),
             (r"language.*\b(fluent|speak|spoken|written|proficien)|\bfluent in\b",
              lambda: g("personal.languages") or None),
+            (r"phone extension|\bext(ension)?\b", lambda: None),
             (r"\b(phone|mobile|contact) (number|no\.?)\b|^\s*(phone|mobile|telephone)\b(?!.*(app|develop|experience))",
              lambda: g("personal.phone")),
             (r"linkedin", lambda: g("links.linkedin")),
@@ -289,10 +335,12 @@ class Resolver:
             (r"\bstate\b|\bprovince\b|\bregion\b", lambda: g("personal.state")),
             (r"\blocation\b|\bcity\b|where are you (based|located)", lambda: g("personal.location_autocomplete") or g("personal.city")),
             (r"^country\b|country of residence|which country", lambda: g("personal.country")),
-            (r"current (company|employer|organi[sz]ation)|^company$|most recent (company|employer)", lambda: g("work.current_company")),
-            (r"(current|most recent|latest) (job )?title|current (role|designation)|^title$", lambda: g("work.current_title")),
+            (r"current (\(or most recent\) )?(company|employer|organi[sz]ation)|^company$|most recent (company|employer)",
+             lambda: g("work.current_company")),
+            (r"(current|most recent|latest) (\(or most recent\) )?(job )?title|current (role|designation)|^title$",
+             lambda: g("work.current_title")),
             (r"hispanic|latin[oa]", lambda: g("eeo.hispanic_latino")),
-            (r"\bgender\b|\bsex\b", lambda: g("eeo.gender")),
+            (r"\bgender\b|\bsex\b", lambda: [g("eeo.gender"), GENDER_SYNONYMS.get(str(g("eeo.gender") or "").lower())]),
             (r"\brace\b|ethnic", lambda: g("eeo.race")),
             (r"(served|serve|service) in the (military|armed forces)|military service|armed forces",
              lambda: g("eligibility.military_service") or None),
@@ -311,6 +359,8 @@ class Resolver:
     def _builtin(self, question):
         q = question.strip()
         self._q = q
+        if CONDITIONAL_RE.search(q) or re.match(r"\s*search\b", q, re.I):
+            return None   # a follow-up to another answer, or a job-search box on the page
         about_someone_else = bool(OTHER_PERSON_RE.search(q))
         m = re.search(r"currently (?:based|located|living|residing) in ([A-Za-z ,/]+)|do you (?:live|reside) in ([A-Za-z ,/]+)", q, re.I)
         if m:
@@ -371,7 +421,7 @@ class Resolver:
         if HEAR_RE.search(question) and not quick:
             return self._how_did_you_hear(question, kind, options)
 
-        employer = self._employer_history(question)
+        employer = None if CONDITIONAL_RE.search(question) else self._employer_history(question)
         if employer is not None:
             ans = self._fit(employer, kind, options, "rule")
             if ans is not None:
@@ -405,6 +455,8 @@ class Resolver:
                 if kind == "choice" and options:
                     idx = self.llm.choose(question, options, self.p.summary(), resume, hint=hint, job=self.job)
                     if idx is not None:
+                        answerlog.record(question, options[idx], self.job.get("company", ""),
+                                         getattr(self.llm, "last_reasoning", ""), kind)
                         return Answer(idx, "model", options[idx])
                 elif kind in ("text", "textarea") and (required or (
                         (kind == "textarea" or question.rstrip(" *").endswith("?"))
@@ -412,6 +464,7 @@ class Resolver:
                     draft = self.llm.draft(question, self.job, self.p.summary(), resume,
                                            max_words=150 if kind == "textarea" else 25)
                     if draft and (self.auto_drafts or not required):
+                        answerlog.record(question, draft.strip(), self.job.get("company", ""), "drafted", kind)
                         return Answer(draft.strip(), "model")
                     if required:
                         return self._ask(question, kind, options, required, draft, reason="model draft, review it")
@@ -456,8 +509,8 @@ class Resolver:
         names = {company.lower(), company.split()[0].lower()}
         if not any(re.search(r"\b" + re.escape(n) + r"\b", question, re.I) for n in names if len(n) > 2):
             return None
-        if not EMPLOYMENT_RE.search(question):
-            return None
+        if not EMPLOYMENT_RE.search(question) or re.search(r"\bappl(y|ied|ication)\b", question, re.I):
+            return None   # "previously applied to Acme" is about applications, not employment
         return yes_no(same_employer(company, self.p.get("work.past_employers") or []))
 
     def _fit(self, value, kind, options, source):

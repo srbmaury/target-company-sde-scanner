@@ -1,0 +1,13 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Verify</title></head><body>
+<h1>Verify your email</h1><form id="f">
+<p id="ql">Enter the 6-character code sent to your email*</p>
+<div aria-labelledby="ql">
+<input maxlength="1" aria-label="Enter the 6-character code sent to your email digit 1" required>
+<input maxlength="1" aria-label="Enter the 6-character code sent to your email digit 2" required>
+<input maxlength="1" aria-label="Enter the 6-character code sent to your email digit 3" required>
+<input maxlength="1" aria-label="Enter the 6-character code sent to your email digit 4" required>
+<input maxlength="1" aria-label="Enter the 6-character code sent to your email digit 5" required>
+<input maxlength="1" aria-label="Enter the 6-character code sent to your email digit 6" required></div>
+<button type="submit">Submit</button></form>
+<script>document.getElementById('f').onsubmit = e => { e.preventDefault(); document.body.innerHTML = '<h1>Thank you for applying</h1>'; };</script>
+</body></html>

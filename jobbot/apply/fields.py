@@ -23,7 +23,24 @@ SCAN_JS = r"""
     if (el.getAttribute('aria-hidden') === 'true' || (el.tabIndex === -1 && parseFloat(st.opacity) === 0)) return false;
     return true;
   };
-  const tag = el => { const id = 'f' + (n++); el.setAttribute('data-jobbot-id', id); return id; };
+  // A fresh prefix per scan: fields from an earlier step of a multi-page form keep their old ids, and a
+  // repeated id would make every action on the new field ambiguous.
+  const scan = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  const tag = el => { const id = 'f' + scan + '_' + (n++); el.setAttribute('data-jobbot-id', id); return id; };
+  // What a combobox shows as chosen (react-select keeps it next to the input, not in it), ignoring its
+  // option list and "Select..." placeholders.
+  const shownValue = el => {
+    let node = el;
+    for (let i = 0; i < 2 && node; i++) {
+      node = parentOf(node);
+      if (!node) break;
+      const copy = node.cloneNode(true);
+      copy.querySelectorAll('[role="listbox"], [role="option"], input, label').forEach(x => x.remove());
+      const t = clean(copy.textContent).replace(/^(select|choose|please select)\b[\s.…]*/i, '');
+      if (t) return t;
+    }
+    return '';
+  };
   const required = (el, label) =>
     !!(el.required || el.getAttribute('aria-required') === 'true' || /\*\s*$/.test(label) || /\brequired\b/i.test(el.getAttribute('aria-label') || ''));
 
@@ -110,6 +127,7 @@ SCAN_JS = r"""
         id: tag(el), kind: t === 'select' ? 'select' : combo ? 'combo' : (t === 'textarea' ? 'textarea' : 'text'),
         type, label, required: required(el, label), value: el.value || '', maxlength: el.maxLength || -1,
         text: t === 'select' && el.selectedIndex >= 0 ? clean(el.options[el.selectedIndex].text) : '',
+        shown: combo ? shownValue(el) : '',
         options: t === 'select' ? Array.from(el.options).map(o => clean(o.text)) : [],
       });
     } else if (t === 'button' && el.getAttribute('aria-haspopup') === 'listbox' && visible(el)) {

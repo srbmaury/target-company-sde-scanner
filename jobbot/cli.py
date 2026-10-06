@@ -328,6 +328,41 @@ def sync_gmail(conn, args):
     print(f"Read {len(messages)} emails: {len(rows)} about applications, {added} new applications, {updated} status updates.")
 
 
+def cmd_answers(args):
+    from . import answerlog
+    from .memory import Memory
+
+    rows = answerlog.load()
+    if args.action in ("ok", "fix"):
+        if not args.n or not 1 <= args.n <= len(rows):
+            sys.exit("Give the answer number from `jobbot answers`.")
+        row = rows[args.n - 1]
+        if args.action == "fix":
+            if not args.text:
+                sys.exit('Give the right answer: jobbot answers fix N "your answer"')
+            saved = Memory.for_profile(_profile()).remember(row["question"], args.text, company=row.get("company"))
+            row["verdict"], row["fixed_to"] = "fixed", args.text
+            print("Corrected" + (" and saved as a learned answer." if saved else
+                                 " (not saved: the question names the employer, so it would be wrong elsewhere)."))
+        else:
+            row["verdict"] = "ok"
+            print("Marked correct.")
+        answerlog.save(rows)
+        return
+    shown = [(i, r) for i, r in enumerate(rows, 1) if args.all or not r.get("verdict")][-args.limit:]
+    if not shown:
+        print("No model answers to review." if rows else "The model hasn't answered anything yet.")
+    for i, r in shown:
+        print(f"{i:>4}  {r['at'][:16]}  {_short(r.get('company') or '', 18):18s} {_short(r['question'], 70)}")
+        print(f"{'':6}→ {_short(r['answer'], 110)}")
+        if r.get("reasoning") and r["reasoning"] != "drafted":
+            print(f"{'':6}  because: {_short(r['reasoning'], 110)}")
+    ok, fixed = answerlog.accuracy(rows)
+    if ok + fixed:
+        print(f"\nReviewed {ok + fixed}: {ok} right, {fixed} corrected ({100 * ok // (ok + fixed)}% accurate).")
+    print('Mark: jobbot answers ok N   ·   correct: jobbot answers fix N "right answer"')
+
+
 def cmd_ui(args):
     from .ui.server import serve
 
@@ -407,6 +442,14 @@ def build_parser():
                     help="never stop: jobs that need you are listed at the end, and each finished application waits "
                          "in its own tab for your Submit")
     sp.set_defaults(fn=cmd_apply)
+
+    sp = sub.add_parser("answers", help="review the local model's answers and correct wrong ones")
+    sp.add_argument("action", nargs="?", choices=("list", "ok", "fix"), default="list")
+    sp.add_argument("n", nargs="?", type=int, help="answer number from the list")
+    sp.add_argument("text", nargs="?", help="the right answer (for fix)")
+    sp.add_argument("--all", action="store_true", help="include answers you already reviewed")
+    sp.add_argument("--limit", type=int, default=30)
+    sp.set_defaults(fn=cmd_answers)
 
     sp = sub.add_parser("ui", help="open the local dashboard in your browser")
     sp.add_argument("--port", type=int, default=8765)

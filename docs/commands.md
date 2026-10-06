@@ -10,6 +10,7 @@
 | `apply <n, x-y or URL>... [--top N] [--all] [--min-fit N] [--exclude A,B] [-y] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm none]` | Fill applications in Chrome |
 | `dismiss <n>...` | Hide roles you are not interested in |
 | `logs [--date YYYY-MM-DD] [-n N]` | Show what `apply` filled, corrected and checked |
+| `answers [ok N \| fix N "text"] [--all]` | Review the local model's answers; mark them right or correct them |
 | `ui [--port N] [--no-open]` | Open the local dashboard |
 | `track [list\|add\|update\|show\|stats\|export\|import\|import-gmail\|sync-gmail]` | Manage the application tracker |
 | `gmail login [--client FILE] \| logout \| status` | Connect Gmail read-only for `track sync-gmail` |
