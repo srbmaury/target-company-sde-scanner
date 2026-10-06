@@ -157,9 +157,13 @@ For each job you pass, one after another:
 4. **Asks you only when it has to**, in the terminal or, when you apply from the dashboard, in its
    Apply tab:
    - questions matching your `always_ask` list, such as signatures and legal or sanctions questions
-   - required questions it has no answer for. With Ollama it drafts free-text answers from your
-     profile and resume. By default it uses them without asking (`automation.auto_accept_drafts`);
-     every draft is shown in the page report and the logs.
+   - required questions nothing answers. Before asking, Ollama reasons about the question: facts
+     (tools, certifications, years, education) only from your profile and resumes, a tool or
+     certification your resumes don't show is "No", and preference questions (on-call, hybrid
+     work, a fast-paced team, learning a new language) may be inferred when nothing in your profile
+     contradicts them. Citizenship, visas, clearances, criminal history and similar questions never
+     go to the model. Drafts are used without asking by default (`automation.auto_accept_drafts`);
+     every answer and its source are shown in the page report and the logs.
    - consent and privacy boxes, once per application, unless `automation.auto_consent` is on
    - email verification codes: with Gmail connected, jobbot reads the code from your newest
      verification email (up to 90 s) and only asks if none arrives; Workday's separate code boxes are

@@ -120,6 +120,30 @@ class ResolverTest(unittest.TestCase):
         r.resolve("Are you a resident of Cuba?", "choice", options=["Yes", "No"])
         self.assertEqual(len(self.asked), 1)   # a real sanctions question is still yours
 
+    def test_credentials_and_fact_only_questions(self):
+        prof = Profile(PROFILE, "x")
+        prof.resume_text = lambda key: "Backend on AWS (Lambda, S3). Certifications: Oracle Certified Java Programmer."
+        prof.resumes = lambda: {"backend": {}}
+
+        class FakeLLM:   # would answer anything; must not be consulted for fact-only questions
+            enabled, calls = True, []
+            def choose(self, q, *a, **k):
+                self.calls.append(q)
+                return 1
+        llm = FakeLLM()
+        r = Resolver(prof, llm=llm, ask=lambda *a: self.asked.append(a[0]))
+        yn = ["Yes", "No"]
+        self.assertEqual(r.resolve("Do you hold a PMP certification?", "choice", options=yn).display, "No")
+        self.assertEqual(r.resolve("Do you have a valid AWS certification?", "choice", options=yn).display, "No")
+        self.assertEqual(r.resolve("Do you hold an Oracle Certified Java Programmer certification?", "choice",
+                                   options=yn).display, "Yes")
+        for q in ("Are you a US citizen?", "Have you ever been convicted of a felony?"):
+            self.assertIsNone(r.resolve(q, "choice", options=yn, required=True))
+        self.assertEqual(llm.calls, [])
+        self.assertEqual(len(self.asked), 2)
+        self.assertEqual(r.resolve("Are you open to working weekends occasionally?", "choice", options=yn).display, "No")
+        self.assertEqual(len(llm.calls), 1)   # preference questions do reach the model
+
     def test_asks_once_per_application(self):
         # review rounds re-read the page; an unanswered question must not be asked again
         for _ in range(3):

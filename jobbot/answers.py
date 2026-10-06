@@ -77,6 +77,12 @@ OTHER_PERSON_RE = re.compile(r"referr(er|al|ed by)|\breference\b|emergency|next 
 
 EEO_RE = re.compile(r"\s*(race|ethnicity|ethnic (background|origin)|gender|sex\b|veteran|protected veteran|"
                     r"disability|hispanic|latino|self.?identif)", re.I)
+# Facts only you can state: never answered by the model, whatever the prompt says.
+FACT_ONLY_RE = re.compile(r"citizen|nationality|\bvisa\b|green card|permanent resident|work permit|immigration|"
+                          r"clearance|criminal|convict|felony|arrest|debar|sanction|export (control|rule)|"
+                          r"\bpassport\b|date of birth|\bage\b|social security|aadhaar|\bpan\b", re.I)
+# Optional catch-all boxes ("Anything else you'd like us to know?") are better left blank than filled.
+OPEN_EXTRA_RE = re.compile(r"anything else|additional (information|comments|details)|other comments|cover letter|^comments?$", re.I)
 SIGN_RE = re.compile(r"signature|sign here|\be-?sign|type your (full |legal )?name to (sign|confirm|acknowledge)", re.I)
 
 
@@ -177,6 +183,19 @@ class Resolver:
                 return None
             return yes_no(all(re.search(rf"(?<![a-z0-9]){re.escape(t.lower())}(?![a-z0-9])", corpus) for t in tools))
 
+        def has_credential(question):
+            """'Do you hold a PMP certification?': Yes only if your resumes name it."""
+            m = re.search(r"(?:hold|have|possess|earned|completed|obtained)\s+(?:an?|the)?\s*(?:active |valid |current )?"
+                          r"([A-Za-z0-9+./& -]{2,60})\s+(?:certification|certificate|license|licence)\b", question, re.I)
+            name = m.group(1).strip() if m else ""
+            if not name or re.fullmatch(r"(any|some|relevant|professional|industry|other)", name, re.I):
+                return None
+            corpus = " ".join(p.resume_text(k).lower() for k in p.resumes())
+            if not corpus:
+                return None
+            n = re.escape(name.lower())   # named as a credential, not just as a skill ("AWS" alone is not a cert)
+            return yes_no(bool(re.search(rf"{n}[\w ]{{0,20}}(certif|licen)|(certif|licen)\w*[\w :]{{0,20}}{n}", corpus)))
+
         willing = lambda: yes_no(g("eligibility.willing_to_relocate", True))  # noqa: E731
 
         def open_to_place():
@@ -222,6 +241,7 @@ class Resolver:
              lambda: yes_no(float(g("work.total_experience_years", 0) or 0) > 0 or bool(p.resumes()))),
             (r"bachelor.?s degree in computer science|degree in (computer science|cs)\b|computer science or (an? )?(equivalent|related)",
              lambda: None if g("education.cs_or_equivalent") is None else yes_no(g("education.cs_or_equivalent"))),
+            (r"\b(certification|certificate|certified|license|licence)\b(?!.*(driv|vehicle))", lambda: has_credential(self._q)),
             (r"^(do|have|are) you (have )?(any )?(worked|work|experience|familiar|hands.?on|used|built|exposure)\b",
              lambda: used_tech(self._q)),
             (r"years of (hands.?on |professional )?experience (with|in|using|on)|how many years.*(with|in|using|on) ",
@@ -304,9 +324,14 @@ class Resolver:
         question = re.sub(r"\s+", " ", question or "").strip(" *:")
         options = real_options(options or [])
 
+        hint = None   # your answer in your own words, when it matches none of the options literally
         for pattern, value in self.custom:
             if pattern.search(question):
-                return self._fit(value, kind, options, "profile")
+                ans = self._fit(value, kind, options, "profile")
+                if ans is not None or kind != "choice":
+                    return ans
+                hint = value
+                break
 
         if self.p.get("automation.auto_sign") and kind in ("text", "textarea") and SIGN_RE.search(question):
             return Answer(self.p.full_name, "profile")   # your typed signature; Submit stays yours
@@ -343,10 +368,12 @@ class Resolver:
             ans = self._fit(value, kind, options, "rule")
             if ans is not None:
                 return ans
+            if kind == "choice":
+                hint = hint or (", ".join(value) if isinstance(value, list) else value)
 
         if quick:
             return None
-        return self._once(question, kind, options, lambda: self._slow(question, kind, options, required))
+        return self._once(question, kind, options, lambda: self._slow(question, kind, options, required, hint))
 
     def _once(self, question, kind, options, get):
         key = (question.lower(), kind, tuple(options))
@@ -354,21 +381,26 @@ class Resolver:
             self._settled[key] = get()
         return self._settled[key]
 
-    def _slow(self, question, kind, options, required):
-        """The model's answer, else yours."""
-        if self.llm and self.llm.enabled:
+    def _slow(self, question, kind, options, required, hint=None):
+        """The model's reasoned answer (facts, or inference for preference questions), else yours.
+
+        Optional questions get the model's answer too, but are left blank rather than asked."""
+        if self.llm and self.llm.enabled and not FACT_ONLY_RE.search(question):
             try:
                 resume = self.p.resume_text(self.resume_key) if self.resume_key else ""
                 if kind == "choice" and options:
-                    idx = self.llm.choose(question, options, self.p.summary(), resume)
+                    idx = self.llm.choose(question, options, self.p.summary(), resume, hint=hint, job=self.job)
                     if idx is not None:
                         return Answer(idx, "model", options[idx])
-                elif kind in ("text", "textarea") and required:
+                elif kind in ("text", "textarea") and (required or (
+                        (kind == "textarea" or question.rstrip(" *").endswith("?"))
+                        and not OPEN_EXTRA_RE.search(question))):
                     draft = self.llm.draft(question, self.job, self.p.summary(), resume,
                                            max_words=150 if kind == "textarea" else 25)
-                    if self.auto_drafts and draft:
+                    if draft and (self.auto_drafts or not required):
                         return Answer(draft.strip(), "model")
-                    return self._ask(question, kind, options, required, draft, reason="model draft, review it")
+                    if required:
+                        return self._ask(question, kind, options, required, draft, reason="model draft, review it")
             except Exception:
                 pass
 
