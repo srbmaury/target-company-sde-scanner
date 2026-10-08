@@ -50,8 +50,10 @@ def select_targets(conn, keys=(), all_=False, top=None, min_fit=None, force=Fals
         if t["url"] in seen:
             continue
         seen.add(t["url"])
-        level, app = tracker.applied_match(conn, t["url"], t["company"], t["title"], first_seen=t.get("first_seen"),
-                                            posted=t.get("posted"))
+        level, app = (tracker.job_level(conn, t) if "first_seen" in t else
+                      tracker.applied_match(conn, t["url"], t["company"], t["title"]))
+        if level == "possible" and t.get("not_duplicate"):
+            level, app = None, None
         if level in ("exact", "likely") and not force:
             note(f"Skipping {t['company']} — {t['title']}: already applied "
                  f"(#{app['id']} {app['title']}, {app['status']}, {app['applied_on'] or 'date unknown'}).")

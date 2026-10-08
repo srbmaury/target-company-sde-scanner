@@ -107,8 +107,11 @@ INDIA_CITIES = (r"bengaluru|bangalore|hyderabad|noida|gurugram|gurgaon|delhi|pun
                 r"ahmedabad|jaipur|kochi|trivandrum|coimbatore|indore|chandigarh")
 GENDER_SYNONYMS = {"male": "Man", "female": "Woman", "man": "Male", "woman": "Female"}
 # Follow-ups that depend on an earlier answer ("If yes, ..."): built-in rules would answer the wrong question.
-CONDITIONAL_RE = re.compile(r"^\s*(if (yes|so|no|applicable|you (answered|selected|chose))|please specify|"
+CONDITIONAL_RE = re.compile(r"^\s*(if (yes|so|no|applicable|you (answered|selected|chose|have))|please specify|"
                             r"(please )?(provide|share) (more )?details)", re.I)
+
+
+MODEL_FAILED = object()
 
 
 def yes_no(flag):
@@ -332,7 +335,10 @@ class Resolver:
              lambda: (g("preferences.preferred_work_locations") or []) + [g("personal.city")]),
             (r"address line 1|street address", lambda: g("personal.address_line1") or None),
             (r"\bpostal|\bzip\b|pin ?code", lambda: g("personal.postal_code") or None),
-            (r"\bstate\b|\bprovince\b|\bregion\b", lambda: g("personal.state")),
+            # the field, not the verb: "State/Province" yes, "please state the reason for each gap" no
+            (r"^(your |current |home )?(state|province|region)\b(?!\s+(the|any|your|why|whether|if|how|what)\b)|"
+             r"\bstate\s*/\s*(province|region)|\b(state|province|region) of (residence|domicile)|"
+             r"(which|what|select( your)?) (state|province|region)\b", lambda: g("personal.state")),
             (r"\blocation\b|\bcity\b|where are you (based|located)", lambda: g("personal.location_autocomplete") or g("personal.city")),
             (r"^country\b|country of residence|which country", lambda: g("personal.country")),
             (r"current (\(or most recent\) )?(company|employer|organi[sz]ation)|^company$|most recent (company|employer)",
@@ -382,11 +388,75 @@ class Resolver:
     def resolve(self, question, kind="text", options=None, required=False, quick=False):
         """kind: text | textarea | choice | checkbox. Returns Answer or None to leave blank.
 
-        quick=True uses only your answers, remembered answers and built-in rules: no model,
-        no questions to you. Used before searching long dropdown lists.
+        With the local model on, it answers every field: your profile answers, remembered answers and
+        the keyword rules only suggest, and the model keeps a suggestion (exactly as written) only when
+        it really answers the question. quick=True never asks you.
         """
         question = re.sub(r"\s+", " ", question or "").strip(" *:")
         options = real_options(options or [])
+        if not (self.llm and self.llm.enabled) or kind == "checkbox" or (
+                not EEO_RE.match(question) and any(p.search(question) for p in self.always_ask)):
+            return self._by_rules(question, kind, options, required, quick)   # consent boxes and always_ask stay yours
+        suggestion = self._by_rules(question, kind, options, False, quick=True)
+        if suggestion is None and HEAR_RE.search(question):
+            suggestion = self._how_did_you_hear(question, kind, options)
+        ans = self._cached(("model", question.lower(), kind, tuple(options)),
+                           lambda: self._by_model(question, kind, options, suggestion))
+        if ans is MODEL_FAILED:
+            return self._by_rules(question, kind, options, required, quick)
+        if ans is None and required and not quick:
+            return self._cached(("ask", question.lower(), kind, tuple(options)), lambda: self._ask(
+                question, kind, options, required, None, reason="the model could not answer"))
+        if ans is not None and ans.source == "model" and kind == "textarea" and required and not quick \
+                and not self.auto_drafts:
+            return self._cached(("review", question.lower(), kind, tuple(options)), lambda: self._ask(
+                question, kind, options, required, ans.value, reason="model draft, review it"))
+        return ans
+
+    def _by_model(self, question, kind, options, suggestion):
+        try:
+            resume = self.p.resume_text(self.resume_key) if self.resume_key else ""
+            shown = None if suggestion is None else (suggestion.display or str(suggestion.value))
+            out = self.llm.answer(question, kind, options, self.p.facts(), resume, self.job, shown)
+        except Exception:
+            return MODEL_FAILED   # model unreachable or timed out: the rules answer instead
+        value = out["answer"]
+        if kind == "choice":
+            value = self._option_index(value, options)
+        if suggestion is not None and out["fits"]:
+            if kind == "choice":
+                same = value == suggestion.value
+            else:
+                a, b = str(value or "").strip().lower(), str(suggestion.value).strip().lower()
+                same = not a or a in b or b in a
+            # the model says the suggestion fits but wrote something else: a long-answer box gets its words
+            # ("Why Acme?" is not "No"); a short field keeps your exact profile value
+            if same or kind != "textarea":
+                return suggestion   # the exact profile value, now checked against the question's meaning
+        if out["basis"] not in ("fact", "inference") or (out["basis"] != "fact" and FACT_ONLY_RE.search(question)):
+            return None
+        if kind == "choice":
+            if value is None:
+                return None
+            answerlog.record(question, options[value], self.job.get("company", ""), self.llm.last_reasoning, kind)
+            return Answer(value, "model", options[value])
+        value = str(value or "").strip()
+        if not value or re.fullmatch(r"\W*(unknown|n/?a|none)\W*", value, re.I):
+            return None
+        answerlog.record(question, value, self.job.get("company", ""), self.llm.last_reasoning, kind)
+        return Answer(value, "model")
+
+    @staticmethod
+    def _option_index(value, options):
+        """The model's chosen option (its exact text, else the closest option) as an index, or None."""
+        text = str(value if value is not None else "").strip()
+        if not text:
+            return None
+        exact = next((i for i, o in enumerate(options) if o.strip().lower() == text.lower()), None)
+        return exact if exact is not None else pick(text, options)
+
+    def _by_rules(self, question, kind, options, required, quick):
+        """Your profile answers, remembered answers and keyword rules (the model only as a last resort)."""
 
         hint = None   # your answer in your own words, when it matches none of the options literally
         for pattern, value in self.custom:
@@ -440,7 +510,9 @@ class Resolver:
         return self._once(question, kind, options, lambda: self._slow(question, kind, options, required, hint))
 
     def _once(self, question, kind, options, get):
-        key = (question.lower(), kind, tuple(options))
+        return self._cached((question.lower(), kind, tuple(options)), get)
+
+    def _cached(self, key, get):
         if key not in self._settled:
             self._settled[key] = get()
         return self._settled[key]
@@ -511,6 +583,8 @@ class Resolver:
             return None
         if not EMPLOYMENT_RE.search(question) or re.search(r"\bappl(y|ied|ication)\b", question, re.I):
             return None   # "previously applied to Acme" is about applications, not employment
+        if re.match(r"\s*(why|what|how|describe|tell|explain|share|please)\b", question, re.I):
+            return None   # "Why do you want to work at Acme?" wants an answer in words, not Yes/No
         return yes_no(same_employer(company, self.p.get("work.past_employers") or []))
 
     def _fit(self, value, kind, options, source):

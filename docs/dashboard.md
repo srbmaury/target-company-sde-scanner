@@ -9,15 +9,27 @@ profile and logs as the commands.
 
 | Tab | What you can do |
 | --- | --- |
-| **Jobs** | Ranked roles with fit scores and reasons, filters (text, minimum fit, already applied, dismissed), links to postings, dismiss/restore. Tick roles (or **Select all shown**, which follows your filters and leaves out applied and dismissed roles) and click **Apply to selected** (or **Dry run**) |
+| **Jobs** | Ranked roles with fit scores and reasons, a text filter and minimum fit, and views: **New** (roles you can apply to), **Possibly applied**, **Applied**, **Dismissed**, **All**, each with its count. Tick roles (or **Select all shown**) and click **Apply to selected** (or **Dry run**). Applied and dismissed roles can't be ticked |
 | **Runs** | The running batch (live activity, queue, questions for you, the final Submit) and earlier runs. After a run: what needs you, with the reason, **Open posting** and **Retry** / **Retry all**. History survives restarts |
-| **Applications** | Every application with status pills and history; click one to change its status or notes; add applications made elsewhere |
+| **Applications** | Every application with status pills and history; click one to change its status, notes, company, role or posting link; add applications made elsewhere |
 | **Actions** | Run Scan, Rank, and Gmail sync in the background and watch their output; connect Gmail |
 | **Logs** | What `apply` filled, corrected and checked, page by page, with a filter |
 | **Profile** | Edit `profile.yaml`, including learned answers. Invalid YAML is refused, and a backup is kept |
 
-**Refresh jobs** (top of the Jobs tab) runs `scan` and then `rank`, shows progress beside the
+**Refresh jobs** (top of the Jobs tab) syncs Gmail first (if connected, so roles you applied to elsewhere drop out), then runs `scan` and `rank`, shows progress beside the
 button, and reloads the list when it finishes.
+### Possibly applied
+
+A role is *possibly applied* when it looks like an application you already have: the same title at the
+same company posted later (big employers reuse titles), or an application whose email didn't name the
+role. Each such role says which application it resembles, with two buttons:
+
+- **Not a duplicate**: it's a different opening. It moves to **New**, and jobbot remembers.
+- **Same role, hide it**: dismisses it.
+
+In the **Possibly applied** view you can also tick several and **Mark selected as not duplicates**.
+The quickest fix for an application listed as "(role not stated in email)" is to open it in
+**Applications** and type its role: one edit can clear dozens of possible matches at that company.
 
 ### Applying from the dashboard
 

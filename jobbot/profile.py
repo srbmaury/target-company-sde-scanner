@@ -64,6 +64,27 @@ class Profile:
         }
         return {k: v for k, v in keep.items() if v}
 
+    def facts(self):
+        """Everything the local model may answer form questions from (it runs on your machine):
+        your details, links, work, education, eligibility, EEO answers and preferences."""
+        lines = []
+
+        def walk(prefix, node):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    walk(f"{prefix} {k}".strip(), v)
+            elif node not in (None, "", []):
+                value = ", ".join(map(str, node)) if isinstance(node, list) else node
+                lines.append(f"- {prefix.replace('_', ' ')}: {value}")
+
+        for section in ("personal", "links", "work", "education", "eligibility", "eeo", "preferences"):
+            walk(section, self.data.get(section))
+        countries = ", ".join(self.get("eligibility.authorized_countries") or [])
+        if countries:
+            lines.append(f"- The candidate is legally authorized to work in {countries}, needs "
+                         f"{'visa sponsorship' if self.get('eligibility.needs_sponsorship') else 'no visa sponsorship'} there.")
+        return "\n".join(lines)
+
 
 def load(path=None):
     path = Path(path or paths.PROFILE)

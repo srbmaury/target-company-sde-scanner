@@ -133,3 +133,39 @@ class LLM:
                 r"(say|mention|specify|include|answer|provide)|not enough information|cannot (determine|answer)", out, re.I):
             return ""
         return out
+
+    def answer(self, question, kind, options, facts, resume_text, job=None, suggestion=None):
+        """Answer one form field. Returns {"fits": bool, "basis": ..., "answer": str or option index}.
+
+        `suggestion` is what jobbot's keyword rules, your profile answers or your remembered answers
+        would put there. They match on words, not meaning, so the model decides whether it fits."""
+        listing = "\n".join(f"- {o}" for o in options or [])   # no numbers: in long lists a 7B model is off by one
+        if kind == "choice":
+            shape = "the chosen option's text, copied exactly from OPTIONS (\"\" if unknown)"
+        elif kind == "textarea":
+            shape = "the text to type, first person, at most 150 words"
+        else:
+            shape = "the text to type, as short as the field expects, profile values copied exactly"
+        prompt = (
+            f"CANDIDATE PROFILE (true facts):\n{facts}\n\nRESUME:\n{(resume_text or '')[:2000]}\n\n"
+            + (f"JOB: {job.get('title')} at {job.get('company')}, located in {job.get('location')}\n\n" if job else "")
+            + f"FORM FIELD: {question}\n"
+            + (f"OPTIONS:\n{listing}\n" if kind == "choice" else "")
+            + (f"PROPOSED ANSWER: {suggestion}\n" if suggestion else "")
+            + "\nWhat does this field actually ask? Answer it for the candidate from the profile and resume. "
+            "A short label names the profile value it wants: \"State\" or \"Region\" is the profile state, \"City\" the "
+            "city, \"First Name\" the first name. Read long questions in full: in \"please state the reason for ...\" "
+            "the word state means explain, and it asks for a reason; a question starting \"If you have ...\" "
+            "applies only if the profile shows it. Motivation questions (why this company or role) are answered "
+            "from the resume and the job. "
+            + ("A proposed answer fits when it is the right answer to this field. " if suggestion else "")
+            + "Preferences and willingness (relocation, hybrid, shifts, learning) may be inferred for a motivated "
+            "candidate; facts (employers, skills, dates, salary, authorization, visas, certifications) must be in "
+            "the profile or resume, else basis is unknown. Never invent employers, credentials or personal history."
+            "\n\nReturn JSON {\"reasoning\": one sentence, "
+            + ("\"suggestion_fits\": true or false, " if suggestion else "")
+            + "\"basis\": \"fact\" or \"inference\" or \"unknown\", \"answer\": " + shape + "}."
+        )
+        out = self.chat(GROUNDING, prompt, as_json=True, temperature=0)
+        self.last_reasoning = str(out.get("reasoning", ""))[:300]
+        return {"fits": out.get("suggestion_fits") is True, "basis": out.get("basis"), "answer": out.get("answer")}

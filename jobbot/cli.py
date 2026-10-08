@@ -145,8 +145,7 @@ def cmd_jobs(args):
     apps = conn.execute("SELECT * FROM applications").fetchall()
     for r in rows:
         fit = "" if r["fit_score"] is None else str(r["fit_score"])
-        level, _ = tracker.applied_match(conn, r["url"], r["company"], r["title"], _apps=apps, first_seen=r["first_seen"],
-                                              posted=r["posted"])
+        level, _ = tracker.job_level(conn, r, apps)
         mark = {"exact": " [applied]", "likely": " [applied]", "possible": " [applied?]"}.get(level, "")
         print(f"{r['n']:>4} {fit:>3}  {_short(r['company'], 20):20s} {_short(r['title'], 52):52s} "
               f"{_short(r['location'], 24):24s} {_short(r['experience'], 16):16s} {r['fit_resume'] or ''}{mark}")
@@ -311,6 +310,9 @@ def sync_gmail(conn, args):
 
     try:
         if not gmail.is_connected():
+            if getattr(args, "if_connected", False):
+                print("Gmail not connected; skipping email sync.")
+                return
             if not sys.stdin.isatty():
                 sys.exit("Gmail is not connected. Run `jobbot gmail login` (or use Connect Gmail in the dashboard).")
             if input("Gmail is not connected. Sign in with Google now (read-only)? [Y/n] ").strip().lower() in ("n", "no"):
@@ -481,6 +483,8 @@ def build_parser():
     sp.add_argument("--note")
     sp.add_argument("--days", type=int, default=60, help="sync-gmail: how far back to read (default 60)")
     sp.add_argument("--query", help="sync-gmail: Gmail search query instead of the built-in application-email query")
+    sp.add_argument("--if-connected", action="store_true",
+                    help="sync-gmail: quietly skip when Gmail is not connected (used by the dashboard's Refresh)")
     sp.add_argument("--all-mail", action="store_true",
                     help="sync-gmail: read every email in the period (metadata only); the importer keeps application emails")
     sp.add_argument("--limit", type=int, default=2000, help="sync-gmail: maximum emails to read")
