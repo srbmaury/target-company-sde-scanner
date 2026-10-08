@@ -34,7 +34,7 @@ function showTab(name) {
   remember("tab", name);
   $$(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
   $$(".panel").forEach((p) => (p.hidden = p.id !== "tab-" + name));
-  ({ jobs: () => { loadJobs(); loadTasks(); }, apply: loadRun, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile }[name])();
+  ({ jobs: () => { loadJobs(); loadTasks(); }, apply: () => { state.viewing = false; loadRun(); }, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile, docs: () => loadDocs() }[name])();
 }
 
 // ---------- summary ----------
@@ -154,20 +154,49 @@ async function loadRun() {
   $("#apply-badge").hidden = run.status !== "waiting";
   document.title = run.status === "waiting" ? "● jobbot needs you" : "jobbot";
   if (active && !state.runPoll) state.runPoll = setInterval(loadRun, 1000);
-  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary(); }
-  if (state.tab === "apply") renderRun(run);
+  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary(); state.historyStale = true; }
+  renderStrip(run, active);
+  if (state.tab === "apply" && !state.viewing) renderRun(run);
+  if (state.tab === "apply" && (state.historyStale || !state.historyLoaded)) loadHistory();
+}
+
+// The Jobs tab's one-line view of a run in progress.
+function renderStrip(run, active) {
+  const strip = $("#run-strip");
+  if (!active) { strip.hidden = true; return; }
+  const done = Object.keys(run.results || {}).length, total = (run.jobs || []).length;
+  const waiting = run.status === "waiting";
+  strip.hidden = false;
+  strip.className = "run-strip" + (waiting ? " waiting" : "");
+  strip.innerHTML = (total ? `${run.dry_run ? "Dry run" : "Applying"} ${Math.min(done + 1, total)}/${total}` : "Starting a run…") +
+    (waiting ? " · <b>a question is waiting for you</b>" : " · working in Chrome") +
+    ` <button class="link" data-view-run>View run →</button>`;
+}
+
+async function loadHistory() {
+  state.historyLoaded = true; state.historyStale = false;
+  let runs = [];
+  try { runs = await api("runs"); } catch (e) { return; }
+  const label = (r) => Object.entries(r.counts || {}).map(([k, v]) => `${v} ${k}`).join(", ") || "nothing finished";
+  $("#history").innerHTML = runs.length ? runs.map((r) => `<li><a href="#" data-run="${esc(r.id)}">${esc((r.started || "").replace("T", " ").slice(0, 16))}</a>
+      <span class="sub">${r.dry_run ? "dry run · " : ""}${r.unattended ? "unattended · " : ""}${esc(r.status || "")} · ${esc(label(r))}</span></li>`).join("")
+    : `<li class="muted">None yet.</li>`;
 }
 
 function renderRun(run) {
   if (run.status === "idle") {
-    $("#run-title").textContent = "No apply run yet";
+    $("#run-title").textContent = "No runs yet";
     $("#run-status").textContent = ""; $("#run-progress").textContent = "";
-    $("#prompt").innerHTML = `<div class="empty">Select roles in the Jobs tab and choose “Apply to selected”.</div>`;
-    $("#feed").innerHTML = ""; $("#queue").innerHTML = ""; $("#run-stop").hidden = true;
+    $("#prompt").innerHTML = `<div class="empty"><p><b>To start a run:</b> tick roles in the Jobs tab, then <b>Apply to selected</b>
+      (or <b>Dry run</b> to fill and check without submitting).</p><p>Tick <b>Don't stop for me</b> to run the whole batch unattended:
+      jobs that need you are listed here, and finished applications wait for your Submit.</p></div>`;
+    $("#feed").innerHTML = ""; $("#queue").innerHTML = ""; $("#needs").innerHTML = ""; $("#run-stop").hidden = true;
     return;
   }
   const active = ["starting", "running", "waiting"].includes(run.status);
-  $("#run-title").textContent = run.dry_run ? "Dry run" : "Applying";
+  const when = (run.started || "").replace("T", " ").slice(0, 16);
+  $("#run-title").textContent = (run.history ? (state.viewing ? "Run of " + when : "Last run · " + when) + " · " : "")
+    + (run.dry_run ? "Dry run" : run.unattended ? "Unattended run" : "Applying");
   $("#run-status").textContent = run.status;
   $("#run-status").className = "pill " + ({ waiting: "maybe", running: "interview", done: "applied", failed: "rejected", stopped: "withdrawn" }[run.status] || "");
   const done = Object.keys(run.results).length;
@@ -182,7 +211,28 @@ function renderRun(run) {
   const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
   feed.innerHTML = run.events.map(renderEvent).join("");
   if (nearBottom) feed.scrollTop = feed.scrollHeight;
-  renderPrompt(run.prompt);
+  renderPrompt(run.history ? null : run.prompt);
+  renderNeeds(run, active);
+}
+
+// Jobs that need you, as actions: open the posting, or retry once you've sorted it out.
+function renderNeeds(run, active) {
+  const needs = run.jobs.filter((j) => (run.results[j.url] || {}).status === "needs you");
+  if (!needs.length) { $("#needs").innerHTML = run.history && !active ? `<div class="empty">Nothing from this run needs you.</div>` : ""; return; }
+  $("#needs").innerHTML = `<div class="needs"><h4>Needs you (${needs.length})</h4><ul>${needs.map((j) => `<li>
+      <b>${esc(j.company)}</b> — ${esc(j.title)}<div class="reason">${esc(run.results[j.url].note || "")}</div>
+      <a href="${esc(j.url)}" target="_blank" rel="noopener">Open posting</a>
+      ${active ? "" : `<button class="link" data-retry="${esc(String(j.n || j.url))}">Retry</button>`}</li>`).join("")}</ul>
+      ${active || needs.length < 2 ? "" : `<button data-retry-all="${esc(needs.map((j) => j.n || j.url).join("\n"))}">Retry all ${needs.length}</button>`}
+      <p class="hint">Sign in or answer what's missing (in jobbot's Chrome window, or with an <code>answers:</code> rule in your profile), then retry.</p></div>`;
+}
+
+async function retry(keys) {
+  try {
+    await api("apply", { jobs: keys, unattended: true });
+    state.viewing = false;
+    loadRun();
+  } catch (e) { alert(e.message); }
 }
 
 function renderEvent(e) {
@@ -407,6 +457,91 @@ async function saveProfile() {
   }
 }
 
+// ---------- docs ----------
+// A small Markdown renderer for our own docs/ pages: everything is escaped first, then a known set of
+// constructs (headings, lists, tables, code, bold, links) is turned into HTML.
+function md(src) {
+  const inline = (t) => esc(t)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, href) => {
+      const doc = href.match(/^(?:\.\/)?([\w-]+)\.md(?:#([\w-]+))?$/);
+      if (doc) return `<a href="#" data-doc="${doc[1]}" data-anchor="${doc[2] || ""}">${text}</a>`;
+      if (href.startsWith("#")) return `<a href="#" data-anchor="${href.slice(1)}">${text}</a>`;
+      if (/^https?:\/\//.test(href)) return `<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
+      return text;   // links outside docs/ (../README.md, LICENSE) are shown as plain text
+    });
+  const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
+  const lines = src.replace(/\r/g, "").split("\n"), out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^```/.test(l)) {
+      const code = []; while (++i < lines.length && !/^```/.test(lines[i])) code.push(lines[i]);
+      out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`);
+    } else if (/^#{1,4} /.test(l)) {
+      const level = l.match(/^#+/)[0].length, text = l.replace(/^#+ /, "");
+      out.push(`<h${level} id="${slug(text)}">${inline(text)}</h${level}>`);
+    } else if (/^\|/.test(l)) {
+      const rows = []; i--; while (++i < lines.length && /^\|/.test(lines[i])) rows.push(lines[i]);
+      i--;
+      const cells = (r) => r.replace(/^\||\|$/g, "").split(/(?<!\\)\|/).map((c) => inline(c.trim().replace(/\\\|/g, "|")));
+      const body = rows.filter((r) => !/^\|[\s:|-]+\|$/.test(r));
+      out.push(`<table class="grid"><thead><tr>${cells(body[0]).map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>` +
+        body.slice(1).map((r) => `<tr>${cells(r).map((c) => `<td>${c}</td>`).join("")}</tr>`).join("") + "</tbody></table>");
+    } else if (/^\s*([-*]|\d+\.) /.test(l)) {
+      // A list: each item's own text, plus any indented lines under it (wrapped text, a sub-list, a table,
+      // code), which are rendered recursively.
+      const indent = l.match(/^\s*/)[0].length, ordered = /^\s*\d+\./.test(l);
+      const startAt = ordered ? parseInt(l.trim(), 10) : 1;
+      const items = [];
+      i--;
+      while (++i < lines.length) {
+        const cur = lines[i], ind = cur.match(/^\s*/)[0].length;
+        const isItem = new RegExp(`^\\s{${indent}}${ordered ? "\\d+\\." : "[-*]"} `).test(cur) && ind === indent;
+        if (isItem) { items.push({ text: cur.replace(/^\s*([-*]|\d+\.) /, ""), body: [] }); continue; }
+        if (!items.length) break;
+        if (!cur.trim()) {   // a blank line ends the list unless more indented content follows
+          const next = lines.slice(i + 1).find((x) => x.trim());
+          if (!next || next.match(/^\s*/)[0].length <= indent) break;
+          items[items.length - 1].body.push("");
+          continue;
+        }
+        if (ind <= indent) break;
+        items[items.length - 1].body.push(cur);
+      }
+      i--;
+      const renderItem = (it) => {
+        const body = it.body.slice(), text = [it.text];
+        // wrapped continuation of the item's own sentence
+        while (body.length && body[0].trim() && !/^\s*([-*]|\d+\.) |^\s*\||^\s*```/.test(body[0])) text.push(body.shift().trim());
+        const rest = body.filter((x, k) => x.trim() || k < body.length - 1);
+        const pad = Math.min(...rest.filter((x) => x.trim()).map((x) => x.match(/^\s*/)[0].length), 99);
+        return `<li>${inline(text.join(" "))}${rest.some((x) => x.trim()) ? md(rest.map((x) => x.slice(pad)).join("\n")) : ""}</li>`;
+      };
+      out.push(ordered ? `<ol start="${startAt}">${items.map(renderItem).join("")}</ol>` : `<ul>${items.map(renderItem).join("")}</ul>`);
+    } else if (/^> /.test(l)) {
+      out.push(`<blockquote>${inline(l.slice(2))}</blockquote>`);
+    } else if (/^---+$/.test(l.trim())) {
+      out.push("<hr>");
+    } else if (l.trim()) {
+      const para = [l]; while (i + 1 < lines.length && lines[i + 1].trim() && !/^(#|\||```|>|\s*([-*]|\d+\.) |---)/.test(lines[i + 1])) para.push(lines[++i]);
+      out.push(`<p>${inline(para.join(" "))}</p>`);
+    }
+  }
+  return out.join("\n");
+}
+
+async function loadDocs(name = state.doc || "README", anchor = "") {
+  if (!state.docsIndex) state.docsIndex = await api("docs");
+  $("#docs-nav").innerHTML = state.docsIndex.map((p) =>
+    `<a href="#" data-doc="${esc(p.name)}" class="${p.name === name ? "on" : ""}">${esc(p.title)}</a>`).join("");
+  const page = await api("docs/" + encodeURIComponent(name));
+  state.doc = name;
+  $("#docs-page").innerHTML = md(page.text);
+  const target = anchor && document.getElementById(anchor);
+  (target || $("#docs-page")).scrollIntoView({ block: "start" });
+}
+
 // ---------- wiring ----------
 document.addEventListener("DOMContentLoaded", async () => {
   $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
@@ -452,6 +587,26 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   $$("[data-task]").forEach((b) => b.addEventListener("click", () => startTask(b.dataset.task)));
   $("#jobs-refresh").addEventListener("click", () => startTask("refresh"));
+  $("#run-strip").addEventListener("click", (ev) => { if (ev.target.closest("[data-view-run]")) { state.viewing = false; showTab("apply"); } });
+  $("#tab-apply").addEventListener("click", async (ev) => {
+    const r = ev.target.closest("[data-retry]"), all = ev.target.closest("[data-retry-all]"), h = ev.target.closest("a[data-run]");
+    if (r) retry([r.dataset.retry]);
+    if (all) retry(all.dataset.retryAll.split("\n"));
+    if (h) {
+      ev.preventDefault();
+      const saved = await api("runs/" + encodeURIComponent(h.dataset.run));
+      const current = state.run && !state.run.history && ["starting", "running", "waiting"].includes(state.run.status);
+      state.viewing = !current;
+      if (!current) renderRun(saved);
+    }
+  });
+  $("#tab-docs").addEventListener("click", (ev) => {
+    const a = ev.target.closest("a[data-doc], a[data-anchor]");
+    if (!a) return;
+    ev.preventDefault();
+    if (a.dataset.doc) loadDocs(a.dataset.doc, a.dataset.anchor);
+    else document.getElementById(a.dataset.anchor)?.scrollIntoView({ block: "start" });
+  });
   $("#logs-date").addEventListener("change", () => loadLogs($("#logs-date").value));
   $("#logs-q").addEventListener("input", debounce(renderLogs, 150));
   $("#profile-save").addEventListener("click", saveProfile);

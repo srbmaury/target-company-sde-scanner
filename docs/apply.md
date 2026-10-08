@@ -10,7 +10,7 @@ For each job you pass, one after another:
    and title, CTC, notice period, education, work authorization, sponsorship, EEO answers, and
    your own fixed answers.
 4. **Asks you only when it has to**, in the terminal or, when you apply from the dashboard, in its
-   Apply tab:
+   Runs tab:
    - questions matching your `always_ask` list, such as signatures and legal or sanctions questions
    - required questions nothing answers. Before asking, Ollama reasons about the question: facts
      (tools, certifications, years, education) only from your profile and resumes, a tool or
