@@ -443,6 +443,34 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(bridge.saved_run(run.id)["results"]["u"]["note"], "sign in")
 
 
+class NotDuplicateTest(unittest.TestCase):
+    def test_not_duplicate_clears_possible(self):
+        with tempfile.TemporaryDirectory() as d:
+            conn = tracker.connect(os.path.join(d, "t.db"))
+            tracker.add_application(conn, "Amazon", "Software Development Engineer II", applied_on="2026-09-17")
+            tracker.upsert_jobs(conn, [{"url": "u1", "company": "Amazon", "title": "Software Development Engineer II",
+                                        "location": "", "experience": "", "evidence": "", "posted": "2026-10-01"}])
+            job = tracker.get_job(conn, "u1")
+            self.assertEqual(tracker.job_level(conn, job)[0], "possible")   # same title, posted after you applied
+            tracker.set_not_duplicate(conn, "u1")
+            self.assertEqual(tracker.job_level(conn, tracker.get_job(conn, "u1"))[0], None)
+            tracker.set_not_duplicate(conn, "u1", False)
+            self.assertEqual(tracker.job_level(conn, tracker.get_job(conn, "u1"))[0], "possible")
+
+
+class EditApplicationTest(unittest.TestCase):
+    def test_naming_the_role_stops_possible_matches(self):
+        with tempfile.TemporaryDirectory() as d:
+            conn = tracker.connect(os.path.join(d, "t.db"))
+            app = tracker.add_application(conn, "Apple", "(role not stated in email)", applied_on="2026-09-17")
+            tracker.upsert_jobs(conn, [{"url": "u1", "company": "Apple", "title": "Software Engineer - Distributed Systems",
+                                        "location": "", "experience": "", "evidence": ""}])
+            self.assertEqual(tracker.job_level(conn, tracker.get_job(conn, "u1"))[0], "possible")
+            tracker.edit_application(conn, app["id"], title="Software Engineer - Siri Infrastructure")
+            self.assertIsNone(tracker.job_level(conn, tracker.get_job(conn, "u1"))[0])
+            self.assertIn("edited title", tracker.events_for(conn, app["id"])[-1]["note"])
+
+
 class TrackerTest(unittest.TestCase):
     def test_lifecycle(self):
         with tempfile.TemporaryDirectory() as d:

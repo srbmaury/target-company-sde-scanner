@@ -70,6 +70,10 @@ def connect(path=None):
     conn = sqlite3.connect(path or paths.DB)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
+    if "not_duplicate" not in cols:   # added later: you marked a "possibly applied" role as a different opening
+        conn.execute("ALTER TABLE jobs ADD COLUMN not_duplicate INTEGER DEFAULT 0")
+        conn.commit()
     return conn
 
 
@@ -116,9 +120,7 @@ def list_jobs(conn, unranked=False, include_applied=False, include_dismissed=Fal
     rows = conn.execute(sql).fetchall()
     if not include_applied:
         apps = conn.execute("SELECT * FROM applications").fetchall()
-        rows = [r for r in rows
-                if applied_match(conn, r["url"], r["company"], r["title"], _apps=apps,
-                                 first_seen=r["first_seen"], posted=r["posted"])[0] not in ("exact", "likely")]
+        rows = [r for r in rows if job_level(conn, r, apps)[0] not in ("exact", "likely")]
     return rows[: int(limit)] if limit else rows
 
 
@@ -246,6 +248,24 @@ def _older_than(applied_on, first_seen, days):
     return (f - a).days > days
 
 
+def job_level(conn, job, apps=None):
+    """applied_match for a stored job row, honouring "not a duplicate" when you said so."""
+    level, app = applied_match(conn, job["url"], job["company"], job["title"], _apps=apps,
+                               first_seen=job["first_seen"] if "first_seen" in job.keys() else None,
+                               posted=job["posted"] if "posted" in job.keys() else None)
+    if level == "possible" and "not_duplicate" in job.keys() and job["not_duplicate"]:
+        return None, None
+    return level, app
+
+
+def set_not_duplicate(conn, key, flag=True):
+    job = get_job(conn, key)
+    if job:
+        conn.execute("UPDATE jobs SET not_duplicate = ? WHERE url = ?", (1 if flag else 0, job["url"]))
+        conn.commit()
+    return job
+
+
 def is_applied(conn, url=None, company=None, title=None):
     if url and conn.execute("SELECT 1 FROM applications WHERE url = ?", (url,)).fetchone():
         return True
@@ -296,6 +316,23 @@ def submitted_today(conn):
     """Applications jobbot submitted today (for automation.max_applications_per_day)."""
     return conn.execute("SELECT COUNT(*) FROM applications WHERE source = 'jobbot' AND applied_on = ?",
                         (today(),)).fetchone()[0]
+
+
+def edit_application(conn, key, company=None, title=None, url=None):
+    """Fix an application's company, role or posting link (e.g. a Gmail import that didn't name the role)."""
+    app = find_application(conn, key)
+    if not app:
+        return None
+    new = {"company": (company or "").strip() or app["company"], "title": (title or "").strip() or app["title"],
+           "url": (url.strip() or None) if url is not None else app["url"]}
+    changed = [f"{k}: {app[k] or '-'} → {new[k] or '-'}" for k in new if new[k] != app[k]]
+    if changed:
+        conn.execute("UPDATE applications SET company=?, title=?, url=?, updated_on=? WHERE id=?",
+                     (new["company"], new["title"], new["url"], now(), app["id"]))
+        conn.execute("INSERT INTO events (application_id, at, status, note) VALUES (?,?,?,?)",
+                     (app["id"], now(), app["status"], "edited " + "; ".join(changed)))
+        conn.commit()
+    return find_application(conn, app["id"])
 
 
 def list_applications(conn, status=None, company=None):

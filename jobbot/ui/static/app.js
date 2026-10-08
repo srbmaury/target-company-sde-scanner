@@ -76,15 +76,42 @@ function markSorted(table, [key, dir]) {
 async function loadJobs() {
   const params = new URLSearchParams({
     q: $("#jobs-q").value, min_fit: $("#jobs-min").value,
-    include_applied: $("#jobs-applied").checked ? "1" : "", include_dismissed: $("#jobs-dismissed").checked ? "1" : "",
+    include_applied: "1", include_dismissed: "1",   // every role; the view buttons choose which to show
   });
-  state.jobs = await api("jobs?" + params);
+  state.allJobs = await api("jobs?" + params);
   renderJobs();
 }
 
 function fitClass(f) { return f == null ? "" : f >= 80 ? "high" : f >= 60 ? "mid" : "low"; }
 
+// Which roles a view shows. "New" = ones you can apply to: not applied, not possibly applied, not dismissed.
+const VIEWS = [
+  ["new", "New", (j) => !j.dismissed && !j.applied],
+  ["possible", "Possibly applied", (j) => !j.dismissed && j.applied === "possible"],
+  ["applied", "Applied", (j) => !j.dismissed && (j.applied === "exact" || j.applied === "likely")],
+  ["dismissed", "Dismissed", (j) => !!j.dismissed],
+  ["all", "All", () => true],
+];
+
+async function markNotDuplicates() {
+  const keys = Array.from(state.selected);
+  if (!keys.length) return;
+  for (const k of keys) await api(`jobs/${k}/not-duplicate`, {});
+  state.selected.clear();
+  await Promise.all([loadJobs(), loadSummary()]);
+}
+
+function renderViews() {
+  const all = state.allJobs || [];
+  $("#jobs-views").innerHTML = VIEWS.map(([key, label, test]) =>
+    `<button role="tab" data-view="${key}" aria-selected="${state.view === key}">${label} <span class="n">${all.filter(test).length}</span></button>`).join("");
+}
+
 function renderJobs() {
+  state.view = state.view || "new";
+  renderViews();
+  const test = VIEWS.find(([k]) => k === state.view)[2];
+  state.jobs = (state.allJobs || []).filter(test);
   const rows = sortRows(state.jobs, state.jobSort);
   markSorted($("#jobs-table"), state.jobSort);
   $("#jobs-count").textContent = `${rows.length} role${rows.length === 1 ? "" : "s"}`;
@@ -92,19 +119,23 @@ function renderJobs() {
     const applied = j.applied === "exact" || j.applied === "likely"
       ? `<span class="pill applied" title="${esc(j.applied_note)}">applied</span>`
       : j.applied === "possible" ? `<span class="pill maybe" title="${esc(j.applied_note)}">possibly applied</span>` : "";
+    const dup = j.applied === "possible" && !j.dismissed ? `<div class="dup">Looks like your application ${esc(j.applied_note)}.
+        <button class="link" data-job="${j.n}" data-act="not-duplicate">Not a duplicate</button>
+        <button class="link" data-job="${j.n}" data-act="dismiss">Same role, hide it</button></div>` : "";
+    const lock = j.dismissed ? "" : (j.applied === "exact" || j.applied === "likely") ? "disabled title=\"Already applied\"" : "";
     return `<tr class="${j.dismissed ? "dim" : ""}">
       <td class="num">${j.n}</td>
       <td><span class="fit ${fitClass(j.fit_score)}">${j.fit_score ?? "–"}</span></td>
       <td>${esc(j.company)}</td>
       <td class="role"><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a> ${applied}
-        ${j.fit_reason ? `<div class="reason">${esc(j.fit_reason)}</div>` : ""}</td>
+        ${j.fit_reason ? `<div class="reason">${esc(j.fit_reason)}</div>` : ""}${dup}</td>
       <td>${esc(j.location)}</td>
       <td class="num" title="${esc(j.evidence)}">${esc(j.experience)}</td>
       <td>${esc(j.fit_resume || "")}</td>
-      <td class="num"><label class="check"><input type="checkbox" data-select="${j.n}" ${state.selected.has(String(j.n)) ? "checked" : ""} ${j.dismissed ? "disabled" : ""}> Select</label>
+      <td class="num"><label class="check"><input type="checkbox" data-select="${j.n}" ${state.selected.has(String(j.n)) ? "checked" : ""} ${j.dismissed ? "disabled" : lock}> Select</label>
         <button class="link" data-job="${j.n}" data-act="${j.dismissed ? "restore" : "dismiss"}">${j.dismissed ? "Restore" : "Dismiss"}</button></td>
     </tr>`;
-  }).join("") : `<tr><td colspan="8" class="empty">No roles match. Try Actions → Run scan.</td></tr>`;
+  }).join("") : `<tr><td colspan="8" class="empty">${state.view === "new" ? "No new roles match. Try <b>Refresh jobs</b>, or check the other views." : "Nothing in this view."}</td></tr>`;
   updateSelection();
 }
 
@@ -116,6 +147,8 @@ function selectable() {
 // ---------- selection & apply runs ----------
 function updateSelection() {
   const n = state.selected.size;
+  $("#notdup-selected").hidden = state.view !== "possible";
+  $("#notdup-selected").disabled = !n;
   $("#sel-count").textContent = n ? `${n} role${n === 1 ? "" : "s"} selected` : "Select roles with the checkboxes to apply from here.";
   $("#apply-selected").disabled = $("#dry-selected").disabled = !n;
   $("#sel-clear").hidden = !n;
@@ -328,15 +361,22 @@ async function openApp(id) {
   openDialog(`<h2>${esc(a.company)} — ${esc(a.title)}</h2>
     <div class="muted">${esc(a.location || "")} ${a.applied_on ? "· applied " + esc(a.applied_on) : ""} · via ${esc(a.source || "?")}</div>
     ${a.url ? `<p><a href="${esc(a.url)}" target="_blank" rel="noopener">Open posting</a></p>` : ""}
+    <div class="row"><label>Company</label><input type="text" name="company" value="${esc(a.company)}"></div>
+    <div class="row"><label>Role${a.title.startsWith("(role not stated") ? " — naming it stops this application matching every role at the company" : ""}</label>
+      <input type="text" name="title" value="${esc(a.title)}"></div>
+    <div class="row"><label>Posting link (optional)</label><input type="text" name="url" value="${esc(a.url || "")}"></div>
     <div class="row"><label>Status</label><select name="status">${statuses}</select></div>
     <div class="row"><label>Note for this change (optional)</label><input type="text" name="change_note" placeholder="e.g. system design round on Friday"></div>
     <div class="row"><label>Notes</label><textarea name="note" rows="3">${esc(a.notes || "")}</textarea></div>
     <div class="row"><label>History</label><ol class="history">${history}</ol></div>
     <div class="actions"><button value="cancel">Close</button><button class="primary" value="save">Save</button></div>`,
     async (form) => {
+      if (form.company.value !== a.company || form.title.value !== a.title || form.url.value !== (a.url || ""))
+        await api(`applications/${id}/edit`, { company: form.company.value, title: form.title.value, url: form.url.value });
       if (form.status.value !== a.status) await api(`applications/${id}/status`, { status: form.status.value, note: form.change_note.value });
       if (form.note.value !== (a.notes || "")) await api(`applications/${id}/note`, { note: form.note.value });
       await Promise.all([loadApps(), loadSummary()]);
+      state.allJobs = null;   // matching may have changed
     });
 }
 
@@ -547,7 +587,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
   const reloadJobs = debounce(loadJobs);
   ["#jobs-q", "#jobs-min"].forEach((s) => $(s).addEventListener("input", reloadJobs));
-  ["#jobs-applied", "#jobs-dismissed"].forEach((s) => $(s).addEventListener("change", loadJobs));
+  $("#notdup-selected").addEventListener("click", markNotDuplicates);
+  $("#jobs-views").addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-view]");
+    if (b) { state.view = b.dataset.view; renderJobs(); }
+  });
   $("#jobs-table tbody").addEventListener("change", (ev) => {
     const cb = ev.target.closest("input[data-select]");
     if (!cb) return;

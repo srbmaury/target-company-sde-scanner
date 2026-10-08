@@ -8,16 +8,21 @@ For each job you pass, one after another:
    and attaches the resume chosen by `rank`.
 3. **Fills every field it can** from your profile: name, contact details, links, current company
    and title, CTC, notice period, education, work authorization, sponsorship, EEO answers, and
-   your own fixed answers.
+   your own fixed answers. With Ollama running, the local model reads **every** question in full
+   and decides the answer. Your fixed answers, remembered answers and jobbot's keyword rules only
+   suggest a value: the model keeps it (exactly as written in your profile) when it really answers
+   the question, and overrules it when the words match but the meaning doesn't. For example,
+   "please state the reason for each gap" is not the State field. That costs a few seconds per
+   field. Without Ollama (`--llm none`), the rules answer on their own.
 4. **Asks you only when it has to**, in the terminal or, when you apply from the dashboard, in its
    Runs tab:
    - questions matching your `always_ask` list, such as signatures and legal or sanctions questions
-   - required questions nothing answers. Before asking, Ollama reasons about the question: facts
-     (tools, certifications, years, education) only from your profile and resumes, a tool or
-     certification your resumes don't show is "No", and preference questions (on-call, hybrid
-     work, a fast-paced team, learning a new language) may be inferred when nothing in your profile
-     contradicts them. Citizenship, visas, clearances, criminal history and similar questions never
-     go to the model. Drafts are used without asking by default (`automation.auto_accept_drafts`);
+   - required questions the model can't answer. Facts (tools, certifications, years, education)
+     come only from your profile and resumes, a tool or certification your resumes don't show is
+     "No", and preference questions (on-call, hybrid work, a fast-paced team, learning a new
+     language) may be inferred when nothing in your profile contradicts them. For citizenship,
+     visas, clearances, criminal history and similar questions the model may only use a fact
+     stated in your profile, never an inference. Drafts are used without asking by default (`automation.auto_accept_drafts`);
      every answer and its source are shown in the page report and the logs.
    - consent and privacy boxes, once per application, unless `automation.auto_consent` is on
    - email verification codes: with Gmail connected, jobbot reads the code from your newest

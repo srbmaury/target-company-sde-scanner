@@ -54,6 +54,11 @@ GOLDEN = [
     ("Other website", "text", None, INDIA_JOB, "https://asha.dev"),
     ("What is your home zip code?", "text", None, INDIA_JOB, "560001"),
     ("State", "text", None, INDIA_JOB, "Karnataka"),
+    ("State/Province", "text", None, INDIA_JOB, "Karnataka"),
+    ("If you have any gaps in your employment history, please state the reason for each gap:", "textarea", None, INDIA_JOB, None),
+    ("If you have worked for an employer for 1 year or less, please state the reason for leaving that employment:",
+     "textarea", None, INDIA_JOB, None),
+    ("Please state any professional certifications obtained.", "textarea", None, INDIA_JOB, None),
     ("Who is your current (or most recent) employer?", "text", None, INDIA_JOB, "Example Corp"),
     ("What is your current (or most recent) title?", "text", None, INDIA_JOB, "Software Engineer"),
     ("Most Recent Job Title", "text", None, INDIA_JOB, "Software Engineer"),
@@ -78,6 +83,7 @@ GOLDEN = [
     # employer history
     ("Have you been employed by Acme in the past?", "choice", YN, INDIA_JOB, "No"),
     ("Have you previously worked for Razorpay?", "choice", YN, {**INDIA_JOB, "company": "Razorpay"}, "Yes"),
+    ("Why do you want to work at Acme?", "textarea", None, INDIA_JOB, None),
     ("Are you currently an employee or contractor at Acme? (if Yes, please add your Acme email)", "choice", YN, INDIA_JOB, "No"),
     ("If you answered Acme Employee, Acme Event, or Other, please specify here:", "text", None, INDIA_JOB, None),
     ("If yes, please select your previous employment type?", "choice", ["Full-time", "Intern", "Contractor"], INDIA_JOB, None),
@@ -110,6 +116,54 @@ class GoldenQuestions(unittest.TestCase):
             if got != expected:
                 wrong.append(f"{question[:70]!r}: got {got!r}, want {expected!r}")
         self.assertEqual(wrong, [], "\n" + "\n".join(wrong))
+
+
+class ModelAnswersEveryField(unittest.TestCase):
+    """With the model on, rule answers are suggestions the model keeps or overrules."""
+
+    class FakeLLM:
+        enabled, last_reasoning = True, ""
+
+        def __init__(self, reply=None, fail=False):
+            self.reply, self.fail, self.seen = reply, fail, []
+
+        def answer(self, question, kind, options, facts, resume, job=None, suggestion=None):
+            self.seen.append((question, suggestion))
+            if self.fail:
+                raise OSError("ollama down")
+            return self.reply(question, suggestion)
+
+    def resolve(self, llm, question, kind="text", options=None):
+        r = Resolver(Profile(PROFILE, "x"), llm=llm, job=INDIA_JOB, ask=lambda *a: None, auto_drafts=True)
+        ans = r.resolve(question, kind, options=options)
+        return None if ans is None else (ans.source, ans.display or str(ans.value))
+
+    def test_kept_suggestion_is_the_exact_profile_value(self):
+        llm = self.FakeLLM(lambda q, s: {"fits": True, "basis": "fact", "answer": "karnataka state"})
+        self.assertEqual(self.resolve(llm, "State"), ("rule", "Karnataka"))
+        self.assertEqual(llm.seen, [("State", "Karnataka")])
+
+    def test_rejected_suggestion_is_not_used(self):
+        llm = self.FakeLLM(lambda q, s: {"fits": False, "basis": "unknown", "answer": ""})
+        self.assertIsNone(self.resolve(llm, "Please state the reason for each gap", "textarea"))
+
+    def test_long_answer_box_gets_the_model_text_on_conflict(self):
+        llm = self.FakeLLM(lambda q, s: {"fits": True, "basis": "inference", "answer": "I like building payments."})
+        self.assertEqual(self.resolve(llm, "Why do you want to work at Acme?", "textarea"),
+                         ("model", "I like building payments."))
+
+    def test_model_failure_falls_back_to_rules(self):
+        self.assertEqual(self.resolve(self.FakeLLM(fail=True), "State"), ("rule", "Karnataka"))
+
+    def test_choice_from_model(self):
+        llm = self.FakeLLM(lambda q, s: {"fits": False, "basis": "inference", "answer": "Yes"})
+        self.assertEqual(self.resolve(llm, "Can you work 4 days a week from the office?", "choice", ["No", "Yes"]),
+                         ("model", "Yes"))
+
+    def test_choice_by_text_not_number(self):
+        options = ["Iceland +354", "British Indian Ocean Territory +246", "India +91", "Indonesia +62"]
+        llm = self.FakeLLM(lambda q, s: {"fits": False, "basis": "fact", "answer": "India +91"})
+        self.assertEqual(self.resolve(llm, "Country", "choice", options), ("model", "India +91"))
 
 
 if __name__ == "__main__":

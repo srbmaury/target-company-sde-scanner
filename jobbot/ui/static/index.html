@@ -32,8 +32,7 @@
       <div class="toolbar">
         <input type="search" id="jobs-q" placeholder="Filter company, role, location">
         <label>Min fit <input type="number" id="jobs-min" min="0" max="100" step="5" placeholder="0"></label>
-        <label class="check"><input type="checkbox" id="jobs-applied"> Show already applied</label>
-        <label class="check"><input type="checkbox" id="jobs-dismissed"> Show dismissed</label>
+        <div class="views" id="jobs-views" role="tablist" aria-label="Which roles"></div>
         <span class="muted" id="jobs-count"></span>
         <button id="jobs-refresh" title="Scan every company's job board, then rank the new roles">Refresh jobs</button>
       </div>
@@ -43,6 +42,7 @@
         <button id="sel-all">Select all shown</button>
         <button class="primary" id="apply-selected" disabled>Apply to selected</button>
         <button id="dry-selected" disabled>Dry run</button>
+        <button id="notdup-selected" disabled hidden title="These are different openings from the applications they look like">Mark selected as not duplicates</button>
         <label class="check" title="Never stop: jobs that need you are listed at the end, and each finished application waits for your Submit"><input type="checkbox" id="unattended"> Don't stop for me</label>
         <button class="link" id="sel-clear" hidden>Clear selection</button>
       </div>

@@ -35,7 +35,7 @@ TASK_LOCK = threading.Lock()
 ALLOWED_TASKS = {     # name -> commands run one after another; a failure stops the rest
     "scan": [["scan", "--show-all"]],
     "rank": [["rank"]],
-    "refresh": [["scan"], ["rank"]],
+    "refresh": [["track", "sync-gmail", "--if-connected"], ["scan"], ["rank"]],
     "sync-gmail": [["track", "sync-gmail"]],
     "gmail-login": [["gmail", "login"]],
 }
@@ -57,8 +57,7 @@ def jobs_payload(conn, params):
     min_fit = int(params["min_fit"]) if params.get("min_fit", "").isdigit() else None
     out = []
     for r in rows:
-        level, app = tracker.applied_match(conn, r["url"], r["company"], r["title"], _apps=apps,
-                                           first_seen=r["first_seen"], posted=r["posted"])
+        level, app = tracker.job_level(conn, r, apps)
         if level in ("exact", "likely") and not include_applied:
             continue
         if q and q not in f"{r['company']} {r['title']} {r['location']}".lower():
@@ -66,12 +65,19 @@ def jobs_payload(conn, params):
         if min_fit is not None and (r["fit_score"] or 0) < min_fit:
             continue
         item = {k: r[k] for k in ("n", "url", "company", "title", "location", "ats", "experience", "evidence",
-                                  "posted", "first_seen", "fit_score", "fit_resume", "fit_reason", "dismissed")}
+                                  "posted", "first_seen", "fit_score", "fit_resume", "fit_reason", "dismissed",
+                                  "not_duplicate")}
         item["applied"] = level
         item["applied_note"] = (f"#{app['id']} {app['title']} ({app['status']}, {app['applied_on'] or 'date unknown'})"
                                 if app else "")
         out.append(item)
     return out
+
+
+def _new_jobs(conn):
+    """Roles you can apply to: not dismissed, not applied, not possibly applied."""
+    apps = conn.execute("SELECT * FROM applications").fetchall()
+    return sum(1 for r in tracker.list_jobs(conn, include_applied=True) if tracker.job_level(conn, r, apps)[0] is None)
 
 
 def summary_payload(conn):
@@ -84,7 +90,7 @@ def summary_payload(conn):
         "applications": stats, "total": total,
         "response_rate": round(100 * responded / total) if total else 0,
         "interview_rate": round(100 * (stats.get("interview", 0) + stats.get("offer", 0)) / total) if total else 0,
-        "open_jobs": len(tracker.list_jobs(conn)),
+        "open_jobs": _new_jobs(conn),
         "gmail": gmail.is_connected(),
         "ollama": llm.LLM.available(),
         "profile": str(paths.PROFILE),
@@ -267,6 +273,9 @@ class Handler(BaseHTTPRequestHandler):
         conn = tracker.connect()
         try:
             body = self._json_body()
+            if len(parts) == 3 and parts[0] == "jobs" and parts[2] in ("not-duplicate", "maybe-duplicate"):
+                job = tracker.set_not_duplicate(conn, parts[1], parts[2] == "not-duplicate")
+                return self._send(200, {"ok": True}) if job else self._send(404, {"error": "no such job"})
             if len(parts) == 3 and parts[0] == "jobs" and parts[2] in ("dismiss", "restore"):
                 job = tracker.get_job(conn, parts[1])
                 if not job:
@@ -284,6 +293,10 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "applications" and parts[2] == "status":
                 app = tracker.update_status(conn, parts[1], body["status"], body.get("note") or None)
                 return self._send(200, _row(app))
+            if len(parts) == 3 and parts[0] == "applications" and parts[2] == "edit":
+                app = tracker.edit_application(conn, parts[1], company=body.get("company"), title=body.get("title"),
+                                               url=body.get("url"))
+                return self._send(200, _row(app)) if app else self._send(404, {"error": "no such application"})
             if len(parts) == 3 and parts[0] == "applications" and parts[2] == "note":
                 app = tracker.find_application(conn, parts[1])
                 if not app:
