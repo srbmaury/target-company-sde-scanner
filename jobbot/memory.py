@@ -9,6 +9,8 @@ saved either.
 
 import re
 
+import threading
+
 import yaml
 
 from . import paths
@@ -21,6 +23,9 @@ HEADER = ("# Answers you gave jobbot during applications; reused for similar que
 
 def _tokens(text):
     return {w for w in re.findall(r"[a-z0-9+#]+", (text or "").lower()) if w not in STOP}
+
+
+_SAVE_LOCK = threading.Lock()
 
 
 class Memory:
@@ -62,7 +67,21 @@ class Memory:
         return True
 
     def _save(self):
-        """Rewrite only the trailing `learned_answers:` block so comments elsewhere survive."""
+        """Rewrite only the trailing `learned_answers:` block so comments elsewhere survive. Parallel workers
+        each hold a Memory: merge what is on disk first, under a lock, so none loses another's answers."""
+        with _SAVE_LOCK:
+            self._merge_from_disk()
+            self._write()
+
+    def _merge_from_disk(self):
+        try:
+            on_disk = (yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}).get("learned_answers") or []
+        except (OSError, yaml.YAMLError):
+            return
+        mine = {frozenset(_tokens(i.get("question"))) for i in self.items}
+        self.items = [i for i in on_disk if frozenset(_tokens(i.get("question"))) not in mine] + self.items
+
+    def _write(self):
         text = self.path.read_text(encoding="utf-8") if self.path.exists() else ""
         cut = re.search(r"^(# Answers you gave jobbot.*\n(?:#.*\n)*)?learned_answers:.*", text, re.M | re.S)
         head = text[:cut.start()] if cut else text

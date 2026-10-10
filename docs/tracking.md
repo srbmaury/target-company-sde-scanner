@@ -39,8 +39,10 @@ agree ("Software Engineer II" ≠ "Software Engineer").
 
 Run it after applying through job boards, so `apply` never reopens a role you already applied to.
 
-**Connect once.** You sign in on Google's own page in your browser. jobbot gets **read-only**
-access (`gmail.readonly`) and never sees your Google password. Google requires every app that reads
+**Connect once.** You sign in on Google's own page in your browser. jobbot asks for **full mailbox**
+access (use a mailbox for job hunting only): it reads application emails and verification codes and
+links, labels the ones it used "jobbot" and marks them read, and never sends or deletes mail. It never
+sees your Google password. A token from an older, read-only connection keeps working for reading. Google requires every app that reads
 Gmail to have its own OAuth client, so this takes a few minutes once:
 
 1. In the [Google Cloud console](https://console.cloud.google.com/), create a project and enable the
@@ -53,7 +55,7 @@ Gmail to have its own OAuth client, so this takes a few minutes once:
    ./jobbot.sh gmail login --client ~/Downloads/client_secret_....json
    ```
    Google shows an "unverified app" warning because the app is yours and unpublished. Choose
-   Continue, then allow read-only access.
+   Continue, then allow access.
 
 Then sync whenever you like:
 

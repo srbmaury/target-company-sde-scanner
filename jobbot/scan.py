@@ -58,6 +58,10 @@ YEARS = re.compile(
 )
 
 
+class SiteMaintenance(Exception):
+    """The job board redirected to a maintenance page: the board is down, not empty."""
+
+
 def http_json(url, data=None, timeout=25):
     body = json.dumps(data).encode() if data is not None else None
     headers = dict(UA)
@@ -67,6 +71,8 @@ def http_json(url, data=None, timeout=25):
         req = urllib.request.Request(url, data=body, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if "maintenance" in resp.geturl().lower():   # e.g. Workday redirects every call while it is down
+                    raise SiteMaintenance(resp.geturl())
                 return json.load(resp)
         except urllib.error.HTTPError as e:
             # Back off on rate limits and transient server errors; fail fast otherwise.

@@ -6,7 +6,7 @@
 
 Built for candidates with roughly 1–3 years of experience. It reads open roles from 300+ target
 companies, ranks them against each of your resumes, fills applications in Chrome while you watch,
-and keeps every application in one tracker. You always press Submit yourself.
+and keeps every application in one tracker. Automatic applications require Ollama approval before each Next and Submit; manual mode is available.
 
 It comes in two forms:
 
@@ -27,9 +27,9 @@ $ ./jobbot.sh jobs --why
 | --- | --- |
 | **Find** | Reads open roles from 300+ companies' job boards and careers sites, filtered to your locations and experience |
 | **Rank** | Scores each role 0–100 against every resume variant with a local model (Ollama), and picks the resume to send |
-| **Apply** | Fills forms in its own Chrome window, re-checks every value, moves through multi-page forms, and stops before Submit; `--unattended` runs a whole batch and queues finished applications for your Submit |
+| **Apply** | Fills forms in its own Chrome window, re-checks every value, moves through multi-page forms, and requires Ollama approval before every Next and Submit; runs without prompts and skips blocked applications |
 | **Learn** | Remembers your answers to new questions and reuses them at other companies |
-| **Track** | Records every application, imports the rest from Gmail (read-only), and never reopens a role you applied to |
+| **Track** | Records every application, imports the rest from Gmail, and never reopens a role you applied to |
 | **Dashboard** | Does all of the above from a local web page: `./jobbot.sh ui` |
 
 ---

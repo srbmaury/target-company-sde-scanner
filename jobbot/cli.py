@@ -5,7 +5,7 @@
     jobbot scan [--companies ...]   sweep company job boards; new roles go into the tracker
     jobbot jobs                     list tracked roles you have not applied to, best fit first
     jobbot rank                     score unranked roles against your resumes
-    jobbot apply <n|x-y|url> ...    fill applications in a browser; you approve each submit
+    jobbot apply <n|x-y|url> ...    apply without prompts after Ollama approves every step
     jobbot apply --all [--min-fit N]  work through every tracked role, best fit first
     jobbot dismiss <n>              hide a role you are not interested in
     jobbot logs                     what apply filled, corrected and checked, page by page
@@ -124,9 +124,14 @@ def cmd_scan(args):
         print(f"Not in registry: {', '.join(missing)}")
     new = set(tracker.upsert_jobs(conn, results))
     errors = [k for k, v in coverage.items() if v.startswith("error")]
-    print(f"{len(results)} matching roles across {len(coverage)} companies; {len(new)} new.")
-    if errors:
-        print(f"Boards that errored: {', '.join(sorted(errors))}")
+    gone = tracker.mark_gone(conn, [r["url"] for r in results], [k for k in coverage if k not in errors])
+    print(f"{len(results)} matching roles across {len(coverage)} companies; {len(new)} new"
+          + (f"; {gone} no longer listed." if gone else "."))
+    down = sorted(k for k in errors if coverage[k] == "error: SiteMaintenance")
+    if down:
+        print(f"Down for maintenance (try again later): {', '.join(down)}")
+    if len(errors) > len(down):
+        print(f"Boards that errored: {', '.join(sorted(set(errors) - set(down)))}")
     shown = [r for r in results if r["url"] in new] if not args.show_all else results
     for r in shown:
         flag = "NEW " if r["url"] in new else "    "
@@ -175,6 +180,10 @@ def cmd_apply(args):
     from .apply.ui import TerminalUI
 
     p, conn, model = _profile(), tracker.connect(), _llm(args)
+    automatic = args.auto_submit and not args.dry_run
+    unattended = args.unattended or args.auto_submit
+    if args.auto_submit and not model.enabled:
+        sys.exit("Automatic applications require a running Ollama model for review.")
     if args.top and not tracker.list_jobs(conn, limit=args.top):
         sys.exit("No tracked roles. Run `jobbot scan` first.")
 
@@ -184,13 +193,13 @@ def cmd_apply(args):
     exclude = list(p.get("preferences.exclude_companies") or []) + \
         [x.strip() for x in (args.exclude or "").split(",") if x.strip()]
     targets = select_targets(conn, args.jobs, all_=args.all, top=args.top, min_fit=args.min_fit, force=args.force,
-                             ask_url=ask_url, exclude=exclude)
+                             ask_url=None if unattended else ask_url, exclude=exclude)
     if not targets:
         sys.exit("Nothing to apply to. Pass job numbers or ranges from `jobbot jobs` (12 or 12-20), URLs, "
                  "--top N, or --all.")
     if not p.resumes():
         sys.exit("No resume files found; fix `resumes:` in your profile.")
-    if len(targets) > 3 and not (args.yes or args.unattended) and p.get("automation.confirm_batches", True):
+    if len(targets) > 3 and not (args.yes or unattended) and p.get("automation.confirm_batches", True):
         print(f"About to work through {len(targets)} roles:")
         for t in targets:
             fit = "" if t.get("fit_score") is None else f"{t['fit_score']:>3}"
@@ -202,12 +211,15 @@ def cmd_apply(args):
 
     ui = TerminalUI()
     with Session(p, model, ui, dry_run=args.dry_run, upload=not args.no_upload,
-                 auto_next=not args.no_auto_next, unattended=args.unattended) as session:
+                 auto_next=args.auto_submit or not args.no_auto_next, unattended=unattended) as session:
+        session.auto_submit = automatic
+        if args.auto_submit:
+            p.data.setdefault("automation", {})["ollama_review_each_step"] = True
         try:
             results = run_jobs(session, conn, p, targets, session.ui, resume=args.resume, dry_run=args.dry_run,
-                               confirm_possible=True,   # -y skips the batch list only, never the duplicate check
+                               confirm_possible=True,
                                on_job=lambda n, total, job: print(f"\n=== [{n}/{total}] {job['company']} — {job['title']} ==="))
-            if args.unattended:
+            if args.unattended and not args.auto_submit:
                 print("\n=== Review ===")
                 review_ready(session, conn, results, ui, resume=args.resume)
         except KeyboardInterrupt:
@@ -365,6 +377,37 @@ def cmd_answers(args):
     print('Mark: jobbot answers ok N   ·   correct: jobbot answers fix N "right answer"')
 
 
+def cmd_resumes(args):
+    from . import resumes
+
+    p = _profile()
+    info = resumes.parse_all(p, force=True)
+    if not info:
+        sys.exit("No resumes found: check `resumes:` in profile.yaml.")
+    for key, entry in info.items():
+        print(f"{key}: {len(entry['text'])} characters · {resumes.top_skills(p, key, limit=40) or '(no known skills found)'}")
+    print(f"\nSaved to {resumes.cache_path()}. Questions about tools none of these name are answered 0 / No.")
+
+
+def cmd_password(args):
+    from . import credentials
+
+    email = _profile().get("personal.email", "")
+    if not credentials.available():
+        sys.exit("Storing the job-site password needs the macOS Keychain.")
+    if not email:
+        sys.exit("Set personal.email in profile.yaml first: the password is stored for that account.")
+    if args.delete:
+        print("Removed." if credentials.delete(email) else "No password was stored.")
+        return
+    print(f"Password jobbot will use to sign in to, or create, job-site accounts (Workday and similar) as {email}.\n"
+          "Use one you don't use anywhere else: 8+ characters with upper and lower case, a number and a symbol.\n"
+          "It goes straight into your macOS Keychain; jobbot never writes it to a file or log.")
+    if not credentials.set_interactive(email):
+        sys.exit("Not stored.")
+    print("Stored. Set automation.create_accounts: true in profile.yaml to let apply use it.")
+
+
 def cmd_ui(args):
     from .ui.server import serve
 
@@ -443,6 +486,8 @@ def build_parser():
     sp.add_argument("--unattended", action="store_true",
                     help="never stop: jobs that need you are listed at the end, and each finished application waits "
                          "in its own tab for your Submit")
+    sp.add_argument("--auto-submit", action=argparse.BooleanOptionalAction, default=True,
+                    help="apply without prompts; require Ollama approval before each Next and Submit (default)")
     sp.set_defaults(fn=cmd_apply)
 
     sp = sub.add_parser("answers", help="review the local model's answers and correct wrong ones")
@@ -457,6 +502,13 @@ def build_parser():
     sp.add_argument("--port", type=int, default=8765)
     sp.add_argument("--no-open", action="store_true", help="do not open a browser tab")
     sp.set_defaults(fn=cmd_ui)
+
+    sp = sub.add_parser("resumes", help="read every resume now and list the skills each one shows")
+    sp.set_defaults(fn=cmd_resumes)
+
+    sp = sub.add_parser("password", help="store the password for job-site accounts in the macOS Keychain")
+    sp.add_argument("--delete", action="store_true", help="remove the stored password")
+    sp.set_defaults(fn=cmd_password)
 
     sp = sub.add_parser("logs", help="show what apply filled, corrected, and checked")
     sp.add_argument("--date", help="YYYY-MM-DD (default: today)")

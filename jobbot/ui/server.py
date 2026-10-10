@@ -36,6 +36,7 @@ ALLOWED_TASKS = {     # name -> commands run one after another; a failure stops 
     "scan": [["scan", "--show-all"]],
     "rank": [["rank"]],
     "refresh": [["track", "sync-gmail", "--if-connected"], ["scan"], ["rank"]],
+    "resumes": [["resumes"]],
     "sync-gmail": [["track", "sync-gmail"]],
     "gmail-login": [["gmail", "login"]],
 }
@@ -48,10 +49,21 @@ def _row(r):
     return {k: r[k] for k in r.keys()}
 
 
+def _excluded_companies():
+    """preferences.exclude_companies, so the page can show which roles apply will skip."""
+    from .. import profile as profile_mod
+    try:
+        return list(profile_mod.load().get("preferences.exclude_companies") or [])
+    except Exception:   # missing or invalid profile: nothing is excluded
+        return []
+
+
 def jobs_payload(conn, params):
+    from ..apply.runner import excluded
+    exclude = _excluded_companies()
     include_applied = params.get("include_applied") == "1"
     include_dismissed = params.get("include_dismissed") == "1"
-    rows = tracker.list_jobs(conn, include_applied=True, include_dismissed=include_dismissed)
+    rows = tracker.list_jobs(conn, include_applied=True, include_dismissed=include_dismissed, include_gone=True)
     apps = conn.execute("SELECT * FROM applications").fetchall()
     q = (params.get("q") or "").lower()
     min_fit = int(params["min_fit"]) if params.get("min_fit", "").isdigit() else None
@@ -60,7 +72,7 @@ def jobs_payload(conn, params):
         level, app = tracker.job_level(conn, r, apps)
         if level in ("exact", "likely") and not include_applied:
             continue
-        if q and q not in f"{r['company']} {r['title']} {r['location']}".lower():
+        if q and q not in f"{r['company']} {r['title']} {r['location']} {r['ats'] or ''}".lower():
             continue
         if min_fit is not None and (r["fit_score"] or 0) < min_fit:
             continue
@@ -68,6 +80,8 @@ def jobs_payload(conn, params):
                                   "posted", "first_seen", "fit_score", "fit_resume", "fit_reason", "dismissed",
                                   "not_duplicate")}
         item["applied"] = level
+        item["excluded"] = excluded(r["company"], exclude)
+        item["gone"] = bool(r["gone"])
         item["applied_note"] = (f"#{app['id']} {app['title']} ({app['status']}, {app['applied_on'] or 'date unknown'})"
                                 if app else "")
         out.append(item)
@@ -75,9 +89,11 @@ def jobs_payload(conn, params):
 
 
 def _new_jobs(conn):
-    """Roles you can apply to: not dismissed, not applied, not possibly applied."""
-    apps = conn.execute("SELECT * FROM applications").fetchall()
-    return sum(1 for r in tracker.list_jobs(conn, include_applied=True) if tracker.job_level(conn, r, apps)[0] is None)
+    """Roles you can apply to: not dismissed, not applied, not possibly applied, not at an excluded company."""
+    from ..apply.runner import excluded
+    apps, exclude = conn.execute("SELECT * FROM applications").fetchall(), _excluded_companies()
+    return sum(1 for r in tracker.list_jobs(conn, include_applied=True)
+               if tracker.job_level(conn, r, apps)[0] is None and not excluded(r["company"], exclude))
 
 
 def summary_payload(conn):
@@ -331,7 +347,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, {"error": "Choose at least one role."})
                 run = bridge.start(keys, dry_run=bool(body.get("dry_run")), auto_next=body.get("auto_next", True),
                                    resume=body.get("resume") or None, use_llm=body.get("llm", True) is not False,
-                                   force=bool(body.get("force")), unattended=bool(body.get("unattended")))
+                                   force=bool(body.get("force")), unattended=bool(body.get("unattended")),
+                                   validation=bool(body.get("validation")), auto_submit=bool(body.get("auto_submit")))
                 return self._send(200, run.snapshot())
             if parts == ["apply", "answer"]:
                 run = bridge.current()

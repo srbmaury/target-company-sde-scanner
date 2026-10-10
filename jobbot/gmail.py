@@ -1,8 +1,10 @@
-"""Read-only Gmail access through Google's OAuth sign-in, for syncing application emails.
+"""Gmail access through Google's OAuth sign-in: application emails, verification codes and links.
 
-You sign in on Google's own page in your browser; jobbot never sees your Google
-password. It asks only for the read-only scope (gmail.readonly), keeps the token in
-~/.jobbot/gmail_token.json (readable only by you), and `jobbot gmail logout` revokes it.
+You sign in on Google's own page in your browser; jobbot never sees your Google password. The
+mailbox is meant for job hunting only, so jobbot asks for full mailbox access; it reads messages and
+labels the verification emails it used ("jobbot", marked read), and never sends or deletes mail.
+A token from before (read-only) keeps working for reading: reconnect to allow labelling. The token
+lives in ~/.jobbot/gmail_token.json (readable only by you); `jobbot gmail logout` revokes it.
 
 One-time setup (Google requires every app that reads Gmail to have its own client):
   1. https://console.cloud.google.com/ -> create a project -> enable the "Gmail API".
@@ -31,7 +33,8 @@ from pathlib import Path
 
 from . import paths
 
-SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+SCOPE = "https://mail.google.com/"   # full mailbox: the inbox is for job hunting only (see the module note)
+MODIFY_SCOPES = ("https://mail.google.com/", "https://www.googleapis.com/auth/gmail.modify")
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
@@ -191,6 +194,43 @@ def _get(path, params=None):
             raise GmailError(f"Gmail API returned {e.code}: {e.read().decode(errors='replace')[:300]}") from None
 
 
+def can_modify():
+    """True when the stored token may label messages (connected with full or modify access)."""
+    try:
+        scopes = json.loads(token_path().read_text()).get("scope", "")
+    except (OSError, ValueError):
+        return False
+    return any(sc in scopes.split() for sc in MODIFY_SCOPES)
+
+
+def _api_post(path, body):
+    req = urllib.request.Request(f"{API}/{path}", data=json.dumps(body).encode(), method="POST",
+                                 headers={"Authorization": f"Bearer {access_token()}", "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.load(resp)
+
+
+_LABEL_ID = None
+
+
+def mark_used(message_id, label="jobbot"):
+    """Label a verification email jobbot used and mark it read, so the next code is never mixed up with
+    it. Does nothing with a read-only token or on any API error: this is housekeeping, never required."""
+    global _LABEL_ID
+    if not message_id or not can_modify():
+        return False
+    try:
+        if _LABEL_ID is None:
+            labels = _get("labels").get("labels", [])
+            found = next((l["id"] for l in labels if l.get("name") == label), None)
+            _LABEL_ID = found or _api_post("labels", {"name": label, "labelListVisibility": "labelShow",
+                                                      "messageListVisibility": "show"})["id"]
+        _api_post(f"messages/{message_id}/modify", {"addLabelIds": [_LABEL_ID], "removeLabelIds": ["UNREAD"]})
+        return True
+    except Exception:
+        return False
+
+
 def profile_email():
     return _get("profile").get("emailAddress", "")
 
@@ -227,6 +267,8 @@ CODE_QUERY = 'newer_than:1d (code OR otp OR passcode OR "verification" OR verify
 CODE_RES = [
     re.compile(r"(?:code|otp|passcode|pin|password)\b[^A-Za-z0-9]{0,40}?(?:is|:|-)?\s*\b([A-Z0-9]{4,8})\b", re.I),
     re.compile(r"\b([A-Z0-9]{4,8})\b\s+(?:is|as)\s+your\b[^.]{0,30}?(?:code|otp|passcode|pin)", re.I),
+    # Greenhouse: "Copy and paste this code into the security code field on your application: XMnd6oJx"
+    re.compile(r"\b(?:code|otp|passcode)\b[^:.]{0,80}:\s*([A-Za-z0-9]{4,10})\b", re.I),
 ]
 
 
@@ -253,9 +295,52 @@ def _body_text(msg):
     return re.sub(r"\s+", " ", " ".join(out))
 
 
+LINK_QUERY = 'newer_than:1d (verify OR verification OR activate OR confirm)'
+LINK_RE = re.compile(r"https://[^\s\"'<>)]+", re.I)
+
+
+def latest_link(since, host_hint, wait=90, poll=5, recipient=None):
+    """Wait for an account-verification email received after `since` and return its link on a host
+    containing `host_hint` (e.g. "myworkdayjobs.com"), or None. Only links that look like verify/activate
+    links are returned, never unsubscribe or tracking links."""
+    deadline = time.time() + wait
+    while True:
+        for m in _get("messages", {"q": LINK_QUERY, "maxResults": 10}).get("messages", []):
+            msg = _get(f"messages/{m['id']}", {"format": "full"})
+            if int(msg.get("internalDate", "0")) / 1000 < since:
+                continue
+            headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
+            if recipient and recipient.lower() not in headers.get("to", "").lower():
+                continue
+            for url in LINK_RE.findall(_body_text(msg)):
+                url = url.rstrip(".,;").replace("&amp;", "&")   # links taken from HTML parts
+                host = (urllib.parse.urlparse(url).hostname or "").lower()
+                hint = host_hint.lower()
+                if (host == hint or host.endswith("." + hint)) and re.search(r"verif|activat|confirm|token", url, re.I) \
+                        and not re.search(r"unsubscribe|privacy|terms", url, re.I):
+                    mark_used(m["id"])
+                    return url
+        if time.time() >= deadline:
+            return None
+        time.sleep(poll)
+
+
+_USED_CODES, _CODE_LOCK = set(), threading.Lock()
+
+
 def latest_code(since, hint="", wait=90, poll=5):
+    """Like _latest_code, but each code is handed out once: with parallel workers a code never goes
+    to two applications."""
+    with _CODE_LOCK:
+        code = _latest_code(since, hint, wait, poll)
+        if code:
+            _USED_CODES.add(code)
+        return code
+
+
+def _latest_code(since, hint="", wait=90, poll=5):
     """Wait up to `wait` seconds for a verification email received after `since` (epoch seconds) and return
-    its code. Emails whose sender mentions `hint` (e.g. the site's name) are preferred. None if none arrives.
+    its code. With a hint, only matching senders are eligible. None if none arrives.
 
     Reads the subject and preview first; only when those hold no code is that one email's text read.
     """
@@ -269,13 +354,18 @@ def latest_code(since, hint="", wait=90, poll=5):
                 continue
             headers = {h["name"].lower(): h["value"] for h in meta.get("payload", {}).get("headers", [])}
             sender = headers.get("from", "")
+            hints = [h for h in ([hint] if isinstance(hint, str) else list(hint)) if h]
+            if hints and not any(h.lower() in sender.lower() for h in hints if h):
+                continue
             code = extract_code(headers.get("subject", "") + " . " + meta.get("snippet", ""))
             if not code:
                 code = extract_code(_body_text(_get(f"messages/{mid}", {"format": "full"})))
-            if code:
-                found.append((bool(hint) and hint.lower() in sender.lower(), int(meta["internalDate"]), code))
+            if code and code not in _USED_CODES:
+                found.append((bool(hints), int(meta["internalDate"]), code, mid))
         if found:
-            return max(found)[2]   # from the site if any, newest first
+            best = max(found)   # from the site if any, newest first
+            mark_used(best[3])
+            return best[2]
         if time.time() >= deadline:
             return None
         time.sleep(poll)

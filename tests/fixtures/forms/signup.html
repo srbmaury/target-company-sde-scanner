@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Careers account</title></head><body>
+<div id="app"></div>
+<script>
+const app = document.getElementById('app');
+function signIn() {
+  app.innerHTML = `<h1>Sign in</h1><form id="f"><label>Email <input type="email" id="e"></label>
+    <label>Password <input type="password" id="p"></label><button type="submit">Sign in</button></form>
+    <a href="#" id="c">Create account</a><p id="msg"></p>`;
+  document.getElementById('f').onsubmit = ev => { ev.preventDefault(); window.signInTried = true;
+    document.getElementById('msg').textContent = 'No account found for this email.'; };
+  document.getElementById('c').onclick = ev => { ev.preventDefault(); signUp(); };
+}
+function signUp() {
+  app.innerHTML = `<h2>Create account</h2><form id="s"><label>Email <input type="email" id="e"></label>
+    <label>Password <input type="password" id="p1"></label><label>Confirm password <input type="password" id="p2"></label>
+    <label><input type="checkbox" id="t"> I agree to the Terms of Use and Privacy Policy</label>
+    <label><input type="checkbox" id="m"> Send me marketing emails</label>
+    <button type="submit">Create account</button></form>`;
+  document.getElementById('s').onsubmit = ev => { ev.preventDefault();
+    const e = document.getElementById('e').value, p1 = document.getElementById('p1').value, p2 = document.getElementById('p2').value;
+    if (!e || !p1 || p1 !== p2 || !document.getElementById('t').checked) { app.insertAdjacentHTML('beforeend', '<p>Please complete the form</p>'); return; }
+    window.created = {email: e, password: p1, marketing: document.getElementById('m').checked};
+    app.innerHTML = '<h1>Apply for Backend Engineer II</h1><label>Phone <input id="ph"></label><button>Submit application</button>'; };
+}
+signIn();
+</script></body></html>

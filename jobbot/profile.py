@@ -45,7 +45,8 @@ class Profile:
         spec = self.resumes().get(key)
         if not spec:
             return ""
-        return pdf_text(spec["path"])[:limit]
+        text = pdf_text(spec["path"])
+        return text if limit is None else text[:limit]
 
     def summary(self):
         """Non-sensitive facts handed to the local model for drafting answers."""
