@@ -74,6 +74,9 @@ def connect(path=None):
     if "not_duplicate" not in cols:   # added later: you marked a "possibly applied" role as a different opening
         conn.execute("ALTER TABLE jobs ADD COLUMN not_duplicate INTEGER DEFAULT 0")
         conn.commit()
+    if "gone" not in cols:   # added later: the last scan read the company's board and the role was not on it
+        conn.execute("ALTER TABLE jobs ADD COLUMN gone INTEGER DEFAULT 0")
+        conn.commit()
     return conn
 
 
@@ -86,7 +89,7 @@ def upsert_jobs(conn, results):
         cur = conn.execute("SELECT 1 FROM jobs WHERE url = ?", (r["url"],))
         if cur.fetchone():
             conn.execute(
-                "UPDATE jobs SET last_seen=?, title=?, location=?, experience=?, evidence=?, description=? WHERE url=?",
+                "UPDATE jobs SET last_seen=?, title=?, location=?, experience=?, evidence=?, description=?, gone=0 WHERE url=?",
                 (stamp, r["title"], r["location"], r["experience"], r["evidence"], r.get("description", ""), r["url"]),
             )
         else:
@@ -108,10 +111,24 @@ def get_job(conn, key):
     return conn.execute("SELECT rowid AS n, * FROM jobs WHERE url = ?", (key,)).fetchone()
 
 
-def list_jobs(conn, unranked=False, include_applied=False, include_dismissed=False, limit=None):
+def mark_gone(conn, seen_urls, companies):
+    """After a scan: roles at `companies` (boards that were read without error) that the scan did not
+    return are no longer listed. A role that shows up again is un-marked by upsert_jobs."""
+    seen, companies = set(seen_urls), set(companies)
+    gone = [r["url"] for r in conn.execute("SELECT url, company FROM jobs WHERE gone = 0")
+            if r["company"] in companies and r["url"] not in seen]
+    conn.executemany("UPDATE jobs SET gone = 1 WHERE url = ?", [(u,) for u in gone])
+    conn.commit()
+    return len(gone)
+
+
+def list_jobs(conn, unranked=False, include_applied=False, include_dismissed=False, limit=None, include_gone=False):
     """Tracked roles, best fit first. Unless include_applied, roles that match an application
-    by URL or by company and title (see applied_match) are left out."""
+    by URL or by company and title (see applied_match) are left out; unless include_gone, so are
+    roles the last scan no longer found."""
     sql = "SELECT rowid AS n, * FROM jobs WHERE 1=1"
+    if not include_gone:
+        sql += " AND gone = 0"
     if unranked:
         sql += " AND fit_score IS NULL"
     if not include_dismissed:

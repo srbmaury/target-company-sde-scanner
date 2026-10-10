@@ -74,11 +74,18 @@ def run_jobs(session, conn, profile, targets, ui, resume=None, dry_run=False, co
     from .engine import NeedsYou, record
 
     resumes = profile.resumes()
-    cap = int(profile.get("automation.max_applications_per_day", 25) or 0)
+    try:   # read every resume once up front: experience questions are answered from their full text
+        from .. import resumes as resume_index
+        resume_index.parse_all(profile)
+    except Exception as e:
+        ui.warn(f"Could not read the resumes up front ({type(e).__name__}); they are read as needed.")
+    cap = int(profile.get("automation.max_applications_per_day", 0) or 0)
     results = []
     for n, job in enumerate(targets, 1):
         if should_stop():
             break
+        from . import hot
+        hot.refresh(session, log=ui.info)   # fixed form-filling code applies from the next application on
         if cap and not dry_run and tracker.submitted_today(conn) >= cap:
             ui.warn(f"Daily limit reached ({cap} applications today, automation.max_applications_per_day); "
                     "stopping. Many job sites discourage high-volume applying.")
@@ -106,6 +113,8 @@ def run_jobs(session, conn, profile, targets, ui, resume=None, dry_run=False, co
             ui.warn(f"{type(e).__name__}: {e}")
             status, note = None, f"error: {type(e).__name__}"
         app_id = None
+        if (note or "").startswith("posting unavailable") and job.get("url") and tracker.dismiss_job(conn, job["url"]):
+            ui.info("Dismissed: the posting is gone, so it leaves your New list.")
         if status in ("needs you", "ready"):
             if status == "ready":
                 ui.info("Filled and checked; held open for your Submit at the end.")
@@ -137,7 +146,14 @@ def review_ready(session, conn, results, ui, resume=None, on_result=None):
     for i, job in enumerate(ready, 1):
         if job["url"] not in session.ready:
             continue
-        session.ready[job["url"]][0].bring_to_front()
+        page = session.ready[job["url"]][0]
+        if page.is_closed():   # its tab was closed while the batch ran: one lost form must not end the run
+            session.ready.pop(job["url"], None)
+            ui.warn(f"{job['company']} — {job['title']}: its tab was closed before Submit; retry it.")
+            if on_result:
+                on_result(job, "needs you", "its tab was closed before Submit; retry it", None)
+            continue
+        page.bring_to_front()
         ui.info(f"Ready to submit ({i}/{len(ready)}): {job['company']} — {job['title']}")
         while job["url"] in session.ready:
             choice = ui.next_action(can_submit=True, can_next=False, dry_run=False, check_ok=True, final_page=True)

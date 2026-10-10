@@ -98,9 +98,10 @@ GOLDEN = [
     ("Do you have any outside business activity(ies) (advisory, consulting, or board roles, or side businesses)?", "choice", YN, INDIA_JOB, "No"),
     ("How did you hear about this job?", "choice", ["Employee Referral", "LinkedIn", "Company Website"], INDIA_JOB, "Company Website"),
     # left to the model or to you
-    ("Does the deemed export rule affect your employment by Acme?", "choice", YN, INDIA_JOB, None),
+    # a US rule for foreign nationals working in the US: No when you are authorized only outside the US
+    ("Does the deemed export rule affect your employment by Acme?", "choice", YN, INDIA_JOB, "No"),
     ("Are you a US citizen?", "choice", YN, INDIA_JOB, None),
-    ("Have you previously applied to work at Acme?", "choice", YN, INDIA_JOB, None),
+    ("Have you previously applied to work at Acme?", "choice", YN, INDIA_JOB, "No"),   # no Acme application in the tracker
     ("What excites you about Acme? ✱", "textarea", None, INDIA_JOB, None),
     ("search job by location", "text", None, INDIA_JOB, None),
 ]

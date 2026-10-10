@@ -4,28 +4,31 @@ Before every Next and Submit, jobbot reads back each value it set and checks the
 page for empty required fields, validation errors, and CAPTCHAs (verify.py).
 
 With `auto_next` (the default) jobbot moves through multi-page forms on its own
-whenever a page passes the check, re-filling once if it does not. It never
-submits on its own: on the final page you choose submit, refill, done, or quit.
-Sign-in pages, verification links, and CAPTCHAs are always left to you.
+whenever a page passes the check. Automatic submission also requires explicit
+Ollama approval covering every field. Interactive sessions offer submit, refill,
+done, or quit. Unattended sessions skip applications with unresolved gates.
 """
 
-import os
 import re
 import time
-import urllib.parse
 
 from .. import paths, tracker
 from ..answers import Resolver, real_options
-from . import sites
-from .fields import BUTTONS_JS, SCAN_JS
+from . import auth, browser, consistency, dropdowns, email_verification, review, sites, values
+from .browser import browser_profile_holder  # compatibility for existing callers
+from .dropdowns import matching_option as _matching_option  # compatibility for existing callers
+from .review import REVIEW_BATCH  # public compatibility for existing callers
+from .fields import BUTTONS_JS
 from .sites import detect_ats, start_url
 from .unattended import NeedsYou, UnattendedUI
-from .verify import check_page, matches
+from .verify import READBACK_JS, check_page, matches
 
 MAX_ROUNDS = 5           # review rounds per page before asking you
 TRUSTED = ("profile", "rule", "remembered")   # sources allowed to overwrite a value the site pre-filled
 
 MAX_PAGES = 15
+MAX_ATTEMPTS = 3           # unattended: tries at the same page before moving on to the next application
+MAX_APPLY_SECONDS = 600    # unattended: time limit for one application
 
 SUBMIT_RE = r"^(submit( (my )?application)?|send application|apply|finish|complete application)$"
 WORKDAY_SUBMIT_RE = r"^submit$"   # Workday keeps "Apply" buttons around; only Review has "Submit"
@@ -36,59 +39,14 @@ CONFIRM_RE = re.compile(
     r"successfully (submitted|applied)|we.ve received your application|congratulations", re.I)
 # Honeypot fields exist to catch bots; filling one gets the application flagged.
 TRAP_RE = re.compile(r"robots? only|for robots|do not (fill|enter)|leave (this )?(field )?(blank|empty)|honeypot", re.I)
-ACCOUNT_STEP_RE = re.compile(r"current step \d+ of \d+\s*\|?\s*create account\s*/\s*sign in", re.I)
-CODE_RE = re.compile(r"verification code|security code|one.?time (pass)?code|\botp\b|enter the \d*.?character code|"
-                     r"code (was )?sent to|confirmation code", re.I)
+CODE_RE = email_verification.CODE_RE
 CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i confirm|confirm the statement|declare", re.I)
 
 
-def browser_profile_holder():
-    """PID of a live Chrome holding jobbot's browser profile, or None.
-
-    Chrome's SingletonLock is a symlink to "<hostname>-<pid>"; a stale lock from a crash
-    points at a PID that no longer exists and is ignored.
-    """
-    import os
-
-    lock = paths.BROWSER_PROFILE / "SingletonLock"
-    try:
-        target = os.readlink(lock)
-    except OSError:
-        return None
-    m = re.search(r"-(\d+)$", target)
-    if not m:
-        return None
-    pid = int(m.group(1))
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return None
-    except PermissionError:
-        pass
-    return _owning_jobbot(pid) or pid
-
-
-def _owning_jobbot(chrome_pid):
-    """Walk up from Chrome to the `python -m jobbot ...` process that launched it, if any."""
-    import subprocess
-
-    pid = chrome_pid
-    for _ in range(4):
-        out = subprocess.run(["ps", "-o", "ppid=,command=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
-        if not out:
-            return None
-        ppid, _, command = out.partition(" ")
-        if "-m jobbot" in command:
-            return pid
-        pid = int(ppid.strip() or 0)
-        if pid <= 1:
-            return None
-    return None
-
-
 class Session:
-    def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True, unattended=False):
+    def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True, unattended=False, browser_dir=None):
         self.profile = profile
+        self.browser_dir = browser_dir or paths.BROWSER_PROFILE   # parallel workers each get their own copy
         self.llm = llm
         self.unattended = unattended
         self.ui = UnattendedUI(ui) if unattended else ui
@@ -105,30 +63,7 @@ class Session:
         self.ctx = None
 
     def __enter__(self):
-        from playwright.sync_api import sync_playwright
-
-        paths.ensure_home()
-        holder = browser_profile_holder()
-        if holder:
-            raise SystemExit(
-                f"jobbot's browser is already open from another run (process {holder}). "
-                f"Finish or quit that run (press q there), or stop it with: kill {holder}")
-        self._pw = sync_playwright().start()
-        # Sign-in pages (Microsoft, Google) refuse browsers that announce automation, which blocks you from
-        # signing in or creating an account yourself in this window. Launch it like a normal Chrome instead.
-        # JOBBOT_HEADLESS=1 runs without a window (tests and CI); you normally watch the window.
-        opts = dict(user_data_dir=str(paths.BROWSER_PROFILE), headless=os.environ.get("JOBBOT_HEADLESS") == "1",
-                    viewport=None,
-                    args=["--start-maximized", "--disable-blink-features=AutomationControlled"],
-                    ignore_default_args=["--enable-automation"])
-        try:
-            self.ctx = self._pw.chromium.launch_persistent_context(channel="chrome", **opts)
-        except Exception:
-            self.ctx = self._pw.chromium.launch_persistent_context(**opts)  # needs `playwright install chromium`
-        # A field that is hidden or covered (e.g. a follow-up shown only after "Yes") would otherwise make each
-        # click or fill wait Playwright's default 30 s, in every review round.
-        self.ctx.set_default_timeout(10000)
-        self.ctx.set_default_navigation_timeout(45000)
+        self._pw, self.ctx = browser.launch(self.browser_dir)
         return self
 
     def __exit__(self, *exc):
@@ -186,6 +121,7 @@ class Session:
         self._close(page)
 
     def _apply(self, job, resume_key):
+        self._job_url = job.get("url")   # sign-in may use the posting's own sites (auth.host_allowed)
         url = job["url"]
         self._started = time.time()   # verification emails older than this application are ignored
         ats = detect_ats(url, job)
@@ -200,12 +136,24 @@ class Session:
         page.bring_to_front()
         page.goto(start_url(url, ats, job), wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
+        sites.wait_rendered(page)
         self.ui.info(f"{job['company']} — {job['title']}  [{ats}]  resume: {resume_key}")
+        if sites.maintenance(page):   # the site is down, not the posting: keep the role and retry later
+            raise NeedsYou(f"{ats.title()} is down for maintenance; retry this role later.")
+        self._preview_page(page)
 
+        reason = sites.unavailable_reason(page)
+        if reason:
+            self.ui.warn(f"Posting unavailable: {reason}. Skipping this role.")
+            return None, f"posting unavailable: {reason}"
         entered = self._enter_form(page, ats) or page
         if self.unattended and entered is not page:
             self._close(page)   # Apply opened the form in a new tab: don't leave the posting behind
         page = entered
+        reason = sites.unavailable_reason(page)
+        if reason:
+            self.ui.warn(f"Posting unavailable: {reason}. Skipping this role.")
+            return None, f"posting unavailable: {reason}"
         if self.unattended:
             self._page = page
         if resume and self.upload:
@@ -215,11 +163,37 @@ class Session:
                             memory=self.memory,
                             auto_drafts=bool(self.profile.get("automation.auto_accept_drafts", True)))
         self._consent_approved = bool(self.profile.get("automation.auto_consent", False))
+        self._consent_allowed = set()
+        self._consent_declined = set()
+        self._manual_records = {}
         self._mine = set()   # labels jobbot has filled or confirmed during this application
         self._broken = set()  # labels whose field could not be filled; not retried in later review rounds
         self._log(f"=== {job['company']} — {job['title']} [{ats}] {url} resume={resume_key}")
-        for step in range(1, MAX_PAGES + 1):
-            signed_in = self._ensure_signed_in(page, attempts=1) if ats == "workday" else True
+        step = 1
+        visits, began, check = {}, time.time(), None
+        while step <= MAX_PAGES:
+            if self.unattended:
+                # Never get stuck on one application: the same page 3 times (Next not moving, Submit
+                # rejected, a re-check changing nothing) or MAX_APPLY_SECONDS in all, and it moves on.
+                try:   # the fields on the page tell steps apart where the URL stays the same
+                    labels = frozenset(f["label"] for f in self._fields(page))
+                except Exception:
+                    labels = frozenset()
+                key = (page.url, self._step_marker(page), labels)
+                visits[key] = visits.get(key, 0) + 1
+                why = "; ".join(check.lines()[:2]) if check is not None and not check.ok else "the page did not move on"
+                if visits[key] > MAX_ATTEMPTS:
+                    raise NeedsYou(f"Gave up after {MAX_ATTEMPTS} attempts on page {step}: {why}")
+                if time.time() - began > MAX_APPLY_SECONDS:
+                    raise NeedsYou(f"Gave up after {MAX_APPLY_SECONDS // 60} minutes on this application: {why}")
+            reason = sites.unavailable_reason(page)
+            if reason:
+                self.ui.warn(f"Posting unavailable: {reason}. Skipping this role.")
+                return None, f"posting unavailable: {reason}"
+            if sites.maintenance(page):   # e.g. Workday went down between the posting and its form
+                raise NeedsYou(f"{ats.title()} is down for maintenance; retry this role later.")
+            self._decline_cookies(page)
+            signed_in = self._ensure_signed_in(page) if self._needs_account(page) else True
             report, check, rounds = self.review_page(page, resolver, step) if signed_in else \
                 ({"filled": [], "skipped": [], "records": []}, self.verify(page, {}), 0)
             self.ui.report(report, check, step)
@@ -227,25 +201,52 @@ class Session:
                 self.ui.info(f"Reviewed page {step} in {rounds} round(s); "
                              + ("the last round changed nothing." if check.ok else "problems remain."))
 
+            reason = sites.unavailable_reason(page)   # some boards show it only after the page settles
+            if reason:
+                self.ui.warn(f"Posting unavailable: {reason}. Skipping this role.")
+                return None, f"posting unavailable: {reason}"
+
             submit_re = WORKDAY_SUBMIT_RE if ats == "workday" else SUBMIT_RE
             can_next = bool(self._buttons(page, NEXT_RE))
             # A page with Next / Save and Continue is never the final step, whatever else it shows.
             can_submit = not can_next and bool(self._buttons(page, submit_re))
-            if self.auto_next and check.ok and can_next:
+            if getattr(self, "auto_submit", False) and not self.dry_run and check.ok and can_submit:
+                choice = "submit"
+            elif self.auto_next and check.ok and can_next:
                 self.ui.info("All checks passed; moving to the next step.")
                 choice = "next"
             else:
-                choice = self.ui.next_action(can_submit=can_submit and not self.dry_run, can_next=can_next,
+                choice = self.ui.next_action(can_submit=can_submit and not self.dry_run, can_next=can_next and (check.ok or not getattr(self, "validation", False)),
                                              dry_run=self.dry_run, check_ok=check.ok, final_page=can_submit)
             if choice == "submit" and not check.ok and not self.ui.confirm(
                     "The check still shows problems. Submit anyway?"):
                 continue
 
+            if isinstance(choice, dict) and choice.get("action") == "correct":
+                self._correct_field(page, choice)
+                continue
             if choice == "refill":
+                import importlib
+                import sys
+                for name in ("jobbot.apply.fields", "jobbot.apply.sites", "jobbot.apply.verify"):
+                    importlib.reload(sys.modules[name])
+                module = importlib.reload(sys.modules[__name__])
+                self.__class__ = module.Session
+                self._broken.clear()
+                self._mine.clear()
                 continue
             if choice == "next":
                 before = page.url, self._step_marker(page)
-                self._click(page, NEXT_RE)
+                self._decline_cookies(page)
+                try:
+                    self._click(page, NEXT_RE)
+                except Exception as exc:
+                    if self.unattended:
+                        raise NeedsYou("Next step is blocked; review the dialog or page in Chrome.") from exc
+                    self.ui.warn("Could not open the next step. A dialog or site error may be blocking it.")
+                    self._wait_for_user(page, "Review the dialog or error in Chrome and resolve it if appropriate, "
+                                          "then press Enter here to check the page again.")
+                    continue
                 page.wait_for_timeout(3500)
                 if ats == "workday":
                     self._workday_settle(page)
@@ -253,6 +254,8 @@ class Session:
                     after = check_page(page, [], [], [])
                     if after.errors:
                         self.ui.warn("The site kept us on the same step: " + "; ".join(after.lines()[:3]))
+                self._manual_records.clear()
+                step += 1
                 continue
             if choice == "submit":
                 self._click(page, submit_re)
@@ -265,6 +268,10 @@ class Session:
                 if after.errors or after.captcha:
                     self.ui.warn("The site did not accept the submission: " + "; ".join(after.lines()[:3]))
                     continue
+                if getattr(self, "auto_submit", False):
+                    # A click may have succeeded even when the site uses unfamiliar confirmation text.
+                    # Never submit the same application again to discover whether it worked.
+                    raise NeedsYou("Submit clicked but confirmation was not detected; check the site before retrying.")
                 if self.ui.confirm("No confirmation text detected. Did the application go through?"):
                     return "applied", "submitted; confirmed by you"
                 continue
@@ -276,6 +283,10 @@ class Session:
                 return "ready", "filled and checked; waiting for your Submit"
             if self.unattended and not check.ok:
                 self.ui.unanswered.extend(check.lines()[:3])
+            if self.dry_run and can_submit and check.ok:
+                return None, "dry run: final page verified; not submitted"
+            if self.dry_run and not check.ok:
+                return None, "validation blocked: " + "; ".join(check.lines()[:3])
             return None, "stopped without submitting"
         return None, f"stopped after {MAX_PAGES} pages"
 
@@ -286,7 +297,7 @@ class Session:
         are overwritten when your profile says otherwise; values jobbot set are re-filled only if
         the check shows they did not stick. Stops after MAX_ROUNDS rounds.
         """
-        total = {"filled": [], "skipped": [], "records": []}
+        total = {"filled": [], "skipped": [], "records": list(getattr(self, "_manual_records", {}).values())}
         force, check = set(), None
         for rnd in range(1, MAX_ROUNDS + 1):
             rep = self.fill_page(page, resolver, force=force)
@@ -294,8 +305,17 @@ class Session:
             page.wait_for_timeout(500)
             check = self.verify(page, total)
             changes = len(rep["filled"])
+            if changes == 0 or rnd == MAX_ROUNDS:
+                # The profile check decides every field your profile answers; the model reviews the rest.
+                confirmed = consistency.apply(self, page, resolver, total, check)
+                if getattr(self, "auto_submit", False) or self.profile.get("automation.ollama_review_each_step", False):
+                    self._ollama_review(page, resolver, total, check, step, confirmed)
             self._log(f"page {step} round {rnd}: {changes} change(s)", *[f"  set {l} = {a}" for l, a in rep["filled"]],
                       *[f"  ! {line}" for line in check.lines()])
+            if hasattr(self.ui, "audit"):
+                self.ui.audit(step, rnd, self.audit_fields(page, total), check)
+                if hasattr(self.ui, "preview_page"):
+                    self._preview_page(page)
             force = {m[0] for m in check.mismatches}
             for label in force:
                 self._mine.discard(label)
@@ -304,6 +324,70 @@ class Session:
             if changes == 0 and not force:
                 return total, check, rnd   # nothing left that jobbot can change by itself
         return total, check, MAX_ROUNDS
+
+    _ollama_review = review.review_step
+
+    def _correct_field(self, page, action):
+        """Apply a reviewed text/select correction, then verify its exact value next round."""
+        f = next((f for f in self._fields(page) if f["id"] == action.get("field")), None)
+        if not f or f["kind"] not in ("text", "textarea", "select", "radio", "yesno"):
+            self.ui.warn("That field is no longer editable; re-check the page.")
+            return
+        if CONSENT_RE.search(f["label"]) or re.search(r"gender|race|ethnic|veteran|disability|signature|password", f["label"], re.I):
+            self.ui.warn("This field needs to be handled directly by you in Chrome.")
+            return
+        value = str(action.get("value", ""))
+        loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
+        target_id = f["id"]
+        if f["kind"] in ("radio", "yesno"):
+            if value not in f["options"]:
+                self.ui.warn("Choose an option the site actually offers.")
+                return
+            target_id = f["id"].split(",")[f["options"].index(value)]
+            self._tick(page, target_id)
+        elif f["kind"] == "select":
+            if value not in f["options"]:
+                self.ui.warn("Choose an option the site actually offers.")
+                return
+            loc.select_option(label=value)
+        else:
+            loc.fill(value)
+        self._manual_records[target_id] = {"id": target_id, "kind": f["kind"], "label": f["label"], "expected": value}
+        self._broken.discard(f["label"])
+        self._mine.add(f["label"])
+        self.ui.info(f"Corrected {f['label']}; reading the value back again.")
+
+    def _preview_page(self, page):
+        if hasattr(self.ui, "preview_page"):
+            try:
+                import base64
+                data = page.screenshot(type="jpeg", quality=65, full_page=True, timeout=10000)
+                self.ui.preview_page(base64.b64encode(data).decode())
+            except Exception:
+                self.ui.warn("Could not capture the application preview; inspect the Chrome window.")
+
+    def _wait_for_user(self, page, message):
+        self._preview_page(page)
+        self.ui.wait_for_user(message)
+
+    def audit_fields(self, page, report):
+        """Read every current field and expose expected/actual values for page revision."""
+        records = report.get("records", [])
+        readback = {r["id"]: r for r in page.evaluate(READBACK_JS, records)} if records else {}
+        expected = {r["id"]: r for r in records}
+        out = []
+        for f in self._fields(page):
+            ids = f["id"].split(",")
+            r = next((expected[i] for i in ids if i in expected), None)
+            value = f.get("text") or f.get("shown") or f.get("value") or ""
+            if isinstance(value, list):
+                value = ", ".join(o for o, selected in zip(f.get("options", []), value) if selected)
+            got = readback.get(r["id"], {}) if r else {}
+            actual = got.get("value", value)
+            status = ("verified" if got.get("found") and matches(r["expected"], actual, r["kind"]) else "needs revision") if r else ("present, review" if value else "required, empty" if f.get("required") else "optional, empty")
+            out.append({"id": f["id"], "kind": f["kind"], "options": f.get("options", []), "label": f["label"], "required": f.get("required", False), "expected": r["expected"] if r else None,
+                        "actual": str(value if f["kind"] in ("radio", "yesno", "checkgroup") else actual), "status": status})
+        return out
 
     def _log(self, *lines):
         try:
@@ -324,7 +408,13 @@ class Session:
         return ans if ans is not None and ans.source in TRUSTED else None
 
     def verify(self, page, report):
-        return check_page(page, report.get("records", []), report.get("skipped", []), self._fields(page))
+        fields = self._fields(page)
+        check = check_page(page, report.get("records", []), report.get("skipped", []), fields)
+        if not self._form_fields(page) and not self._buttons(page, NEXT_RE) and not self._buttons(page, WORKDAY_SUBMIT_RE if self._ats == "workday" else SUBMIT_RE):
+            check.errors.append("No application fields or navigation controls found; this page cannot be verified.")
+        if self._needs_account(page):
+            check.errors.append("Still on an account/sign-in step; application details are not verified.")
+        return check
 
     @staticmethod
     def _merge(first, second):
@@ -342,7 +432,29 @@ class Session:
 
     # --- steps ---------------------------------------------------------------------
 
+    @staticmethod
+    def _decline_cookies(page):
+        """Choose the privacy-preserving option on a cookie/privacy banner, which can also sit over
+        the page and swallow clicks on Next. A bare "Decline" or "Reject" counts only beside cookie
+        or privacy wording, so it never answers a form question."""
+        try:
+            choice = page.get_by_role("button", name=re.compile(
+                r"^decline non-essential$|^reject all(?: cookies)?$|^necessary cookies only$", re.I))
+            if not (choice.count() and choice.first.is_visible()):
+                text = page.inner_text("body")
+                if not re.search(r"cookie|privacy notice|manage preferences|important notice", text, re.I):
+                    return False
+                choice = page.get_by_role("button", name=re.compile(r"^(decline|reject)$", re.I))
+                if not (choice.count() and choice.first.is_visible()):
+                    return False
+            choice.first.click(timeout=3000)
+            page.wait_for_timeout(500)
+            return True
+        except Exception:
+            return False
+
     def _enter_form(self, page, ats):
+        self._decline_cookies(page)   # some careers pages put a cookie choice above their application button
         if ats == "greenhouse" and not self._fields(page):
             # Company careers pages embed the Greenhouse form in an iframe; open the form itself.
             frame = next((f for f in page.frames if "greenhouse.io/embed/job_app" in f.url), None)
@@ -350,7 +462,8 @@ class Session:
                 page.goto(frame.url, wait_until="domcontentloaded")
                 page.wait_for_timeout(2000)
         if ats == "smartrecruiters":
-            self._click(page, r"^i.?m interested$|^apply now$", wait=4000)
+            page = self._open_application(page)  # SmartRecruiters renders Apply as an ordinary link.
+            return page
         elif ats == "workday":
             # Workday draws the posting late: wait for its Apply button, then for the start-application choice.
             if self._wait_for_button(page, r"^apply$", 20000):
@@ -364,18 +477,18 @@ class Session:
             self._ensure_signed_in(page)
         elif ats == "generic" and not self._form_fields(page):
             page = self._open_application(page)
-            if self._signin_page(page):
-                self.ui.wait_for_user("This site needs you to sign in (or create an account) in the browser "
-                                      "window; jobbot never handles passwords. When the application form "
-                                      "appears, press Enter here.")
+            if self._needs_account(page):
+                self._ensure_signed_in(page)
             elif not self._form_fields(page):
-                self.ui.wait_for_user("Open the application form in the browser window, then press Enter here.")
+                self._wait_for_user(page, "Open the application form in the browser window, then press Enter here.")
             return page
 
     def _form_fields(self, page):
         """Fields that belong to an application, not to a job page's search box or language picker."""
         return [f for f in self._fields(page) if f["kind"] not in ("listbutton", "file")
-                and not re.search(r"search|keyword|language|locale|subscribe|newsletter", f["label"] or "", re.I)]
+                and (f.get("required") or f.get("label"))
+                and not re.search(r"search|keyword|language|locale|subscribe|newsletter",
+                                  (f["label"] or "") + " " + str(f.get("value") or ""), re.I)]
 
     def _open_application(self, page):
         """On a job posting, click its Apply control; follow it into a new tab if it opens one."""
@@ -411,29 +524,17 @@ class Session:
 
     _workday_settle = staticmethod(sites.workday_settle)
 
-    def _needs_account(self, page):
-        try:
-            text = re.sub(r"\s+", " ", page.inner_text("body")[:4000])
-        except Exception:
-            return False
-        return bool(ACCOUNT_STEP_RE.search(text) or page.locator("input[type=password]:visible").count())
+    _needs_account = staticmethod(auth.needs_account)
+    _ensure_signed_in = auth.ensure_signed_in
 
-    def _ensure_signed_in(self, page, attempts=2):
-        """Pause for the user to sign in. Returns True once the account step is gone."""
-        for _ in range(attempts):
-            if not self._needs_account(page):
-                return True
-            self.ui.wait_for_user(
-                "This employer's Workday needs an account. In the browser window, sign in (or create an account "
-                "with your own password; jobbot never handles passwords). When the application form appears, "
-                "press Enter here.")
-            page.wait_for_timeout(1500)
-            self._workday_settle(page)
-        if self._needs_account(page):
-            self.ui.warn("Still on the sign-in step, so jobbot is not filling anything there. "
-                         "Sign in, then choose [r]efill.")
-            return False
-        return True
+    def _dry_validation(self):
+        """A validation run that will not submit: it leaves demographic answers and consents to you.
+        An approved auto-submit run answers them from your profile like any normal run."""
+        return getattr(self, "validation", False) and not getattr(self, "auto_submit", False)
+
+    _workday_account = auth.workday_sign_in
+
+    _email_login_step = email_verification.email_login_step
 
     def _upload_resume(self, page, path, ats):
         inputs = [f for f in self._fields(page) if f["kind"] == "file"]
@@ -444,7 +545,7 @@ class Session:
         page.locator(f'[data-jobbot-id="{target["id"]}"]').set_input_files(str(path))
         # Greenhouse and Workday parse the resume and rewrite fields; fill only after they finish.
         page.wait_for_timeout(8000 if ats in ("greenhouse", "workday") else 3000)
-        if ats == "workday" and self._buttons(page, NEXT_RE):
+        if ats == "workday" and not getattr(self, "validation", False) and self._buttons(page, NEXT_RE):
             self._click(page, NEXT_RE, wait=4000)
         self.ui.info(f"Attached {path.name}")
 
@@ -464,7 +565,8 @@ class Session:
             code = self._code_from_email(page) or self.ui.ask_code(code_boxes[0]["label"])
             if code:
                 code = re.sub(r"\s+", "", code)
-                single = len(code_boxes) > 1 and all(f.get("maxlength") == 1 for f in code_boxes)
+                # one box per character (Greenhouse: 8 boxes that do not all declare maxlength=1)
+                single = len(code_boxes) > 1 and (all(f.get("maxlength") == 1 for f in code_boxes) or len(code_boxes) == len(code))
                 if single:
                     for f, ch in zip(code_boxes, code):
                         page.locator(f'[data-jobbot-id="{f["id"]}"]').fill(ch)
@@ -479,6 +581,32 @@ class Session:
                               for x in fields)
         for f in fields:
             kind, label = f["kind"], f["label"] or "(unlabelled field)"
+            if kind not in ("file", "checkbox", "listbutton") and not values.meaningful_label(label):
+                if f["required"]:
+                    skipped.append(f"{label} (question could not be identified)")
+                continue
+            if re.search(r"captcha|type (?:the |below )?image text", label, re.I):
+                if f["required"]:
+                    skipped.append("CAPTCHA (requires your action)")
+                continue
+            demographic_allowed = any(re.search(r"\b" + re.escape(name) + r"\b", label, re.I)
+                                      for name in self.profile.get("automation.allowed_demographic_fields", []) or [])
+            if self._dry_validation() and not demographic_allowed and re.search(r"\bgender\b|\brace\b|ethnicity|veteran|disability|hispanic|latino|\bsms\b|whatsapp|text messages|marketing|newsletter", label, re.I):
+                if f["required"]:
+                    skipped.append(f"{label} (requires your answer)")
+                continue
+            manual = getattr(self, "_manual_records", {}).get(f["id"])
+            if manual and kind in ("text", "textarea", "select"):
+                value = f.get("text") if kind == "select" else f.get("value")
+                if not matches(manual["expected"], value or "", kind):
+                    loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
+                    if kind == "select":
+                        loc.select_option(label=manual["expected"])
+                    else:
+                        loc.fill(manual["expected"])
+                    note(f, label, manual["expected"], expected=manual["expected"])
+                mine.add(label)
+                continue
             if kind == "file" or TRAP_RE.search(label):
                 continue
             if kind == "listbutton" and not f["label"]:
@@ -560,6 +688,9 @@ class Session:
                         was = next((o for o, v in zip(f["options"], f["value"]) if v), "")
                         note(f, label, want, target_id=ids[want.value], was=was)
                         continue
+                    if kind in ("radio", "yesno") and CONSENT_RE.search(label):
+                        consents.append({**f, "id": f["id"].split(",")[0]})
+                        continue
                     if kind == "checkgroup" and len(f["options"]) <= 2 and all(CONSENT_RE.search(o) for o in f["options"]):
                         consents.append({**f, "id": f["id"].split(",")[0], "label": f"{label} [{f['options'][0]}]"})
                         continue
@@ -588,13 +719,27 @@ class Session:
                 except Exception:
                     pass
 
+        consents = [c for c in consents if c["label"] not in getattr(self, "_consent_declined", set())]
+        if self._dry_validation() and any(c["label"] not in getattr(self, "_consent_allowed", set()) for c in consents):
+            self._consent_approved = False
         if consents and not self._consent_approved:
+            self._preview_page(page)
             self._consent_approved = self.ui.confirm(
-                "Tick consent boxes for this application? (applies to every page of it)\n  - "
+                "Approve these consent choices?\n  - "
                 + "\n  - ".join(c["label"][:160] for c in consents))
+            if self._consent_approved:
+                if not hasattr(self, "_consent_allowed"):
+                    self._consent_allowed = set()
+                self._consent_allowed.update(c["label"] for c in consents)
+            else:
+                self._consent_declined.update(c["label"] for c in consents)
         if consents and self._consent_approved:
             for c in consents:
-                self._tick(page, c["id"])
+                try:
+                    self._tick(page, c["id"])
+                except Exception as e:   # one stubborn box is listed for review, not fatal to the application
+                    skipped.append(f"{c['label'][:110]} (error: {type(e).__name__})")
+                    continue
                 if c["kind"] in ("combo", "listbutton"):
                     page.wait_for_timeout(500)
                     opts = page.locator('[role="option"]:visible')
@@ -610,25 +755,7 @@ class Session:
                     note(c, c["label"][:80], "ticked (you approved)", expected="checked", kind="consent")
         return {"filled": filled, "skipped": skipped, "records": records}
 
-    def _code_from_email(self, page):
-        """Read a verification code from your latest email (Gmail, read-only), if Gmail is connected."""
-        if not self.profile.get("automation.read_codes_from_email", True):
-            return None
-        try:
-            from .. import gmail
-            if not gmail.is_connected():
-                return None
-            host = urllib.parse.urlparse(page.url).netloc.split(".")
-            hint = next((p for p in host if p not in ("www", "careers", "jobs", "apply", "com", "in", "co", "io",
-                                                        "myworkdayjobs") and not re.fullmatch(r"wd\d+", p)), "")
-            self.ui.info("Waiting for the verification email (up to 90 s)…")
-            code = gmail.latest_code(getattr(self, "_started", 0) - 120, hint=hint, wait=90)
-        except Exception as e:   # Gmail unreachable or token revoked: fall back to asking
-            self.ui.warn(f"Could not read the code from email ({type(e).__name__}); please enter it.")
-            return None
-        if code:
-            self.ui.info(f"Verification code {code} read from your latest email.")
-        return code
+    _code_from_email = email_verification.code_from_email
 
     @staticmethod
     def _tick(page, field_id):
@@ -636,129 +763,49 @@ class Session:
         (Oracle, for one), where even a forced click fails: try the label, then the input, then a click
         from inside the page."""
         loc = page.locator(f'[data-jobbot-id="{field_id}"]')
+        if loc.evaluate("el => el.tagName === 'BUTTON'"):
+            loc.click(timeout=3000)
+            if loc.get_attribute("aria-pressed") == "true":
+                return
+            if loc.evaluate("el => /selected|active/i.test(el.className)"):
+                return
+            raise RuntimeError("button choice did not become selected")
         label = loc.evaluate("""el => { const l = (el.labels && el.labels[0])
             || document.getElementById((el.getAttribute('aria-labelledby') || '').split(' ')[0]);
             if (!l || !l.getClientRects().length) return null;
             const id = 'l' + Math.random().toString(36).slice(2, 9); l.setAttribute('data-jobbot-label', id); return id; }""")
         attempts = ([lambda: page.locator(f'[data-jobbot-label="{label}"]').click(timeout=3000)] if label else []) + [
-            lambda: loc.click(force=True, timeout=3000), lambda: loc.evaluate("el => el.click()")]
-        before = loc.is_checked()
+            lambda: loc.click(force=True, timeout=3000), lambda: loc.evaluate("el => el.click()"),
+            lambda: (loc.focus(), page.keyboard.press("Space"))]   # last resort: the keyboard toggles most custom boxes
+        # Custom controls (role="checkbox" divs, as on some Greenhouse boards) have no .checked: read aria-checked.
+        state = lambda: loc.evaluate("el => el.checked !== undefined ? el.checked : el.getAttribute('aria-checked') === 'true'")
+        before = state()
         for attempt in attempts:
             try:
                 attempt()
             except Exception:
                 continue
-            if loc.is_checked() != before:
+            if state() != before:
                 return
         raise RuntimeError("could not tick this box")
 
     def _text_value(self, f, label, ans, has_dial_picker):
-        if f.get("type") == "number":
-            return re.sub(r"[^\d.]", "", str(ans.value)) or "0"
-        if re.search(r"phone|mobile", label, re.I) and not has_dial_picker and re.fullmatch(r"[\d\s-]{6,}", str(ans.value)):
-            return f"{self.profile.get('personal.phone_country_code', '')} {ans.value}".strip()
-        return str(ans.value)
+        return values.format_value(self.profile, f, label, ans.value, has_dial_picker)
 
-    def _fill_dropdown(self, page, f, resolver, note):
-        """React-select comboboxes, autocomplete boxes, Workday listbox buttons and Workday's
-        searchable, nested "prompt" lists (category -> sub-option)."""
-        label = f["label"]
-        loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
-        self._open_dropdown(loc)
-        page.wait_for_timeout(700)
-        options = self._visible_options(page)
-        if not options:
-            loc.press("ArrowDown")  # some menus open only on a key press
-            page.wait_for_timeout(600)
-            options = self._visible_options(page)
-        typed, path, ans = False, [], None
-        for _ in range(3):  # Workday nests up to a couple of levels
-            if not options and f["kind"] == "combo" and not typed:
-                options, typed = self._search_options(page, loc, resolver, label), True
-            if not options:
-                break
-            ans = resolver.resolve(label, "choice", options=options, required=f["required"], quick=True)
-            if ans is None and f["kind"] == "combo" and not typed:
-                # The answer may just not be visible yet (long lists): search for it first.
-                found = self._search_options(page, loc, resolver, label)
-                typed = True
-                options = found or self._reopen(page, loc) or options
-            if ans is None and typed and getattr(self, "_typed", ""):
-                # an autocomplete answered our own search ("Hyderabad" -> "Hyderabad, Telangana, India")
-                hit = next((i for i, o in enumerate(options) if self._typed.lower() in o.lower()), None)
-                if hit is not None:
-                    from ..answers import Answer
-                    ans = Answer(hit, "rule", options[hit])
-            if ans is None:
-                ans = resolver.resolve(label, "choice", options=options, required=f["required"])
-            if ans is None:
-                break
-            chosen = options[ans.value]
-            self._click_option(page, chosen, ans.value)
-            path.append(chosen)
-            page.wait_for_timeout(900)
-            after = self._visible_options(page)
-            if not after or after == options or chosen in after:
-                break  # a leaf was selected (the list closed or stayed the same)
-            options = after  # a category opened a sub-list; choose again inside it
-        if self._visible_options(page):
-            page.keyboard.press("Escape")
-        if not path:
-            return False
-        note(f, label, ans if len(path) == 1 and ans is not None else " › ".join(path), expected=path[-1])
-        return True
+    _fill_dropdown = dropdowns.fill_dropdown
+    _open_dropdown = staticmethod(dropdowns.open_dropdown)
+    _search_options = dropdowns.search_options
+    _reopen = dropdowns.reopen
+    _click_option = staticmethod(dropdowns.click_option)
+    _visible_options = staticmethod(dropdowns.visible_options)
 
-    @staticmethod
-    def _open_dropdown(loc):
-        """Open a dropdown whose input may be covered by the widget's own overlay (react-select and
-        similar): a normal click, then a forced one, then focus and the keyboard."""
-        for attempt in (lambda: loc.click(timeout=3000), lambda: loc.click(force=True, timeout=3000),
-                        lambda: (loc.focus(), loc.press("ArrowDown"))):
-            try:
-                attempt()
-                return
-            except Exception:
-                continue
-        raise RuntimeError("could not open this dropdown")
-
-    def _search_options(self, page, loc, resolver, label):
-        """Type the answer we would give into the box and return the matching options."""
-        guess = resolver.resolve(label, "text", required=False)
-        if not guess:
-            return []
-        self._typed = str(guess.value).split(",")[0].split("(")[0].strip()
-        loc.fill(self._typed)
-        if self._ats == "workday":
-            loc.press("Enter")  # Workday searches on Enter; react-select would pick the first hit
-        page.wait_for_timeout(1800)
-        return self._visible_options(page)
-
-    def _reopen(self, page, loc):
-        """Clear a search that found nothing and bring back the full list."""
-        try:
-            loc.fill("")
-            if self._ats == "workday":
-                loc.press("Enter")
-            loc.click()
-            page.wait_for_timeout(900)
-        except Exception:
-            return []
-        return self._visible_options(page)
-
-    @staticmethod
-    def _click_option(page, text, index):
-        try:
-            page.get_by_role("option", name=text, exact=True).first.click(timeout=4000)
-        except Exception:
-            page.locator('[role="option"]:visible').nth(index).click(timeout=4000)
-
-    @staticmethod
-    def _visible_options(page):
-        return [t.strip() for t in page.locator('[role="option"]:visible').all_inner_texts()]
 
     @staticmethod
     def _fields(page):
-        return page.evaluate(SCAN_JS)
+        # Revision can replace Session while an older application loop is still running.
+        # Read the scanner module afresh so that loop does not retain stale imports.
+        from . import fields
+        return page.evaluate(fields.SCAN_JS)
 
     @staticmethod
     def _buttons(page, pattern):

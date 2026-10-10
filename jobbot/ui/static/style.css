@@ -96,7 +96,11 @@ dialog ol.history { padding-left: 18px; color: var(--muted); max-height: 220px; 
 .badge { display: inline-block; min-width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-left: 4px; vertical-align: 2px; }
 .refresh-status { margin: -4px 2px 10px; color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .refresh-status.bad { color: var(--bad); }
-.selbar { padding: 8px 10px; background: var(--bg); border-radius: 8px; }
+.selbar { padding: 8px 10px; background: var(--bg); border-radius: 8px; margin-bottom: 12px; }
+.selbar .toolbar { margin-bottom: 0; }
+.selbar .run-options { margin-top: 6px; font-size: 13px; }
+.sel-state { margin-left: auto; display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; }
+.sel-state .link.invisible { visibility: hidden; }
 .grid th.sel-head { cursor: default; }
 .run-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
 .prompt { border: 2px solid var(--accent); border-radius: 12px; padding: 14px; background: var(--bg); }
@@ -166,3 +170,10 @@ dialog ol.history { padding-left: 18px; color: var(--muted); max-height: 220px; 
   #apps-table td:nth-child(4), #apps-table td:nth-child(5), #apps-table td:nth-child(6), #apps-table td:nth-child(7) {
     display: inline-block; width: auto; margin-right: 10px; font-size: 12.5px; }
 }
+.prompt-job { font-weight: 600; margin: -4px 0 6px; }
+.prompt .problems { margin: 6px 0 10px; padding-left: 18px; color: var(--bad); font-size: 13px; }
+.conn-banner { background: var(--bad); color: #fff; padding: 8px 16px; text-align: center; font-weight: 600; }
+.conn-banner button { margin-left: 10px; }
+#jobs-count { margin-left: auto; }
+.sel-top { display: inline-flex; gap: 4px; align-items: center; }
+.sel-top input { width: 64px; }

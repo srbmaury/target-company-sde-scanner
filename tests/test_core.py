@@ -7,7 +7,10 @@ os.environ["JOBBOT_HOME"] = tempfile.mkdtemp(prefix="jobbot-test-")
 import os
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
+
+import yaml
 
 from jobbot import tracker
 from jobbot.answers import Resolver, bucket, pick
@@ -410,6 +413,50 @@ class AnswerLogAndCapTest(unittest.TestCase):
             self.assertTrue(any("Daily limit" in w for w in warned))
 
 
+    def test_gone_posting_is_dismissed(self):
+        # A posting that says it no longer exists leaves the New list instead of being picked again.
+        from jobbot.apply.runner import run_jobs
+        with tempfile.TemporaryDirectory() as d:
+            conn = tracker.connect(os.path.join(d, "t.db"))
+            tracker.upsert_jobs(conn, [{"url": "u1", "company": "Acme", "title": "SDE II", "location": "Remote",
+                                        "ats": "workday", "board": "acme", "experience": "", "evidence": ""}])
+            prof = Profile(PROFILE, "x")
+            prof.resumes = lambda: {"backend": {}}
+
+            class UI:
+                def warn(self, m): pass
+                def info(self, m): pass
+
+            class S:
+                def apply(self, *a): return None, "posting unavailable: This role is no longer available"
+            run_jobs(S(), conn, prof, [dict(tracker.get_job(conn, "u1"))], UI(), dry_run=True)
+            self.assertEqual(tracker.get_job(conn, "u1")["dismissed"], 1)
+
+    def test_excluded_companies_leave_new_roles(self):
+        # Apply skips excluded companies; the page marks them instead of letting you pick them.
+        from unittest.mock import patch
+        from jobbot.ui import server
+        with tempfile.TemporaryDirectory() as d:
+            conn = tracker.connect(os.path.join(d, "t.db"))
+            tracker.upsert_jobs(conn, [{"url": u, "company": c, "title": "SDE II", "location": "", "experience": "", "evidence": ""}
+                                       for u, c in (("u1", "Amazon"), ("u2", "Socure"))])
+            with patch.object(server, "_excluded_companies", return_value=["amazon"]):
+                flags = {j["company"]: j["excluded"] for j in server.jobs_payload(conn, {})}
+                self.assertEqual(flags, {"Amazon": True, "Socure": False})
+                self.assertEqual(server._new_jobs(conn), 1)
+
+    def test_roles_missing_from_a_good_scan_are_gone(self):
+        # Acme's board was read and no longer lists u1; Beta's board errored, so u3 is kept.
+        with tempfile.TemporaryDirectory() as d:
+            conn = tracker.connect(os.path.join(d, "t.db"))
+            job = lambda u, c: {"url": u, "company": c, "title": "SDE II", "location": "", "experience": "", "evidence": ""}
+            tracker.upsert_jobs(conn, [job("u1", "Acme"), job("u2", "Acme"), job("u3", "Beta")])
+            self.assertEqual(tracker.mark_gone(conn, ["u2"], ["Acme"]), 1)
+            self.assertEqual({r["url"] for r in tracker.list_jobs(conn)}, {"u2", "u3"})
+            self.assertEqual(len(tracker.list_jobs(conn, include_gone=True)), 3)
+            tracker.upsert_jobs(conn, [job("u1", "Acme")])   # listed again
+            self.assertEqual({r["url"] for r in tracker.list_jobs(conn)}, {"u1", "u2", "u3"})
+
 class DocsTabTest(unittest.TestCase):
     def test_docs_pages_only_from_docs_folder(self):
         from jobbot.ui.server import doc_page, docs_index
@@ -725,3 +772,429 @@ class DashboardApiTest(unittest.TestCase):
                 self.assertTrue((home / "profile.yaml.bak").exists())
                 self.assertEqual(call("tasks/rm-rf", {})[0], 400)
                 srv.shutdown()
+
+
+class UnavailablePostingTest(unittest.TestCase):
+    def test_explicit_missing_and_closed_messages(self):
+        from jobbot.apply.sites import unavailable_reason
+        from unittest.mock import Mock
+        for text in ("The page you are looking for doesn't exist.",
+                     "This job is no longer available", "This position has been closed",
+                     "Thank you for your interest. This role is no longer available.",
+                     "We're sorry, but it looks like this job may be no longer available or does not exist."):
+            self.assertIsNotNone(unavailable_reason(Mock(inner_text=Mock(return_value=text))))
+        self.assertIsNone(unavailable_reason(Mock(inner_text=Mock(return_value="Software Engineer. Apply now"))))
+
+    def test_bare_decline_only_on_a_privacy_banner(self):
+        # JPMorgan's Oracle site: "IMPORTANT NOTICE ... Privacy Notice [ACCEPT] [DECLINE]" covers Next.
+        from jobbot.apply.engine import Session
+        from unittest.mock import Mock
+        def page(text):
+            pg = Mock(inner_text=Mock(return_value=text))
+            specific, bare = Mock(), Mock()
+            specific.count.return_value = 0
+            bare.count.return_value = 1
+            bare.first.is_visible.return_value = True
+            pg.get_by_role.side_effect = [specific, bare]
+            return pg, bare
+        pg, bare = page("IMPORTANT NOTICE: PLEASE READ CAREFULLY. Privacy Notice ACCEPT DECLINE Manage Preferences")
+        self.assertTrue(Session._decline_cookies(pg))
+        bare.first.click.assert_called_once()
+        pg, bare = page("Would you relocate? Accept Decline")   # a form question, not a banner
+        self.assertFalse(Session._decline_cookies(pg))
+        bare.first.click.assert_not_called()
+
+    def test_site_maintenance_is_not_a_closed_posting(self):
+        # Workday's outage page: the role must be retried later, never dismissed as gone.
+        from jobbot.apply.sites import maintenance, unavailable_reason
+        from unittest.mock import Mock
+        text = ("English Workday is currently unavailable. We are experiencing a service interruption. "
+                "Your service will be restored as quickly as possible. Otherwise, please check back later.")
+        page = Mock(url="https://static.community.workday.com/maintenance-page.html", inner_text=Mock(return_value=text))
+        self.assertTrue(maintenance(page))
+        self.assertIsNone(unavailable_reason(page))
+        page = Mock(url="https://acme.wd5.myworkdayjobs.com/job/1", inner_text=Mock(return_value="Software Engineer II. Apply"))
+        self.assertFalse(maintenance(page))
+
+    def test_waits_for_late_workday_message(self):
+        # Workday shows a blank body, then a spinner, then "doesn't exist" about 5 seconds after load.
+        from jobbot.apply.sites import unavailable_reason, wait_rendered
+        from unittest.mock import Mock
+        page = Mock()
+        page.inner_text.side_effect = ["", "", "Loading", "Skip to main content Sign In Search for Jobs "
+                                       "The page you are looking for doesn't exist.", "x"]
+        page.locator.return_value.count.side_effect = [0, 0, 1, 0]
+        wait_rendered(page)
+        self.assertEqual(page.wait_for_timeout.call_count, 3)
+        page.inner_text.side_effect = None
+        page.inner_text.return_value = "The page you are looking for doesn't exist."
+        self.assertIsNotNone(unavailable_reason(page))
+
+    def test_unattended_gives_up_after_three_attempts(self):
+        # A Submit the site keeps rejecting must not hold up the batch.
+        from jobbot.apply.engine import MAX_ATTEMPTS, NeedsYou, Session
+        from jobbot.apply.verify import Check
+        from unittest.mock import Mock
+        page = Mock(url="https://boards.example.com/job/1")
+        page.inner_text.return_value = "Software Engineer application form"
+        session = Session.__new__(Session)
+        session.profile, session.ui, session.unattended, session.dry_run = Profile(PROFILE, "x"), Mock(), True, False
+        session.auto_submit, session.auto_next, session.llm, session.upload = True, True, None, False
+        session.memory, session._started = None, 0
+        session.profile.resumes = lambda: {"backend": {"path": "resume.pdf"}}
+        page.locator.return_value.count.return_value = 0
+        session.ctx = Mock(pages=[page])
+        session.ctx.new_page.return_value = page
+        session._enter_form = Mock(return_value=page)
+        session._upload_resume = Mock()
+        session._fields = Mock(return_value=[{"label": "Email"}])
+        bad = Check(); bad.errors.append("Email is required")
+        session.review_page = Mock(return_value=({"filled": [], "skipped": [], "records": []}, Check(), 1))
+        session._buttons = Mock(side_effect=lambda pg, rx: [{"id": "b"}] if "submit" in rx else [])
+        session._click = Mock()
+        session._confirmation = Mock(return_value=None)
+        session._decline_cookies = Mock()
+        import jobbot.apply.engine as engine
+        real = engine.check_page
+        engine.check_page = Mock(return_value=bad)
+        try:
+            with self.assertRaisesRegex(NeedsYou, f"after {MAX_ATTEMPTS} attempts"):
+                session._apply({"url": "https://boards.example.com/job/1", "company": "Acme", "title": "SDE"}, "backend")
+        finally:
+            engine.check_page = real
+        self.assertEqual(session._click.call_count, MAX_ATTEMPTS)
+
+    def test_missing_posting_never_reaches_upload_or_review(self):
+        from jobbot.apply.engine import Session
+        from unittest.mock import Mock
+        page = Mock()
+        page.inner_text.return_value = "The page you are looking for doesn't exist."
+        session = Session.__new__(Session)
+        session.profile = Mock()
+        session.profile.resumes.return_value = {"backend": {"path": "resume.pdf"}}
+        session.ui = Mock()
+        session.unattended = False
+        session.ctx = Mock(pages=[page])
+        session._enter_form = Mock()
+        session._upload_resume = Mock()
+        result = session._apply({"url": "https://example.com/job/1", "company": "Test", "title": "Engineer"}, "backend")
+        self.assertIsNone(result[0])
+        self.assertIn("posting unavailable", result[1])
+        session._enter_form.assert_not_called()
+        session._upload_resume.assert_not_called()
+
+
+class HotReloadTest(unittest.TestCase):
+    def test_fixed_apply_code_is_picked_up_between_applications(self):
+        import os
+        import time
+        from jobbot.apply import engine, hot, values
+        from jobbot.ui import bridge
+        session = engine.Session.__new__(engine.Session)
+        hot.changed()   # record what is loaded now
+        st = os.stat(values.__file__)
+        try:
+            os.utime(values.__file__, (st.st_atime, time.time() + 5))   # as if values.py was just edited
+            old_class = engine.Session
+            self.assertTrue(hot.refresh(session))
+            new_engine = __import__("jobbot.apply.engine", fromlist=["Session"])
+            self.assertIs(session.__class__, new_engine.Session)
+            self.assertIsNot(new_engine.Session, old_class)
+            self.assertFalse(hot.refresh(session))   # nothing new since
+            with unittest.mock.patch.object(bridge, "LOADED_AT", time.time() + 1):
+                self.assertFalse(bridge.code_changed())   # form-filling code never blocks a new run
+        finally:
+            os.utime(values.__file__, (st.st_atime, st.st_mtime))
+
+
+class RetryTest(unittest.TestCase):
+    def test_only_temporary_failures_are_retried(self):
+        from jobbot.ui.bridge import retry_worthy
+        self.assertTrue(retry_worthy({"status": "needs you", "note": "Workday is down for maintenance; retry this role later."}))
+        self.assertTrue(retry_worthy({"status": "needs you", "note": "Gave up after 3 attempts on page 2: Next did not move"}))
+        self.assertTrue(retry_worthy({"status": "not submitted", "note": "error: TargetClosedError"}))
+        self.assertFalse(retry_worthy({"status": "needs you", "note": "This site needs you to sign in (or create an account)"}))
+        self.assertFalse(retry_worthy({"status": "needs you", "note": "unanswered: CAPTCHA (requires your action)"}))
+        self.assertFalse(retry_worthy({"status": "applied", "note": "Thank you for applying"}))
+
+
+class StaleCodeTest(unittest.TestCase):
+    def test_run_refused_after_code_changes(self):
+        # A dashboard started before a code update would mix old and new modules mid-run.
+        from unittest.mock import patch
+        from jobbot.ui import bridge
+        with patch.object(bridge, "LOADED_AT", 0):
+            with self.assertRaisesRegex(ValueError, "Restart it"):
+                bridge.start(["1"])
+        self.assertFalse(bridge.code_changed())
+
+
+class StrictReadbackTest(unittest.TestCase):
+    def test_empty_and_partial_choices_fail(self):
+        from jobbot.apply.verify import matches
+        self.assertFalse(matches("India", "", "combo"))
+        self.assertFalse(matches("India", "Ind", "select"))
+        self.assertFalse(matches("Male", "Female", "select"))
+        self.assertFalse(matches("Male", "Gender Female", "combo"))
+        self.assertFalse(matches("India", "Indiana", "combo"))
+        self.assertFalse(matches("a" * 50 + "correct suffix", "a" * 50 + "wrong suffix", "textarea"))
+
+    def test_rerendered_field_still_verified(self):
+        from jobbot.apply.verify import check_page, READBACK_JS
+        from unittest.mock import Mock
+        page = Mock()
+        def evaluate(script, records=None):
+            if script == READBACK_JS:
+                return [{"id": records[0]["id"], "found": records[0]["id"] == "new", "value": "wrong"}]
+            return {"errors": [], "captcha": False, "invalid": 0}
+        page.evaluate.side_effect = evaluate
+        check = check_page(page, [{"id": "old", "label": "Name", "expected": "Asha", "kind": "text"}], [],
+                           [{"id": "new", "label": "Name", "kind": "text", "value": "wrong"}])
+        self.assertFalse(check.ok)
+        self.assertEqual(check.mismatches[0][0], "Name")
+
+
+class ValidationPromptTest(unittest.TestCase):
+    def test_confirmed_facts_ignore_model_and_bad_memory(self):
+        from unittest.mock import Mock
+        data = {**PROFILE, "personal": {**PROFILE["personal"], "pronouns": "he/him/his"},
+                "work": {"expected_ctc": "INR 30 LPA fixed, negotiable based on role and bonus/equity"},
+                "education": {"start_month": "2020-09", "end_month": "2024-06", "school_name": "IIT (BHU), Varanasi"},
+                "eligibility": {"military_service": "No"}, "eeo": {"veteran": "I am not a protected veteran"}}
+        model = Mock(enabled=True)
+        memory = Mock()
+        memory.lookup.return_value = "Bengaluru"
+        resolver = Resolver(Profile(data, "x"), llm=model, memory=memory)
+        for question, expected in [("Salary and benefit expectations", data["work"]["expected_ctc"]),
+                                   ("Pronouns", "he/him/his"), ("College start date", "2020-09"),
+                                   ("College graduation date", "2024-06"), ("University/ College", "IIT (BHU), Varanasi"),
+                                   ("Phone Number", "9876543210")]:
+            self.assertEqual(resolver.resolve(question).value, expected)
+        self.assertEqual(resolver.resolve("Are you a veteran?", "choice", options=["Yes", "No"]).display, "No")
+        model.answer.assert_not_called()
+        memory.lookup.assert_not_called()
+
+    def test_ollama_review_requires_complete_coverage(self):
+        from jobbot.apply.engine import Session
+        from jobbot.apply.verify import Check
+        from unittest.mock import Mock
+        session = Session.__new__(Session)
+        session.profile, session.llm, session.ui = Mock(), Mock(enabled=True), Mock()
+        session.audit_fields = Mock(return_value=[{"id": "salary", "label": "Salary expectations", "actual": "30 LPA"}])
+        resolver = Mock(resume_key=None, job={})
+        page = Mock()
+        page.inner_text.return_value = "Salary expectations"
+        session.llm.review_application_step.return_value = {"approved": True, "reviewed_field_ids": [], "issues": []}
+        check = Check()
+        session._ollama_review(page, resolver, {}, check, 1)
+        self.assertFalse(check.ok)
+        session.llm.review_application_step.return_value["reviewed_field_ids"] = ["salary"]
+        check = Check()
+        session._ollama_review(page, resolver, {}, check, 1)
+        self.assertTrue(check.ok)
+        session.llm.review_application_step.side_effect = TimeoutError()
+        check = Check()
+        session._ollama_review(page, resolver, {}, check, 1)
+        self.assertFalse(check.ok)
+
+    def test_ollama_review_batches_and_retries_skipped_fields(self):
+        # 21 fields: reviewed 8 at a time; the model skips one id per batch, then covers it on the retry.
+        from jobbot.apply.engine import REVIEW_BATCH, Session
+        from jobbot.apply.verify import Check
+        from unittest.mock import Mock
+        session = Session.__new__(Session)
+        session.profile, session.llm, session.ui = Mock(), Mock(enabled=True), Mock()
+        session.audit_fields = Mock(return_value=[{"id": f"f{i}", "label": f"Q{i}", "actual": "x"} for i in range(21)])
+        calls = []
+
+        def review(fields, *a):
+            calls.append(len(fields))
+            ids = [f["id"] for f in fields]
+            return {"approved": True, "reviewed_field_ids": ids[:-1] if len(ids) > 1 else ids, "issues": []}
+        session.llm.review_application_step.side_effect = review
+        check = Check()
+        session._ollama_review(Mock(inner_text=Mock(return_value="")), Mock(resume_key=None, job={}), {}, check, 1)
+        self.assertTrue(check.ok)
+        self.assertTrue(all(n <= REVIEW_BATCH for n in calls))
+        self.assertEqual(sorted(calls), [1, 1, 1, 5, 8, 8])   # batches run in parallel, then one retry each
+
+    def test_ollama_review_rejection_blocks_even_without_expected_values(self):
+        # Seen from qwen2.5:7b on Socure: "already filled", "expected not provided", ids from elsewhere.
+        from jobbot.apply.engine import Session
+        from jobbot.apply.verify import Check
+        from unittest.mock import Mock
+        session = Session.__new__(Session)
+        session.profile, session.llm, session.ui = Mock(), Mock(enabled=True), Mock()
+        session.audit_fields = Mock(return_value=[{"id": "g", "label": "Gender", "actual": "Male"},
+                                                  {"id": "auth", "label": "Authorized to work?", "actual": "Yes"},
+                                                  {"id": "cv", "label": "Software Engineer -II", "kind": "file", "actual": ""},
+                                                  {"id": "sms", "label": "SMS text messages", "kind": "radio", "actual": ""}])
+        noise = [{"field_id": "g", "reason": "Gender is required and already filled", "expected": ""},
+                 {"field_id": "cv", "reason": "The resume is not uploaded", "expected": "resume.pdf"},
+                 {"field_id": "sms", "reason": "Consent field is required and empty", "expected": "No"},
+                 {"field_id": "auth", "reason": "Expected value is not provided.", "expected": "yes"},
+                 {"field_id": "elsewhere", "reason": "Expected 'No'", "expected": "No"}]
+        session.llm.review_application_step.return_value = {"approved": False, "reviewed_field_ids": ["g", "auth", "cv", "sms"], "issues": noise}
+        resolver = Mock(resume_key=None, job={})
+        resolver._profile_fact.return_value = None
+        check = Check()
+        session._ollama_review(Mock(inner_text=Mock(return_value="")), resolver, {}, check, 1)
+        self.assertFalse(check.ok)
+        self.assertIn("Ollama did not approve this step.", check.errors)
+        session.llm.review_application_step.return_value["issues"] = [{"field_id": "auth", "reason": "wrong", "expected": "No"}]
+        check = Check()
+        session._ollama_review(Mock(inner_text=Mock(return_value="")), resolver, {}, check, 1)
+        self.assertFalse(check.ok)
+
+    def test_ollama_review_covers_verified_and_optional_fields(self):
+        from jobbot.apply.engine import Session
+        from jobbot.apply.verify import Check
+        from unittest.mock import Mock
+        session = Session.__new__(Session)
+        session.profile, session.llm, session.ui = Mock(), Mock(enabled=True), Mock()
+        session.audit_fields = Mock(return_value=[
+            {"id": "email", "label": "Email", "actual": "a@example.com", "status": "verified"},
+            {"id": "notes", "label": "Notes", "actual": "", "status": "optional, empty"}])
+        session.llm.review_application_step.return_value = {"approved": True, "reviewed_field_ids": [], "issues": []}
+        check = Check()
+        session._ollama_review(Mock(inner_text=Mock(return_value="")), Mock(resume_key=None, job={}), {}, check, 1)
+        self.assertFalse(check.ok)
+
+    def test_ollama_reviews_empty_final_page(self):
+        from jobbot.apply.engine import Session
+        from jobbot.apply.verify import Check
+        from unittest.mock import Mock
+        session = Session.__new__(Session)
+        session.profile, session.llm, session.ui = Mock(), Mock(enabled=True), Mock()
+        session.audit_fields = Mock(return_value=[])
+        session.llm.review_application_step.return_value = {"approved": False, "reviewed_field_ids": [], "issues": []}
+        check = Check()
+        session._ollama_review(Mock(inner_text=Mock(return_value="Review and Submit")), Mock(resume_key=None, job={}), {}, check, 1)
+        session.llm.review_application_step.assert_called_once()
+        self.assertFalse(check.ok)
+
+    def test_parallel_workers_never_share_a_code(self):
+        from jobbot import gmail
+        from unittest.mock import patch
+        msg = {"internalDate": "9999999999000", "snippet": "Your verification code is 482913",
+               "payload": {"headers": [{"name": "From", "value": "no-reply@greenhouse-mail.io"}]}}
+        gmail._USED_CODES.clear()
+        with patch.object(gmail, "_get", side_effect=lambda path, params=None: {"messages": [{"id": "m"}]} if path == "messages" else msg):
+            self.assertEqual(gmail.latest_code(0, hint=["greenhouse"], wait=0), "482913")
+            self.assertIsNone(gmail.latest_code(0, hint=["greenhouse"], wait=0))   # the next application waits for its own
+        gmail._USED_CODES.clear()
+
+    def test_learned_answers_merge_across_workers(self):
+        from jobbot.memory import Memory
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "profile.yaml"
+            path.write_text("personal: {}\n", encoding="utf-8")
+            a, b = Memory(path, []), Memory(path, [])
+            a.remember("Notice period buy-out possible?", "Yes")
+            b.remember("Open to relocation within India?", "Yes")
+            self.assertEqual(len(Memory(path, yaml.safe_load(path.read_text())["learned_answers"]).items), 2)
+
+    def test_batch_30_reported_values(self):
+        # From the 30-role batch: Keka's phone box pre-filled with "+91" cut the number off; a number-only
+        # CTC box needs a unit; a currency box got a place name.
+        from jobbot.answers import Resolver
+        from jobbot.apply.values import format_value
+        p = Profile({**PROFILE, "personal": {**PROFILE["personal"], "phone": "9876543210", "phone_country_code": "+91"},
+                     "work": {**PROFILE.get("work", {}), "expected_ctc_lpa": 30}, "automation": {"numeric_salary_unit": "INR"}}, "x")
+        self.assertEqual(format_value(p, {"value": "+91", "maxlength": 13}, "Mobile Phone *", "x"), "9876543210")
+        self.assertEqual(format_value(p, {"type": "number"}, "Expected CTC *", "x"), "3000000")
+        r = Resolver(p, None, job={"company": "Teachmint"})
+        self.assertEqual(r.resolve("Currency", "choice", options=["USD", "INR - Indian Rupee"], quick=True).display,
+                         "INR - Indian Rupee")
+
+    def test_password_only_on_job_platforms_and_the_postings_own_site(self):
+        from jobbot.apply.auth import host_allowed
+        p = Profile({}, "x")
+        job = "https://careers.qualcomm.com/careers/job/1"
+        self.assertTrue(host_allowed("https://careers.qualcomm.com/careers/login", p, job))
+        self.assertTrue(host_allowed("https://factset.wd108.myworkdayjobs.com/x", p))
+        self.assertFalse(host_allowed("https://accounts.google.com/signin", p, "https://careers.google.com/jobs/1"))
+        self.assertFalse(host_allowed("https://login.example.net/", p, job))
+        self.assertFalse(host_allowed("http://careers.qualcomm.com/login", p, job))
+
+    def test_profile_check_catches_wrong_values_and_passes_right_ones(self):
+        # Real mistakes from 2026-10-10 runs and the false blocks a first version made.
+        from jobbot.answers import Resolver
+        from jobbot.apply import consistency
+        prof = Profile({**PROFILE, "personal": {**PROFILE["personal"], "phone_country": "India", "phone_country_code": "+91",
+                                                "city": "Hyderabad", "email": "asha@example.com"},
+                        "eligibility": {"authorized_countries": ["India"], "needs_sponsorship": False}}, "x")
+        r = Resolver(prof, None, job={"company": "Point72", "location": "Bengaluru, India"})
+        f = lambda label, actual, kind="text", options=(): {"id": label, "label": label, "kind": kind,  # noqa: E731
+                                                         "actual": actual, "options": list(options), "required": True}
+        bad, ok = consistency.check(r, [
+            f("Phone country*", "British Indian Ocean Territory +246", "combo"),
+            f("Are you legally authorized to work in the United States?*", "Yes", "radio", ["Yes", "No"]),
+            f("Email*", "asha@exmaple.com"),
+        ])
+        self.assertEqual({x["id"] for x, _ in bad}, {"Phone country*", "Are you legally authorized to work in the United States?*", "Email*"})
+        bad, ok = consistency.check(r, [
+            f("Country*", "+91", "combo"),                       # the picker shows only the dialling code
+            f("Are you legally authorized to work in the United States?*", "No", "radio", ["Yes", "No"]),
+            f("Email*", "asha@example.com"),
+            f("How did you hear about this job?*", "Career Website", "combo"),   # the site's own list
+        ])
+        self.assertEqual(bad, [])
+        self.assertIn("Email*", ok)
+        self.assertFalse(consistency.same_value("https://www.linkedin.com/in/asha", "https://linkedin.com/in/someone-else"))
+        self.assertFalse(consistency.same_value("Hyderabad, Telangana, India", "Mumbai, Maharashtra, India"))
+        self.assertTrue(consistency.same_value("Hyderabad, Bengaluru, Noida, Remote", "Bengaluru, India"))
+
+    def test_greenhouse_security_code(self):
+        from jobbot.gmail import extract_code
+        text = ("Security code for your application to Point72 . Copy and paste this code into the security "
+                "code field on your application: XMnd6oJx After you enter the code, resubmit your application.")
+        self.assertEqual(extract_code(text), "XMnd6oJx")
+
+    def test_email_code_never_uses_another_sites_code(self):
+        from jobbot import gmail
+        from unittest.mock import patch
+        unrelated = {"internalDate": "200000", "snippet": "Verification code 123456",
+                     "payload": {"headers": [{"name": "From", "value": "auth@unrelated.example"}]}}
+        with patch.object(gmail, "_get", side_effect=[{"messages": [{"id": "one"}]}, unrelated]):
+            self.assertIsNone(gmail.latest_code(0, hint=["workday", "socure"], wait=0))
+
+    def test_email_login_fills_code_without_prompting(self):
+        from jobbot.apply.engine import Session
+        from unittest.mock import Mock
+        session = Session.__new__(Session)
+        session._fields = Mock(return_value=[{"id": "otp", "kind": "text", "label": "Verification code", "value": ""}])
+        session._code_from_email = Mock(return_value="123456")
+        session._buttons = Mock(return_value=[{"text": "Verify"}])
+        session._click, session.ui = Mock(), Mock()
+        page = Mock()
+        self.assertTrue(session._email_login_step(page))
+        page.locator.return_value.fill.assert_called_once_with("123456")
+        session._click.assert_called_once()
+
+    def test_skip_is_never_consent(self):
+        from jobbot.ui.bridge import WebUI, ApplyRun
+        from jobbot.apply.engine import NeedsYou
+        from unittest.mock import patch
+        ui = WebUI(ApplyRun())
+        with patch.object(ui, "_wait", return_value="skip"):
+            with self.assertRaises(NeedsYou):
+                ui.confirm("Accept terms?")
+        with patch.object(ui, "_wait", return_value="false"):
+            self.assertFalse(ui.confirm("Accept terms?"))
+
+    def test_current_field_correction_and_protected_fields(self):
+        from jobbot.apply.engine import Session
+        from unittest.mock import Mock
+        session = Session.__new__(Session)
+        session._fields = Mock(return_value=[{"id": "email", "kind": "text", "label": "Email"}])
+        session.ui = Mock()
+        session._manual_records, session._mine, session._broken = {}, set(), set()
+        page = Mock()
+        session._correct_field(page, {"field": "email", "value": "asha@example.com"})
+        page.locator.return_value.fill.assert_called_once_with("asha@example.com")
+        self.assertEqual(session._manual_records["email"]["expected"], "asha@example.com")
+        page.reset_mock()
+        session._fields.return_value = [{"id": "sex", "kind": "select", "label": "Gender"}]
+        session._correct_field(page, {"field": "sex", "value": "Female"})
+        page.locator.assert_not_called()

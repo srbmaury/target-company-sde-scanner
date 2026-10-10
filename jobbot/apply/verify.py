@@ -8,6 +8,8 @@ showing, and no CAPTCHA is waiting.
 import re
 from dataclasses import dataclass, field
 
+from ..answers import real_options
+
 READBACK_JS = r"""
 (records) => {
   const find = id => {
@@ -70,6 +72,7 @@ PAGE_PROBLEMS_JS = r"""
   const invalid = all.filter(e => e.getAttribute && e.getAttribute('aria-invalid') === 'true' && visible(e)).length;
   const captcha = Array.from(document.querySelectorAll('iframe')).some(f =>
       /recaptcha\/api2\/bframe|hcaptcha\.com.*challenge|challenges\.cloudflare/.test(f.src || '') && visible(f))
+      || Array.from(document.querySelectorAll('img[alt]')).some(e => /captcha/i.test(e.alt) && visible(e))
       || /verify (that )?you are (a )?human|i.?m not a robot/i.test(document.body.innerText.slice(0, 5000));
   return { errors: Array.from(errors).slice(0, 10), invalid, captcha };
 }
@@ -110,8 +113,18 @@ def matches(expected, actual, kind):
         # sites reformat phones and trim whitespace; compare digits for numbers
         if re.fullmatch(r"[+\d\s()-]{6,}", expected or ""):
             return re.sub(r"\D", "", expected)[-10:] == re.sub(r"\D", "", actual)[-10:]
-        return e == a or (len(e) > 40 and a.startswith(e[:40]))
-    return e in a or a in e
+        return e == a
+    if not a:
+        return False
+    # Phone-country pickers (Greenhouse) show only the dialling code once chosen: "India +91" reads back as "+91".
+    code = re.fullmatch(r"\+\d{1,4}", (actual or "").strip())
+    if code and re.search(r"(?<!\d)" + re.escape(code.group(0)) + r"(?!\d)", expected or ""):
+        return True
+    if kind == "select":
+        return e == a
+    phrase = " ".join(re.findall(r"[a-z0-9+@.]+", (expected or "").lower()))
+    shown = " ".join(re.findall(r"[a-z0-9+@.]+", (actual or "").lower()))
+    return bool(re.search(r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])", shown))
 
 
 def check_page(page, records, unresolved, fields_now):
@@ -122,7 +135,17 @@ def check_page(page, records, unresolved, fields_now):
         for r in records:
             got = actual.get(r["id"], {})
             if not got.get("found"):
-                continue  # the page re-rendered the field; the required-field scan below still applies
+                replacement = next((f for f in fields_now if f["label"] == r["label"]), None)
+                if replacement:
+                    replacement_id = replacement["id"]
+                    if replacement["kind"] in ("radio", "yesno", "checkgroup"):
+                        options = replacement.get("options", [])
+                        index = options.index(r["expected"]) if r["expected"] in options else 0
+                        replacement_id = replacement_id.split(",")[index]
+                    updated = {**r, "id": replacement_id}
+                    got = next(iter(page.evaluate(READBACK_JS, [updated])), {})
+                else:
+                    continue  # conditional fields may have disappeared legitimately
             if not matches(r["expected"], got.get("value", ""), r["kind"]):
                 result.mismatches.append((r["label"], r["expected"], got.get("value", "")))
     result.missing.extend(unresolved)
@@ -130,15 +153,17 @@ def check_page(page, records, unresolved, fields_now):
         if not f.get("required"):
             continue
         kind, value = f["kind"], f.get("value")
-        empty = (kind in ("text", "textarea") and not value) or \
-                (kind == "select" and (not value or value in ("0", "-1"))) or \
+        empty = (kind in ("text", "textarea", "file") and not value) or \
+                (kind == "select" and (not value or not real_options([f.get("text", str(value))]))) or \
                 (kind in ("radio", "checkgroup", "yesno") and not any(value or [])) or \
                 (kind == "checkbox" and not (value and value[0])) or \
-                (kind == "listbutton" and (not value or value.lower().startswith("select"))) or \
-                (kind == "combo" and not value and not f.get("shown"))
+                (kind == "listbutton" and not real_options([value])) or \
+                (kind == "combo" and not real_options([value or f.get("shown") or ""]))
         if empty and f["label"] and f["label"] not in result.missing:
             result.missing.append(f["label"])
     problems = page.evaluate(PAGE_PROBLEMS_JS)
     result.errors = problems["errors"]
+    if problems.get("invalid") and not result.errors:
+        result.errors.append(f"{problems['invalid']} field(s) marked invalid by the site")
     result.captcha = problems["captcha"]
     return result

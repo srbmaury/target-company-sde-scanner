@@ -6,6 +6,7 @@ personal:
   first_name: Asha
   last_name: Example
   preferred_name: Asha
+  pronouns: she/her          # optional; filled only where a form asks
   email: asha@example.com
   phone: "9876543210"          # national number, without the country code
   phone_country: India         # the name shown in phone-country pickers
@@ -31,6 +32,7 @@ work:
   current_title: Software Engineer
   start_month: "2024-06"
   total_experience_years: 2       # whole years, non-internship
+  total_experience_months: 28     # optional: total in months, for forms that split years + months (2 y 4 m)
   # Optional, for screeners that ask per area ("design or architecture", "full software development
   # life cycle"). Leave blank to use total_experience_years.
   design_experience_years:
@@ -39,12 +41,16 @@ work:
   notice_period_days: 30
   current_ctc: "INR 20 LPA fixed"
   expected_ctc: "INR 28 LPA fixed, negotiable"
+  current_ctc_lpa: 20               # numbers, for number-only salary boxes (see automation.numeric_salary_unit)
+  expected_ctc_lpa: 28
+  currency: INR                    # for "Currency" boxes next to salary questions
   reason_for_change: >-
     I'm looking to broaden my technical experience and take on more ownership.
   # "Do you have outside business activities (advisory, consulting, board roles, side businesses)?"
   outside_business_activities: "No"
 
 education:
+  school_name: "Example Institute of Technology"   # the full name, typed where a form asks for text
   school: Example Institute of Technology
   degree: Bachelor's degree        # free-text answer; dropdowns match "Bachelor"
   degree_short: B.Tech
@@ -53,6 +59,8 @@ education:
   start_year: 2020
   end_year: 2024
   cs_or_equivalent: true           # "Bachelor's degree in computer science or equivalent?"
+  start_month: "2016-07"          # YYYY-MM, for "start / graduation date" questions
+  end_month: "2020-06"
 
 eligibility:
   authorized_countries: [India]
@@ -89,12 +97,19 @@ resumes:
 
 # How much jobbot does without asking you. Submit always needs your keypress.
 automation:
+  parallel_workers: 4       # dashboard application browsers running at once
+  ollama_review_each_step: true  # require explicit model approval covering every field
   auto_accept_drafts: true   # use the local model's drafts for free-text questions without asking
   auto_consent: false        # tick privacy/consent boxes without asking (true = no consent prompt)
+  create_accounts: false     # sign in to job sites, and sign up where you have no account, with the
+                             # password from `jobbot password` (Keychain); CAPTCHAs stay yours
+  sign_in: true              # sign in to job sites with the Keychain password (false = always wait for you)
+  numeric_salary_unit: ""    # unit for number-only salary boxes with no label hint: "LPA" or "INR"; blank = needs a hint
+  allowed_demographic_fields: []   # demographic questions answered even in dry validation runs, e.g. [pronouns, veteran]
   auto_sign: false           # type your full name into "Signature" fields without asking
   read_codes_from_email: true  # with Gmail connected, read verification codes from your latest email
   confirm_batches: true      # list the roles and ask before applying to more than 3 (same as -y when false)
-  max_applications_per_day: 25   # stop a batch once jobbot has submitted this many today (0 = no limit)
+  max_applications_per_day: 0    # no daily limit; set a positive number for an optional cap
 
 # Your own fixed answers. `match` is a case-insensitive regex tested against the question text.
 # These win over everything else, including the questions jobbot would normally ask you about.
