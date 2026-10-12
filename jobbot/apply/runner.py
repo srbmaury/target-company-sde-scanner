@@ -58,7 +58,7 @@ def select_targets(conn, keys=(), all_=False, top=None, min_fit=None, force=Fals
             note(f"Skipping {t['company']} — {t['title']}: already applied "
                  f"(#{app['id']} {app['title']}, {app['status']}, {app['applied_on'] or 'date unknown'}).")
             continue
-        if level == "possible":
+        if level == "possible" and not force:   # force: you said apply anyway
             what = "an unnamed" if app["title"].startswith("(role not stated") else f"a similar ({app['title']})"
             t["_possible"] = f"you applied to {what} {app['company']} role on {app['applied_on'] or 'an unknown date'}"
         unique.append(t)

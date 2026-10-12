@@ -43,6 +43,18 @@ class PickTest(unittest.TestCase):
         opts = ["YES, I am currently or have been employed by PwC", "No, I have not been employed by PwC"]
         self.assertEqual(pick("No", opts), 1)
 
+    def test_no_matches_negative_statement(self):
+        opts = ["Please Select", "I have never been employed by Rubrik", "I am currently a full/part-time employee for Rubrik",
+                "I was previously a contractor for Rubrik"]
+        self.assertEqual(pick("No", opts), 1)
+        self.assertIsNone(pick("Yes", opts))   # current or previous: not for a rule to guess
+
+    def test_greenhouse_education_dates(self):
+        r = Resolver(Profile({**PROFILE, "education": {"start_month": "2020-09", "end_month": "2024-06"}}, "x"), None, job={})
+        self.assertEqual(r.resolve("Start date year", "text", quick=True).value, "2020")   # not "30 days notice"
+        self.assertEqual(r.resolve("End date month", "text", quick=True).value, "June")
+        self.assertEqual(r.resolve("What year did you graduate in?", "text", quick=True).value, "2024")
+
     def test_country_with_dial_code(self):
         self.assertEqual(pick("India", ["British Indian Ocean Territory +246", "India +91"]), 1)
 
@@ -1153,6 +1165,10 @@ class ValidationPromptTest(unittest.TestCase):
         self.assertEqual(bad, [])
         bad, ok = consistency.check(r2, [f("School", "Indian Institute of Technology Bombay (IITB)")])
         self.assertEqual(len(bad), 1)
+        self.assertEqual(consistency.check(r2, [f("School", "Other")])[0], [])   # your college is not in the site's list
+        consent = f("I confirm, that I have read the Privacy Notice*", "I confirm")
+        self.assertIn(consent["id"], consistency.check(r2, [consent])[1])
+        self.assertNotIn("n", consistency.check(r2, [{**consent, "id": "n", "actual": "I do not agree"}])[1])
         self.assertEqual(len(consistency.check(r2, [f("Facebook", "Telangana")])[0]), 1)   # a stray value in a profile you don't list
         self.assertIsNone(r2.resolve("X (fka Twitter)", "text", quick=True))
         from jobbot.apply.dropdowns import matching_option

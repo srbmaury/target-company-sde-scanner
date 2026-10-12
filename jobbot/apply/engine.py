@@ -388,7 +388,8 @@ class Session:
             r = next((expected[i] for i in ids if i in expected), None)
             value = f.get("text") or f.get("shown") or f.get("value") or ""
             if isinstance(value, list):
-                value = ", ".join(o for o, selected in zip(f.get("options", []), value) if selected)
+                value = ("checked" if any(value) else "") if f["kind"] == "checkbox" else \
+                    ", ".join(o for o, selected in zip(f.get("options", []), value) if selected)
             got = readback.get(r["id"], {}) if r else {}
             actual = got.get("value", value)
             status = ("verified" if got.get("found") and matches(r["expected"], actual, r["kind"]) else "needs revision") if r else ("present, review" if value else "required, empty" if f.get("required") else "optional, empty")

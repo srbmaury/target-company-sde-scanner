@@ -64,6 +64,15 @@ def pick(answer, options):
     hits = [i for i, o in enumerate(normed) if pattern.search(o)]
     if len(hits) == 1:
         return hits[0]
+    initials = "".join(w[0] for w in a.split() if w not in ("and", "of", "in", "the", "with"))
+    if len(initials) >= 2:   # "Electronics and Communication Engineering" -> "ECE", "E.C.E."
+        acr = [i for i, o in enumerate(normed) if o.replace(" ", "") == initials]
+        if len(acr) == 1:
+            return acr[0]
+    if a == "no":   # "No" against sentence options: the one negative statement ("I have never been employed by ...")
+        neg = [i for i, o in enumerate(normed) if re.match(r"(i (have|had) (never|not)|i (am|was) not|i do not|i don ?t|never|none|not )", o)]
+        if len(neg) == 1:
+            return neg[0]
     return None
 
 
@@ -88,7 +97,7 @@ FACT_ONLY_RE = re.compile(r"citizen|nationality|\bvisa\b|green card|permanent re
                           r"\bpassport\b|date of birth|\bage\b|social security|aadhaar|\bpan\b", re.I)
 # Optional catch-all boxes ("Anything else you'd like us to know?") are better left blank than filled.
 OPEN_EXTRA_RE = re.compile(r"anything else|additional (information|comments|details)|other comments|cover letter|^comments?$", re.I)
-SIGN_RE = re.compile(r"signature|sign here|\be-?sign|type your (full |legal )?name to (sign|confirm|acknowledge)", re.I)
+SIGN_RE = re.compile(r"signature|sign here|\be-?sign|type your (full |legal )?name to (sign|confirm|acknowledge)|by typing your (full |legal )?name", re.I)
 
 
 def same_employer(company, past):
@@ -147,10 +156,10 @@ def bucket(years, options):
 
 
 SOCIAL_RE = re.compile(r"^\s*(facebook|twitter|x|instagram|threads|tiktok|youtube|github|gitlab|linkedin|website|portfolio|"
-                       r"personal website|blog|medium|stack ?overflow|leetcode|kaggle|dribbble|behance)\b"
+                       r"personal website|blog|medium|stack ?overflow|stack ?exchange|hacker ?rank|codeforces|codechef|leetcode|kaggle|dribbble|behance|mastodon|bluesky)\b"
                        r"(?:\s*\(fka twitter\))?(?:\s*(?:profile|url|link|handle|page))*\s*\*?\s*$", re.I)
 SOCIAL_KEYS = {"x": "twitter", "personal website": "website", "blog": "website", "portfolio": "website", "stackoverflow": "stackoverflow",
-               "stack overflow": "stackoverflow"}
+               "stack overflow": "stackoverflow", "stack exchange": "stackexchange", "hacker rank": "hackerrank"}
 
 RESUME_FACT_RE = re.compile(
     r"\b(years?|months?)\b.{0,60}\bexperience\b|\bexperience\b.{0,80}\b(years?|months?)\b|how many (years|months)"
@@ -488,9 +497,18 @@ class Resolver:
         it really answers the question. quick=True never asks you.
         """
         question = re.sub(r"\s+", " ", question or "").strip(" *:")
+        if not required and re.match(r"\s*if (yes|so|applicable|you (answered|selected|chose))\b", question, re.I):
+            return None   # an optional follow-up to another answer ("If you answered Other, please specify"): blank
         none = self._none_option(question, options)
         if none is not None:
             return none
+        if kind == "choice" and options and re.search(r"\bmajor\b|field of study|discipline|specialization|\bbranch\b.*(major|study|engineering|degree)", question, re.I):
+            # Your branch from the profile, else "Other": never the model's guess ("CS" for an ECE graduate).
+            opts = real_options(options)
+            i = pick(self.p.get("education.field") or "", opts)
+            if i is None:
+                i = next((j for j, o in enumerate(opts) if re.fullmatch(r"\s*others?\b.*", o, re.I)), None)
+            return Answer(i, "profile", opts[i]) if i is not None else None
         factual = self._profile_fact(question, kind, options)
         if factual is not None:
             return factual
@@ -553,7 +571,9 @@ class Resolver:
             value = self.p.get("eeo.veteran")
             if kind == "choice" and {o.strip().lower() for o in (options or [])} == {"yes", "no"}:
                 value = self.p.get("eligibility.military_service")
-        elif re.search(r"school|university|college|education|course", q) and re.search(r"start|end|graduat|completion|from|to date", q):
+        elif (re.search(r"school|university|college|education|course", q) and re.search(r"start|end|graduat|completion|from|to date", q)) \
+                or re.fullmatch(r"(start|end) date (month|year)", q) or re.search(r"\b(year|when) did you graduate|graduation year", q):
+            # Greenhouse's education block asks "Start date year" / "End date month" with no school word
             end = bool(re.search(r"end|graduat|completion|to date", q))
             key = "end" if end else "start"
             month = self.p.get(f"education.{key}_month")
@@ -561,7 +581,7 @@ class Resolver:
                 year, month_number = month.split("-")
                 if "year" in q:
                     value = year
-                elif "month" in q and "date" not in q:
+                elif "month" in q and ("date" not in q or q.endswith("date month")):
                     import calendar
                     value = calendar.month_name[int(month_number)]
                 else:

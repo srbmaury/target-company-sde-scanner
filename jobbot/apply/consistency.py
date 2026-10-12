@@ -13,6 +13,9 @@ TRUSTED = ("profile", "rule", "remembered")
 CHOICE_KINDS = ("select", "combo", "radio", "yesno", "listbutton", "checkgroup")
 SKIP_LABEL = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|signature|captcha|password|"
                         r"cover letter|why |describe|tell us|explain|additional information", re.I)
+CONSENT_LABEL = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i confirm|confirm the statement|declare|"
+                           r"^i understand\b|^i have (read|reviewed|marked)\b", re.I)
+AFFIRM = re.compile(r"(checked|yes|i (confirm|agree|acknowledge|accept|consent|understand|certify)|agreed?|accepted?|acknowledged?)\b", re.I)
 
 
 def _words(text):
@@ -110,6 +113,9 @@ def check(resolver, fields):
         if not actual and not f.get("required"):
             confirmed.add(f["id"])   # an optional field left blank (e.g. Ashby's "Autofill from resume") is never a block
             continue
+        if CONSENT_LABEL.search(f.get("label") or "") and AFFIRM.match(actual):
+            confirmed.add(f["id"])   # a consent or attestation answered "I confirm"/"I agree"/ticked: nothing to compare
+            continue
         if f.get("kind") == "textarea" and actual:
             if free_text_ok(actual, resolver):
                 confirmed.add(f["id"])   # passes the exact checks: a model's wording complaint will not block it
@@ -123,7 +129,15 @@ def check(resolver, fields):
         if want is None:
             continue
         # your school goes by several names (profile education.school); a site may show any of them
-        names = [want] + (schools if re.search(r"school|university|college|institut", f.get("label") or "", re.I) else [])
+        is_school = bool(re.search(r"school|university|college|institut", f.get("label") or "", re.I))
+        if is_school and (not actual or re.fullmatch(r"other", actual, re.I)):
+            confirmed.add(f["id"])   # your college is not in the site's list: left blank, or "Other" where required
+            continue
+        if re.fullmatch(r"others?", actual, re.I) and re.search(r"\bmajor\b|field of study|discipline|specialization|\bbranch\b",
+                                                              f.get("label") or "", re.I):
+            confirmed.add(f["id"])   # your branch is not among the site's options
+            continue
+        names = [want] + (schools if is_school else [])
         if any(same_value(w, f.get("actual"), resolver.p.get("personal.phone_country_code", "")) for w in names):
             confirmed.add(f["id"])
         elif str(f.get("actual") or "").strip() or f.get("required"):

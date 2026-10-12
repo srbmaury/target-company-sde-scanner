@@ -63,6 +63,14 @@ def fill_dropdown(self, page, f, resolver, note):
                     if hit is not None:
                         options = found
                         break
+                if hit is None:
+                    # Many school lists do not have your college: after every alias, leave it blank, or
+                    # pick "Other" when the site requires an answer. Never another college, never asking you.
+                    found = self._search_options(page, loc, resolver, label, term="Other") if f["required"] else []
+                    hit = next((i for i, o in enumerate(found or []) if re.fullmatch(r"\s*other\s*", o, re.I)), None)
+                    if hit is None:
+                        break
+                    options = found
             if hit is not None:
                 from ..answers import Answer
                 ans = Answer(hit, "rule", options[hit])
