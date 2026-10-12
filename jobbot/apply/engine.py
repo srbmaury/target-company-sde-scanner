@@ -268,6 +268,11 @@ class Session:
                 if after.errors or after.captcha:
                     self.ui.warn("The site did not accept the submission: " + "; ".join(after.lines()[:3]))
                     continue
+                if any(CODE_RE.search(f.get("label") or "") and not f.get("value") for f in self._fields(page)):
+                    # Greenhouse, after several applications: "enter the security code we emailed you, then
+                    # resubmit". The next round reads the code from Gmail, enters it and submits again.
+                    self.ui.info("The site emailed a security code; entering it and submitting again.")
+                    continue
                 if getattr(self, "auto_submit", False):
                     # A click may have succeeded even when the site uses unfamiliar confirmation text.
                     # Never submit the same application again to discover whether it worked.
@@ -556,8 +561,13 @@ class Session:
         def note(f, label, ans, expected=None, target_id=None, kind=None, was=None):
             mine.add(label)
             filled.append((f"{label} (was “{was[:30]}”)" if was else label, ans))
-            records.append({"id": target_id or f["id"], "kind": kind or f["kind"], "label": label,
-                            "expected": str(expected if expected is not None else getattr(ans, "display", "") or ans)})
+            record = {"id": target_id or f["id"], "kind": kind or f["kind"], "label": label,
+                      "expected": str(expected if expected is not None else getattr(ans, "display", "") or ans)}
+            if re.search(r"school|university|college|institut", label, re.I):
+                # an autocomplete may replace the full name with one of its own (e.g. "BHU University")
+                schools = self.profile.get("education.school") or []
+                record["alternatives"] = [str(x) for x in (schools if isinstance(schools, list) else [schools])]
+            records.append(record)
 
         fields = self._fields(page)
         code_boxes = [f for f in fields if f["kind"] == "text" and CODE_RE.search(f["label"] or "")]

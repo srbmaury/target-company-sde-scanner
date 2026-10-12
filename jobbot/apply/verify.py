@@ -146,7 +146,9 @@ def check_page(page, records, unresolved, fields_now):
                     got = next(iter(page.evaluate(READBACK_JS, [updated])), {})
                 else:
                     continue  # conditional fields may have disappeared legitimately
-            if not matches(r["expected"], got.get("value", ""), r["kind"]):
+            alternatives = r.get("alternatives") or []   # e.g. your school's other names, which a site may swap in
+            if not matches(r["expected"], got.get("value", ""), r["kind"]) and \
+                    not any(matches(alt, got.get("value", ""), r["kind"]) for alt in alternatives):
                 result.mismatches.append((r["label"], r["expected"], got.get("value", "")))
     result.missing.extend(unresolved)
     for f in fields_now:

@@ -901,6 +901,9 @@ class HotReloadTest(unittest.TestCase):
             self.assertIs(session.__class__, new_engine.Session)
             self.assertIsNot(new_engine.Session, old_class)
             self.assertFalse(hot.refresh(session))   # nothing new since
+            other = old_class.__new__(old_class)     # another worker's session, still on the old code
+            self.assertTrue(hot.refresh(other))
+            self.assertIs(other.__class__, new_engine.Session)
             with unittest.mock.patch.object(bridge, "LOADED_AT", time.time() + 1):
                 self.assertFalse(bridge.code_changed())   # form-filling code never blocks a new run
         finally:
@@ -1144,6 +1147,14 @@ class ValidationPromptTest(unittest.TestCase):
         self.assertFalse(consistency.same_value("https://www.linkedin.com/in/asha", "https://linkedin.com/in/someone-else"))
         self.assertFalse(consistency.same_value("Hyderabad, Telangana, India", "Mumbai, Maharashtra, India"))
         self.assertTrue(consistency.same_value("Hyderabad, Bengaluru, Noida, Remote", "Bengaluru, India"))
+        r2 = Resolver(Profile({**PROFILE, "education": {"school_name": "Indian Institute of Technology (BHU), Varanasi",
+                                                         "school": ["IIT (BHU)", "BHU University"]}}, "x"), None, job={"company": "X"})
+        bad, ok = consistency.check(r2, [f("School", "BHU University")])   # the site's own name for your school
+        self.assertEqual(bad, [])
+        bad, ok = consistency.check(r2, [f("School", "Indian Institute of Technology Bombay (IITB)")])
+        self.assertEqual(len(bad), 1)
+        bad, ok = consistency.check(r2, [f("Security code", "e"), f("A verification code was sent to you. Enter the 8-character code", "m")])
+        self.assertEqual((bad, ok), ([], {"Security code", "A verification code was sent to you. Enter the 8-character code"}))
 
     def test_greenhouse_security_code(self):
         from jobbot.gmail import extract_code

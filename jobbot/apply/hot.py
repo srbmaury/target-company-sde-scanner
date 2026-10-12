@@ -53,6 +53,15 @@ def refresh(session=None, log=None):
     with _LOCK:
         stale = changed()
         if not stale:
+            # Another worker may have reloaded already: still move this session onto the current class.
+            current = getattr(sys.modules.get("jobbot.apply.engine"), "Session", None)
+            old = type(session)
+            if (session is not None and current is not None and old is not current
+                    and old.__name__ == "Session" and old.__module__ == "jobbot.apply.engine"):   # an older Session only
+                session.__class__ = current
+                if log:
+                    log("Picked up updated code for the next application.")
+                return True
             return False
         first = min(MODULES.index(n) for n in stale)
         reloaded = []

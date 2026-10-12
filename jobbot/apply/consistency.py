@@ -84,11 +84,21 @@ def expected_answer(resolver, field):
 def check(resolver, fields):
     """(mismatches, confirmed ids): fields that contradict your profile, and fields that match it."""
     mismatches, confirmed = [], set()
+    schools = resolver.p.get("education.school") or []
+    schools = [str(x) for x in (schools if isinstance(schools, list) else [schools])]
+    from .email_verification import CODE_RE
     for f in fields:
+        if CODE_RE.search(f.get("label") or "") and str(f.get("actual") or "").strip():
+            # a code box filled from your email: one character per box, so a model reviewing boxes
+            # one by one calls it "incomplete"; jobbot entered the exact emailed code
+            confirmed.add(f["id"])
+            continue
         want = expected_answer(resolver, f)
         if want is None:
             continue
-        if same_value(want, f.get("actual"), resolver.p.get("personal.phone_country_code", "")):
+        # your school goes by several names (profile education.school); a site may show any of them
+        names = [want] + (schools if re.search(r"school|university|college|institut", f.get("label") or "", re.I) else [])
+        if any(same_value(w, f.get("actual"), resolver.p.get("personal.phone_country_code", "")) for w in names):
             confirmed.add(f["id"])
         elif str(f.get("actual") or "").strip() or f.get("required"):
             mismatches.append((f, want))
