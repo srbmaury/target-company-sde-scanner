@@ -1153,8 +1153,44 @@ class ValidationPromptTest(unittest.TestCase):
         self.assertEqual(bad, [])
         bad, ok = consistency.check(r2, [f("School", "Indian Institute of Technology Bombay (IITB)")])
         self.assertEqual(len(bad), 1)
+        self.assertEqual(len(consistency.check(r2, [f("Facebook", "Telangana")])[0]), 1)   # a stray value in a profile you don't list
+        self.assertIsNone(r2.resolve("X (fka Twitter)", "text", quick=True))
+        from jobbot.apply.dropdowns import matching_option
+        self.assertEqual(matching_option(["Hyderabad, Sindh, Pakistan", "Hyderabad, India"], "Hyderabad", "Hyderabad, Telangana, India"), 1)
+        self.assertIsNone(matching_option(["Hyderabad, Sindh, Pakistan"], "Hyderabad", "Hyderabad, Telangana, India"))
+        upload = {"id": "cv", "label": "Resume/CV", "kind": "file", "actual": "Asha_Resume.pdf", "options": [], "required": True}
+        autofill = {"id": "af", "label": "Software Engineer -II", "kind": "file", "actual": "", "options": [], "required": False}
+        self.assertEqual(consistency.check(r2, [upload, autofill]), ([], {"cv", "af"}))
+        group = [dict(f(x, "checked" if x == "Company Website" else ""), kind="checkbox") for x in ("LinkedIn", "Company Website", "Recruiter Outreach")]
+        self.assertEqual(consistency.check(r2, group), ([], {"LinkedIn", "Company Website", "Recruiter Outreach"}))
         bad, ok = consistency.check(r2, [f("Security code", "e"), f("A verification code was sent to you. Enter the 8-character code", "m")])
         self.assertEqual((bad, ok), ([], {"Security code", "A verification code was sent to you. Enter the 8-character code"}))
+
+    def test_tool_experience_answer_claims_only_resume_tools(self):
+        from jobbot.answers import Resolver
+        prof = Profile({**PROFILE, "links": {"website": "https://asha.dev"}}, "x")
+        prof.resumes = lambda: {"cloud": {"path": ""}}
+        prof.resume_text = lambda key, limit=None: "Docker, AWS (EC2, S3, RDS), Python, Java"
+        r = Resolver(prof, None, job={"company": "Fampay"})
+        self.assertEqual(r.resolve("Share your hands-on experience with AWS services like S3, EKS, or MSK. What was the use case?",
+                                   "textarea", quick=True).value,
+                         "I have hands-on experience with AWS and S3, as listed on my resume. I have not worked with EKS or MSK.")
+        self.assertEqual(r.resolve("Portfolio URL", "text", quick=True).value, "https://asha.dev")   # portfolio = your website
+
+    def test_free_text_passes_exact_checks_and_hear_groups_tick_one_box(self):
+        from jobbot.answers import Resolver
+        from jobbot.apply.consistency import free_text_ok
+        from jobbot.apply.engine import HEAR_MINE_RE, HEAR_OPTION_RE
+        prof = Profile({**PROFILE, "work": {**PROFILE.get("work", {}), "total_experience_years": 2, "past_employers": ["Salesforce"]}}, "x")
+        r = Resolver(prof, None, job={"company": "Anyscale"})
+        self.assertTrue(free_text_ok("I am excited to contribute to Anyscale's Ray platform with my backend work.", r))
+        self.assertTrue(free_text_ok("At Salesforce I built backend services for 2 years.", r))
+        self.assertFalse(free_text_ok("I have always wanted to work at Google because of its scale.", r))
+        self.assertFalse(free_text_ok("I bring 8 years of experience leading platform teams.", r))
+        self.assertFalse(free_text_ok("asdf", r))
+        group = ["LinkedIn", "Company Website", "Recruiter Outreach", "Podcast/Blog", "Other Job Boards"]
+        self.assertTrue(all(HEAR_OPTION_RE.fullmatch(x) for x in group))
+        self.assertEqual([x for x in group if HEAR_MINE_RE.fullmatch(x)], ["Company Website"])
 
     def test_greenhouse_security_code(self):
         from jobbot.gmail import extract_code

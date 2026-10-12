@@ -21,7 +21,7 @@ from .review import REVIEW_BATCH  # public compatibility for existing callers
 from .fields import BUTTONS_JS
 from .sites import detect_ats, start_url
 from .unattended import NeedsYou, UnattendedUI
-from .verify import READBACK_JS, check_page, matches
+from .verify import HEAR_MINE_RE, HEAR_OPTION_RE, READBACK_JS, check_page, matches
 
 MAX_ROUNDS = 5           # review rounds per page before asking you
 TRUSTED = ("profile", "rule", "remembered")   # sources allowed to overwrite a value the site pre-filled
@@ -40,7 +40,8 @@ CONFIRM_RE = re.compile(
 # Honeypot fields exist to catch bots; filling one gets the application flagged.
 TRAP_RE = re.compile(r"robots? only|for robots|do not (fill|enter)|leave (this )?(field )?(blank|empty)|honeypot", re.I)
 CODE_RE = email_verification.CODE_RE
-CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i confirm|confirm the statement|declare", re.I)
+CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i confirm|confirm the statement|declare|"
+                        r"^i understand\b|^i have (read|reviewed|marked)\b", re.I)
 
 
 class Session:
@@ -267,6 +268,7 @@ class Session:
                 after = check_page(page, [], [], [])
                 if after.errors or after.captcha:
                     self.ui.warn("The site did not accept the submission: " + "; ".join(after.lines()[:3]))
+                    self._reassert_missing(page, after.lines())
                     continue
                 if any(CODE_RE.search(f.get("label") or "") and not f.get("value") for f in self._fields(page)):
                     # Greenhouse, after several applications: "enter the security code we emailed you, then
@@ -532,6 +534,30 @@ class Session:
     _needs_account = staticmethod(auth.needs_account)
     _ensure_signed_in = auth.ensure_signed_in
 
+    def _reassert_missing(self, page, lines):
+        """'Missing entry for required field: X' although X shows jobbot's answer: the site never registered
+        the click (seen on Ashby Yes/No buttons). Click the other option, then the answer again, so the
+        site records it; the next round submits again."""
+        missing = [m.group(1).strip().rstrip("?").lower() for line in lines
+                   for m in [re.search(r"missing entry for required field:\s*(.+)", line, re.I)] if m]
+        if not missing:
+            return
+        for f in self._fields(page):
+            label = (f.get("label") or "").strip().rstrip("?").lower()
+            if f["kind"] not in ("yesno", "radio") or not any(label.startswith(x[:50]) for x in missing):
+                continue
+            picked = [i for i, v in enumerate(f.get("value") or []) if v]
+            ids = f["id"].split(",")
+            if not picked or len(ids) < 2:
+                continue
+            other = 1 - picked[0] if len(ids) == 2 else (picked[0] + 1) % len(ids)
+            try:
+                self._tick(page, ids[other])
+                self._tick(page, ids[picked[0]])
+                self.ui.info(f"Re-entered “{f['label'][:60]}” so the site records it.")
+            except Exception:
+                pass
+
     def _dry_validation(self):
         """A validation run that will not submit: it leaves demographic answers and consents to you.
         An approved auto-submit run answers them from your profile like any normal run."""
@@ -716,8 +742,18 @@ class Session:
                         continue
                     if CONSENT_RE.search(label):
                         consents.append(f)
+                    elif HEAR_OPTION_RE.fullmatch(label.strip(" *")):
+                        # one box of a "how did you hear about us" group: tick only where you found the role
+                        if HEAR_MINE_RE.fullmatch(label.strip(" *")):
+                            self._tick(page, f["id"])
+                            note(f, label, "ticked (where you found this role)")
                     else:
-                        ans = resolver.resolve(label, "choice", options=["Yes", "No"], required=f["required"])
+                        # Rules only: the local model once ticked 7 of 8 "how did you hear" boxes.
+                        saved, resolver.llm = resolver.llm, None
+                        try:
+                            ans = resolver.resolve(label, "choice", options=["Yes", "No"], required=False, quick=True)
+                        finally:
+                            resolver.llm = saved
                         if ans and ans.display == "Yes":
                             self._tick(page, f["id"])
                             note(f, label, ans)

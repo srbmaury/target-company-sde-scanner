@@ -146,15 +146,23 @@ def bucket(years, options):
     return None
 
 
+SOCIAL_RE = re.compile(r"^\s*(facebook|twitter|x|instagram|threads|tiktok|youtube|github|gitlab|linkedin|website|portfolio|"
+                       r"personal website|blog|medium|stack ?overflow|leetcode|kaggle|dribbble|behance)\b"
+                       r"(?:\s*\(fka twitter\))?(?:\s*(?:profile|url|link|handle|page))*\s*\*?\s*$", re.I)
+SOCIAL_KEYS = {"x": "twitter", "personal website": "website", "blog": "website", "portfolio": "website", "stackoverflow": "stackoverflow",
+               "stack overflow": "stackoverflow"}
+
 RESUME_FACT_RE = re.compile(
     r"\b(years?|months?)\b.{0,60}\bexperience\b|\bexperience\b.{0,80}\b(years?|months?)\b|how many (years|months)"
     r"|^(do|have|are) you (have )?(any )?(worked|work|experience|familiar|hands.?on|used|built|exposure)\b"
     r"|^(total |work |relevant |overall |professional )?(experience|exp\.?|years|months)( \(?in (years|months)\)?)?$"
     r"|^(key |technical |primary |core |relevant )?skills?( set)?$"
     r"|\b(live|based|reside|located) within \d+\s*(miles|mi|km|kilomet)"
+    r"|^(please )?(share|describe|tell us about|explain|walk us through) (your )?(hands.?on |practical |professional )?(experience|work) (with|using|in|on)\b"
     r"|^(salary |ctc |compensation |preferred |expected )?currency\b|deemed export|(previously|ever|formerly) (worked|been employed|employed) (for|at|by)|former employee|worked (for|at) .{0,40} before"
     r"|legally authori[sz]ed to work|(require|need)s? .{0,20}sponsorship|(previously|ever|already) appl(y|ied)\b"
     r"|language.{0,20}\b(fluent|speak|spoken|written)|\bfluent in\b"
+    r"|^(what|which) (city|town)\b.{0,30}\b(live|based|reside|located)|^where do you (currently )?(live|reside)\b|(city|place) of residence"
     r"|^(current |home )?(location|city)( \((city|city, state|city, country)\))?$|^(current|home) (city|location)\b", re.I)
 
 
@@ -226,6 +234,28 @@ class Resolver:
             # every "and" part needs one of its "/" choices on a resume (full text, not a truncated preview)
             found, _missing = resumes.has_all(p, tech)
             return experience_years() if found else "0"
+
+        def tools_statement(question):
+            """'Share your hands-on experience with AWS services like S3, EKS, or MSK': name what your resumes show,
+            say plainly what they don't, and invent no projects or use cases."""
+            m = re.search(r"\b(?:experience|work)\s+(?:with|using|in|on)\s+(.+?)(?:\?|\.\s|$)", question, re.I)
+            if not m:
+                return None
+            from . import resumes
+            phrase = re.sub(r"\b(services?|tools?|technologies|platforms?|frameworks?|like|such as|e\.g\.?|including|etc)\b", ",", m.group(1), flags=re.I)
+            items = [x.strip(" .") for x in re.split(r",|/|\bor\b|\band\b", phrase) if x.strip(" .")]
+            items = [x for x in items if 1 < len(x) <= 25 and len(x.split()) <= 3][:8]
+            if not items or not p.resumes():
+                return None
+            have = [x for x in items if resumes.mentions(p, x)]
+            lack = [x for x in items if x not in have]
+            join = lambda xs: xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]  # noqa: E731
+            parts = []
+            if have:
+                parts.append(f"I have hands-on experience with {join(have)}, as listed on my resume.")
+            if lack:
+                parts.append(f"I have not worked with {join(lack).replace(' and ', ' or ')}.")
+            return " ".join(parts)
 
         def used_tech(question):
             """'Have you worked with Debezium, PeerDB?': Yes only if your resumes mention every tool named."""
@@ -315,7 +345,7 @@ class Resolver:
             (r"(open|okay|ok|comfortable|fine|willing) (for|to|with|in) .*\b(location|city|office)\b|"
              r"(open|willing|able) to (work|be based|move) (in|from|at|to) ", open_to_place),
             (r"relocat|work (on a daily basis )?in the (work )?location|able to work from|\bcommute", willing),
-            (r"currently (based|located|living|residing) in|do you (live|reside) in", lambda: None),
+            (r"(?<!city )(?<!town )(currently (based|located|living|residing) in|do you (live|reside) in)\b(?!\s*\?)", lambda: None),
             (r"notice period.*(negotiable|buy ?out|serve)|can you (join|start) (early|sooner|immediately)|buy ?out", lambda: "Yes"),
             (r"serving (your )?notice|on notice period|currently on notice", lambda: "No"),
             (r"willing to (work|take|do).*(shift|weekend|on.?call|night|rotational)", lambda: "Yes"),
@@ -340,6 +370,8 @@ class Resolver:
             (r"how many months.*(with|in|using|on) ", lambda: str(total_months()) if tech_years(self._q) != "0" else "0"),
             (r"^(key |technical |primary |core |relevant )?skills?( set)?\s*[*✱]?$",
              lambda: __import__("jobbot.resumes", fromlist=["top_skills"]).top_skills(p, self.resume_key) or None),
+            (r"^(please )?(share|describe|tell us about|explain|walk us through) (your )?(hands.?on |practical |professional )?"
+             r"(experience|work) (with|using|in|on)\b", lambda: tools_statement(self._q)),
             (r"years of (hands.?on |professional )?experience (with|in|using|on)|how many years.*(with|in|using|on) ",
              lambda: tech_years(self._q)),
             (r"years of (professional |relevant |total |industry |work )?experience|how many years", experience_years),
@@ -385,7 +417,8 @@ class Resolver:
             (r"^(your |current |home )?(state|province|region)\b(?!\s+(the|any|your|why|whether|if|how|what)\b)|"
              r"\bstate\s*/\s*(province|region)|\b(state|province|region) of (residence|domicile)|"
              r"(which|what|select( your)?) (state|province|region)\b", lambda: g("personal.state")),
-            (r"\blocation\b|\bcity\b|where are you (based|located)", lambda: g("personal.location_autocomplete") or g("personal.city")),
+            (r"\blocation\b|\bcity\b|where are you (based|located)|where do you (live|reside)\b|place of residence",
+             lambda: g("personal.location_autocomplete") or g("personal.city")),
             (r"^country\b|country of residence|which country", lambda: g("personal.country")),
             (r"current (\(or most recent\) )?(company|employer|organi[sz]ation)|^company$|most recent (company|employer)",
              lambda: g("work.current_company")),
@@ -465,6 +498,13 @@ class Resolver:
             # A generic school alias must never select another campus through rule/model fallback.
             return None
         options = real_options(options or [])
+        social = SOCIAL_RE.search(question)
+        if social:
+            # Social profiles come from your profile's links only: a model must not invent one (it once put
+            # "Telangana" in Facebook). A network you do not list stays blank.
+            return self._fit(self.p.get(f"links.{SOCIAL_KEYS.get(social.group(1).lower(), social.group(1).lower())}"),
+                             kind, options, "profile") if self.p.get(
+                f"links.{SOCIAL_KEYS.get(social.group(1).lower(), social.group(1).lower())}") else None
         if RESUME_FACT_RE.search(question):
             # Experience, skills and years/months come from your profile and resumes only: the model never
             # overrides them, so it cannot claim a tool your resumes do not show or put "Bangalore" in Experience.

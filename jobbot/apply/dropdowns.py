@@ -11,6 +11,10 @@ def matching_option(options, typed, guess=""):
     for i, o in enumerate(options or []):   # every word of the full answer: "(BHU), Varanasi", "Telangana"
         if want and want <= words(o):
             return i
+    for i, o in enumerate(options or []):   # an option that is a shorter form of the answer: "Hyderabad, India"
+        ow = words(o) - {"of", "the", "and", "in"}
+        if ow and ow <= want and words(typed) <= ow:
+            return i
     t = (typed or "").strip().lower()
     if t and words(t) >= want:   # we typed the whole answer: "India" -> "India +91", not "British Indian Ocean..."
         for i, o in enumerate(options or []):

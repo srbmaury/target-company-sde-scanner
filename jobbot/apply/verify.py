@@ -103,6 +103,15 @@ def _norm(s):
     return re.sub(r"[^a-z0-9+@.]", "", (s or "").lower())
 
 
+# Options of a "how did you hear about us" checkbox group, and the one that is true for jobbot's applications.
+HEAR_OPTION_RE = re.compile(r"(company|corporate)? ?(careers? )?(website|site|page)|linkedin|indeed|naukri|glassdoor|"
+                            r"(other )?job (board|site)s?|recruiter( outreach)?|referral|employee referral|friend|"
+                            r"podcast(/blog)?|blog|industry conference|conference|(tech )?community(/forum)?|forum|"
+                            r"fireside chat(/event)?|event|social media|twitter|x|facebook|instagram|youtube|news(paper)?|"
+                            r"university|campus|career fair|other", re.I)
+HEAR_MINE_RE = re.compile(r"(company|corporate)? ?(careers? )?(website|site|page)", re.I)
+
+
 def matches(expected, actual, kind):
     if kind in ("radio", "checkgroup", "yesno", "checkbox", "consent"):
         return actual == "checked"
@@ -151,8 +160,13 @@ def check_page(page, records, unresolved, fields_now):
                     not any(matches(alt, got.get("value", ""), r["kind"]) for alt in alternatives):
                 result.mismatches.append((r["label"], r["expected"], got.get("value", "")))
     result.missing.extend(unresolved)
+    # A "how did you hear about us" group marks every option required but needs only one ticked.
+    heard = any(f["kind"] == "checkbox" and f.get("value") and f["value"][0] and HEAR_OPTION_RE.fullmatch((f.get("label") or "").strip(" *"))
+                for f in fields_now)
     for f in fields_now:
         if not f.get("required"):
+            continue
+        if heard and f["kind"] == "checkbox" and HEAR_OPTION_RE.fullmatch((f.get("label") or "").strip(" *")):
             continue
         kind, value = f["kind"], f.get("value")
         empty = (kind in ("text", "textarea", "file") and not value) or \
