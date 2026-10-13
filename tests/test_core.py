@@ -1105,28 +1105,105 @@ class ValidationPromptTest(unittest.TestCase):
         session = Session.__new__(Session)
         session.profile, session.llm, session.ui = Mock(), Mock(enabled=True), Mock()
         session.audit_fields = Mock(return_value=[])
+        session._buttons = lambda page, pattern: [{"id": "b"}] if "submit" in pattern else []   # Submit, no Next
         session.llm.review_application_step.return_value = {"approved": False, "reviewed_field_ids": [], "issues": []}
         check = Check()
         session._ollama_review(Mock(inner_text=Mock(return_value="Review and Submit")), Mock(resume_key=None, job={}), {}, check, 1)
         session.llm.review_application_step.assert_called_once()
         self.assertFalse(check.ok)
 
-    def test_empty_middle_page_passes_a_bare_rejection(self):
+    def test_empty_middle_page_is_not_sent_for_review(self):
         from jobbot.apply.engine import Session
         from jobbot.apply.verify import Check
         from unittest.mock import Mock
         session = Session.__new__(Session)
         session.profile, session.llm, session.ui = Mock(), Mock(enabled=True), Mock()
         session.audit_fields = Mock(return_value=[])
-        session.llm.review_application_step.return_value = {"approved": False, "reviewed_field_ids": [], "issues": []}
+        session._buttons = lambda page, pattern: [{"id": "b"}] if "continue" in pattern else []   # Continue only
         check = Check()
-        session._ollama_review(Mock(inner_text=Mock(return_value="Autofill with Resume Continue")), Mock(resume_key=None, job={}), {}, check, 1)
-        self.assertTrue(check.ok)   # nothing to point at on an upload step; a stated problem would still block
-        session.llm.review_application_step.return_value = {"approved": False, "reviewed_field_ids": [],
-                                                            "issues": [{"field_id": "", "reason": "resume missing"}]}
-        check = Check()
-        session._ollama_review(Mock(inner_text=Mock(return_value="Autofill with Resume Continue")), Mock(resume_key=None, job={}), {}, check, 1)
-        self.assertFalse(check.ok)
+        # the page text mentions "submit", but only buttons decide what the final page is
+        session._ollama_review(Mock(inner_text=Mock(return_value="Autofill with Resume. Before you submit, upload a CV.")),
+                               Mock(resume_key=None, job={}), {}, check, 1)
+        self.assertTrue(check.ok)
+        session.llm.review_application_step.assert_not_called()
+
+    def test_deadline_applies_within_a_page(self):
+        import time
+        from jobbot.apply.engine import MAX_APPLY_SECONDS, Session
+        from jobbot.apply.unattended import NeedsYou
+        session = Session.__new__(Session)
+        session.unattended, session._started = True, time.time() - MAX_APPLY_SECONDS - 1
+        with self.assertRaises(NeedsYou):
+            session._check_deadline()
+        session._started = time.time()
+        session._check_deadline()   # within the limit: nothing happens
+
+    def test_unconfirmed_submit_is_recorded_only_after_a_form(self):
+        from unittest.mock import Mock
+        from jobbot.apply.runner import run_jobs
+        from jobbot.apply.unattended import NeedsYou
+        conn = tracker.connect(Path(tempfile.mkdtemp()) / "t.db")
+        prof = Mock(); prof.resumes.return_value = {"r": {}}; prof.get.return_value = 0
+        job = {"company": "Acme", "title": "Engineer", "url": "https://acme.example/jobs/1"}
+        for raised, want in (("Submit clicked but confirmation was not detected; check the site.", "applied"),
+                             ("A Submit-like button was clicked on a page with no application fields; nothing was submitted.",
+                              "needs you")):
+            session = Mock(); session.apply.side_effect = NeedsYou(raised)
+            with unittest.mock.patch("jobbot.resumes.parse_all"), unittest.mock.patch("jobbot.apply.hot.refresh"):
+                (_, status, _, _), = run_jobs(session, conn, prof, [dict(job, url=job["url"] + want[0])], Mock())
+            self.assertEqual(status, want)
+
+    def test_button_finder_reaches_nested_components(self):
+        from jobbot.apply.fields import BUTTONS_JS
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            self.skipTest("playwright not installed")
+        html = """<div id=a></div><script>
+          const outer = document.getElementById('a').attachShadow({mode: 'open'});
+          outer.innerHTML = '<div id=b></div>';
+          const inner = outer.getElementById('b').attachShadow({mode: 'open'});
+          inner.innerHTML = '<button>Next</button>';</script>"""
+        try:
+            with sync_playwright() as p:
+                b = p.chromium.launch(headless=True)
+                page = b.new_page(); page.set_content(html)
+                hits = page.evaluate(BUTTONS_JS, ["^next$", False])
+                b.close()
+        except Exception as e:
+            self.skipTest(f"no browser: {type(e).__name__}")
+        self.assertEqual([h["text"] for h in hits], ["Next"])
+
+    def test_salary_in_lpa_text_box_gets_the_number(self):
+        from jobbot.apply.values import format_value
+        prof = Profile({**PROFILE, "work": {**PROFILE["work"], "current_ctc_lpa": 21.1, "expected_ctc_lpa": 30}}, "x")
+        self.assertEqual(format_value(prof, {"type": "text"}, "Current CTC in LPA *", "INR 21.1 LPA fixed + bonus"), "21.1")
+        self.assertEqual(format_value(prof, {"type": "text"}, "Expected salary (in INR)", "INR 30 LPA"), "3000000")
+        self.assertEqual(format_value(prof, {"type": "text"}, "Current salary", "INR 21.1 LPA fixed"), "INR 21.1 LPA fixed")
+
+    def test_not_applicable_follow_up_skips_past_employers(self):
+        prof = Profile({**PROFILE, "work": {**PROFILE["work"], "past_employers": ["Salesforce"]}}, "x")
+        q = "If so, when were you employed by us and in which team?"
+        self.assertIsNone(Resolver(prof, None, job={"company": "Salesforce"}).resolve(q, "text", required=True, quick=True))
+        self.assertEqual(Resolver(prof, None, job={"company": "Kong"}).resolve(q, "text", required=True, quick=True).value,
+                         "Not applicable")
+
+    def test_remembered_answer_needs_same_meaning(self):
+        from jobbot.memory import Memory
+        long_q = "Are you willing to relocate to {} for this full time onsite role at our office?"
+        m = Memory(items=[{"question": long_q.format("Bangalore"), "answer": "Yes"},
+                          {"question": "How Did You Hear About Us?", "answer": "Company website"}])
+        self.assertEqual(m.lookup(long_q.format("Bangalore")), "Yes")
+        self.assertIsNone(m.lookup(long_q.format("Pune")))                              # another place
+        self.assertIsNone(m.lookup(long_q.format("Bangalore").replace("you willing", "you not willing")))  # negation
+        self.assertEqual(m.lookup("How did you hear about us?"), "Company website")     # Title Case is not a name
+
+    def test_yes_no_against_sentence_options(self):
+        from jobbot.apply.consistency import yes_no_sentence
+        self.assertIs(yes_no_sentence("No", "I have never been employed by Rubrik"), True)
+        self.assertIs(yes_no_sentence("No", "I am currently a full-time employee for Rubrik"), False)
+        self.assertEqual(yes_no_sentence("Yes", "Citizen"), "unclear")
+        self.assertIsNone(yes_no_sentence("No", "No"))
 
     def test_parallel_workers_never_share_a_code(self):
         from jobbot import gmail

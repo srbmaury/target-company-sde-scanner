@@ -331,11 +331,7 @@ _USED_CODES, _CODE_LOCK = set(), threading.Lock()
 def latest_code(since, hint="", wait=90, poll=5):
     """Like _latest_code, but each code is handed out once: with parallel workers a code never goes
     to two applications."""
-    with _CODE_LOCK:
-        code = _latest_code(since, hint, wait, poll)
-        if code:
-            _USED_CODES.add(code)
-        return code
+    return _latest_code(since, hint, wait, poll)   # claims the code under _CODE_LOCK; waiting happens unlocked
 
 
 def _latest_code(since, hint="", wait=90, poll=5):
@@ -362,8 +358,14 @@ def _latest_code(since, hint="", wait=90, poll=5):
                 code = extract_code(_body_text(_get(f"messages/{mid}", {"format": "full"})))
             if code and code not in _USED_CODES:
                 found.append((bool(hints), int(meta["internalDate"]), code, mid))
-        if found:
-            best = max(found)   # from the site if any, newest first
+        # Claim under the lock only (another worker may have taken a code since we looked); never hold it while
+        # waiting, or every parallel browser queues behind one that is waiting for its email.
+        with _CODE_LOCK:
+            fresh = [f for f in found if f[2] not in _USED_CODES]
+            if fresh:
+                best = max(fresh)   # from the site if any, newest first
+                _USED_CODES.add(best[2])
+        if fresh:
             mark_used(best[3])
             return best[2]
         if time.time() >= deadline:

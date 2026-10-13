@@ -501,8 +501,12 @@ class Resolver:
         question = re.sub(r"\s+", " ", question or "").strip(" *:")
         if not required and re.match(r"\s*if (yes|so|applicable|you (answered|selected|chose))\b", question, re.I):
             return None   # an optional follow-up to another answer ("If you answered Other, please specify"): blank
+        employer = self.job.get("company") or ""
+        past = list(self.p.get("work.past_employers") or []) + [self.p.get("work.current_company") or ""]
+        worked_here = bool(employer) and same_employer(employer, [e for e in past if e])
         if kind in ("text", "textarea") and re.match(r"\s*if (yes|so)\b", question, re.I) and \
-                re.search(r"visa|sponsor|relative|related to|family|worked (for|at)|employed by|government|convict|referr", question, re.I):
+                re.search(r"visa|sponsor|relative|related to|family|government|convict|referr" +
+                          ("" if worked_here else r"|worked (for|at)|employed by"), question, re.I):
             # the parent question ("Are you on a visa?", "Do you have relatives here?") is a No from your profile
             return Answer("Not applicable", "rule")
         none = self._none_option(question, options)

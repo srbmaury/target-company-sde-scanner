@@ -58,6 +58,24 @@ def same_value(expected, actual, dial_code=""):
     return bool(we) and (we <= wa or (bool(wa) and wa <= we))
 
 
+NEGATIVE_RE = re.compile(r"^\W*(no\b|none\b|not\b|never\b|n/?a\b|i (have|had) (never|not)\b|i (am|was|do|did) not\b|"
+                         r"i (don|haven|hadn|wasn|didn)[’']?t\b|i[’']?m not\b)", re.I)
+
+
+def yes_no_sentence(want, actual):
+    """Your Yes/No answer against a site's sentence option ("I have never been employed by X"):
+    True when the sentence says the same, False when it says the opposite, "unclear" when it does neither,
+    None when this is not a Yes/No-versus-sentence case."""
+    w, a = str(want or "").strip().lower(), str(actual or "").strip()
+    if w not in ("yes", "no") or not a or a.lower() in YES_NO:
+        return None
+    negative = bool(NEGATIVE_RE.match(a))
+    affirmative = bool(re.match(r"^\W*(yes\b|i (am|was|have|do|did)\b(?! not))", a, re.I))
+    if w == "no":
+        return True if negative else (False if affirmative else "unclear")
+    return True if affirmative and not negative else (False if negative else "unclear")
+
+
 def expected_answer(resolver, field):
     """Your answer to this field from the profile and rules only (never the model, never asking you),
     or None when they do not determine it."""
@@ -137,6 +155,15 @@ def check(resolver, fields):
                                                               f.get("label") or "", re.I):
             confirmed.add(f["id"])   # your branch is not among the site's options
             continue
+        verdict = yes_no_sentence(want, actual)
+        if verdict is True:
+            confirmed.add(f["id"])
+            continue
+        if verdict is False:
+            mismatches.append((f, want))
+            continue
+        if verdict == "unclear":
+            continue   # a Yes/No answer against a sentence that neither agrees nor disagrees: the model decides
         names = [want] + (schools if is_school else [])
         if any(same_value(w, f.get("actual"), resolver.p.get("personal.phone_country_code", "")) for w in names):
             confirmed.add(f["id"])

@@ -155,9 +155,16 @@ class Session:
         page, _ = self.ready.pop(url, (None, None))
         self._close(page)
 
+    def _check_deadline(self):
+        """Unattended: never spend more than MAX_APPLY_SECONDS on one application, even within a page
+        (each model call can take minutes; four browsers share one local model)."""
+        if getattr(self, "unattended", False) and time.time() - getattr(self, "_started", time.time()) > MAX_APPLY_SECONDS:
+            raise NeedsYou(f"Gave up after {MAX_APPLY_SECONDS // 60} minutes on this application (still filling a page).")
+
     def _apply(self, job, resume_key):
         self._job_url = job.get("url")   # sign-in may use the posting's own sites (auth.host_allowed)
         url = job["url"]
+        self._had_form = False   # did this application show real application fields? (see Submit below)
         self._started = time.time()   # verification emails older than this application are ignored
         ats = detect_ats(url, job)
         self._ats = ats
@@ -315,6 +322,11 @@ class Session:
                     self.ui.info("The site emailed a security code; entering it and submitting again.")
                     continue
                 if getattr(self, "auto_submit", False):
+                    if not getattr(self, "_had_form", False):
+                        # "Apply"/"Finish" on a page with no application fields (a posting page) is not a submission:
+                        # never record it as one.
+                        raise NeedsYou("A Submit-like button was clicked on a page with no application fields; "
+                                       "nothing was submitted. Open the posting and check how to apply.")
                     # A click may have succeeded even when the site uses unfamiliar confirmation text.
                     # Never submit the same application again to discover whether it worked.
                     raise NeedsYou("Submit clicked but confirmation was not detected; check the site before retrying.")
@@ -346,6 +358,9 @@ class Session:
         total = {"filled": [], "skipped": [], "records": list(getattr(self, "_manual_records", {}).values())}
         force, check = set(), None
         for rnd in range(1, MAX_ROUNDS + 1):
+            self._check_deadline()
+            if len(self._form_fields(page)) >= 2:   # one stray box (a job-alert email field) is not an application
+                self._had_form = True
             rep = self.fill_page(page, resolver, force=force)
             total = self._merge(total, rep)
             page.wait_for_timeout(500)
@@ -676,6 +691,7 @@ class Session:
         has_dial_picker = any(re.search(r"country|dial|code", x["label"], re.I) and x["kind"] in ("combo", "select", "listbutton")
                               for x in fields)
         for f in fields:
+            self._check_deadline()
             kind, label = f["kind"], f["label"] or "(unlabelled field)"
             if kind not in ("file", "checkbox", "listbutton") and not values.meaningful_label(label):
                 if f["required"]:
@@ -922,7 +938,11 @@ class Session:
         hits = self._buttons(page, pattern)
         if not hits:
             return False
-        page.locator(f'[data-jobbot-btn="{hits[-1]["id"]}"]').click()
+        target = page.locator(f'[data-jobbot-btn="{hits[-1]["id"]}"]')
+        try:
+            target.click(timeout=8000)
+        except Exception:
+            target.click(force=True, timeout=8000)   # an overlay (Oracle, Workday) covers the button
         if wait:
             page.wait_for_timeout(wait)
         return True
