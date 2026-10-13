@@ -78,7 +78,7 @@ def pick(answer, options):
 
 HEAR_RE = re.compile(r"how did you (hear|learn|find|come across)|where did you (hear|find|learn)|source of (application|referral)|"
                      r"how (did you|were you) (referred|introduced)", re.I)
-HEAR_PREFERENCES = ["company website", "career site", "careers site", "careers website", "careers page", "company career",
+HEAR_PREFERENCES = ["company website", "career site", "careers site", "careers website", "careers page", "company career", "careers", "carrers", "career",
                     "corporate website", "website", "linkedin", "job board", "online job", "internet", "other"]
 EMPLOYMENT_RE = re.compile(r"employee id|employee number|(company|corporate|work) email|email address|worked|work(ing)? (for|at)|"
                            r"employed|employee|intern|contractor|contingent|consultant|vendor|alumni|former|previous(ly)?|rehire",
@@ -351,11 +351,13 @@ class Resolver:
              r"employed by .* in the past", worked_here),
             (r"\bhybrid\b|in.?office|\bon.?site\b|work (from|in|at) (the|our) .*office|days a week|come (in )?to the office|"
              r"based in our .* office|office.?based", willing),
-            (r"(open|okay|ok|comfortable|fine|willing) (for|to|with|in) .*\b(location|city|office)\b|"
+            (r"(open|okay|ok|comfortable|fine|willing|happy) (working |to work )?(for|to|with|in|at|from) .*\b(location|city|office)\b|"
              r"(open|willing|able) to (work|be based|move) (in|from|at|to) ", open_to_place),
             (r"relocat|work (on a daily basis )?in the (work )?location|able to work from|\bcommute", willing),
             (r"(?<!city )(?<!town )(currently (based|located|living|residing) in|do you (live|reside) in)\b(?!\s*\?)", lambda: None),
             (r"notice period.*(negotiable|buy ?out|serve)|can you (join|start) (early|sooner|immediately)|buy ?out", lambda: "Yes"),
+            # "If serving, when is your last working day?": you are not serving notice (rule below)
+            (r"if (you are |you.re )?serving|last working (day|date)|\blwd\b", lambda: "Not applicable - not currently serving notice"),
             (r"serving (your )?notice|on notice period|currently on notice", lambda: "No"),
             (r"willing to (work|take|do).*(shift|weekend|on.?call|night|rotational)", lambda: "Yes"),
             (r"open to (contract|full.?time|permanent)|employment type|full.?time (role|position)", lambda: "Yes"),
@@ -532,6 +534,10 @@ class Resolver:
         if not (self.llm and self.llm.enabled) or kind == "checkbox" or (
                 not EEO_RE.match(question) and any(p.search(question) for p in self.always_ask)):
             return self._by_rules(question, kind, options, required, quick)   # consent boxes and always_ask stay yours
+        if HEAR_RE.search(question) and kind == "choice" and options:
+            # Where you found the job is your profile's answer (company website) mapped onto the site's list
+            # ("Carrers"): the model second-guessing it only left such boxes blank.
+            return self._how_did_you_hear(question, kind, options)
         suggestion = self._by_rules(question, kind, options, False, quick=True)
         if suggestion is None and HEAR_RE.search(question):
             suggestion = self._how_did_you_hear(question, kind, options)
@@ -787,6 +793,13 @@ class Resolver:
             return next((a for a in (self._fit(v, kind, options, source) for v in value) if a), None)
         if kind == "choice":
             idx = pick(value, options)
+            if idx is None and str(value).strip().lower() == "yes":
+                # "Comfortable working from our Bengaluru office?" offering "Bengaluru" / "Others": a Yes is
+                # the one option naming a place the question names.
+                q = getattr(self, "_q", "") or ""
+                named = [i for i, o in enumerate(options) if len(norm(o)) > 2 and not re.match(r"others?\b", norm(o))
+                         and re.search(r"\b" + re.escape(norm(o)) + r"\b", norm(q))]
+                idx = named[0] if len(named) == 1 else None
             return Answer(idx, source, options[idx]) if idx is not None else None
         return Answer(str(value), source)
 

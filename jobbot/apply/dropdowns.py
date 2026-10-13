@@ -82,6 +82,20 @@ def fill_dropdown(self, page, f, resolver, note):
         self._click_option(page, chosen, ans.value)
         path.append(chosen)
         page.wait_for_timeout(900)
+        if f["kind"] == "combo" and typed and not _took(loc, chosen):
+            # Some autocompletes (SmartRecruiters' City) ignore a mouse pick: retype, then choose by keyboard.
+            try:
+                loc.fill("")
+                loc.press_sequentially(getattr(self, "_typed", "") or chosen.split(",")[0], delay=60)
+                page.wait_for_timeout(1500)
+                again = self._visible_options(page)
+                i = again.index(chosen) if chosen in again else 0
+                for _ in range(i + 1):
+                    loc.press("ArrowDown")
+                loc.press("Enter")
+                page.wait_for_timeout(900)
+            except Exception:
+                pass
         after = self._visible_options(page)
         if not after or after == options or chosen in after:
             break  # a leaf was selected (the list closed or stayed the same)
@@ -92,6 +106,18 @@ def fill_dropdown(self, page, f, resolver, note):
         return False
     note(f, label, ans if len(path) == 1 and ans is not None else " › ".join(path), expected=path[-1])
     return True
+
+def _took(loc, chosen):
+    """Does the box (or the widget around it) now show the chosen option?"""
+    try:
+        shown = loc.evaluate("""el => { let n = el, t = el.value || '';
+            for (let i = 0; i < 3 && n && !t.trim(); i++) { n = n.parentElement; t = n ? n.innerText : ''; }
+            return t || ''; }""")
+    except Exception:
+        return True
+    first = re.findall(r"[a-z]+", chosen.lower())[:1]
+    return bool(first) and first[0] in (shown or "").lower()
+
 
 def open_dropdown(loc):
     """Open a dropdown whose input may be covered by the widget's own overlay (react-select and

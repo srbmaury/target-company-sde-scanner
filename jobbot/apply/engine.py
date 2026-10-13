@@ -44,6 +44,38 @@ CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i con
                         r"^i understand\b|^i have (read|reviewed|marked)\b", re.I)
 
 
+def fit_length(value, loc):
+    """Shorten text to the field's maxlength at a sentence end (else a word end), so the site does not
+    cut it mid-word and the read-back still matches."""
+    try:
+        limit = int(loc.evaluate("el => el.maxLength") or -1)
+    except Exception:
+        return value
+    if limit <= 0 or len(value) <= limit:
+        return value
+    return _trim(value, limit)
+
+
+def refit_if_cut(value, loc):
+    """A site that caps length by script (no maxlength) keeps only the start of the text: retype it
+    shortened to that length at a sentence end, so it reads complete and the read-back matches."""
+    try:
+        kept = loc.input_value()
+    except Exception:
+        return value
+    if len(value) > 40 and 20 < len(kept) < len(value) and value.startswith(kept):
+        short = _trim(value, len(kept))
+        loc.fill(short)
+        return short
+    return value
+
+
+def _trim(value, limit):
+    cut = value[:limit]
+    end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "), cut.rfind(".") if cut.endswith(".") else -1)
+    return cut[:end + 1].strip() if end >= limit // 3 else cut.rsplit(" ", 1)[0].rstrip(",;:- ")
+
+
 class Session:
     def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True, unattended=False, browser_dir=None):
         self.profile = profile
@@ -484,7 +516,17 @@ class Session:
             self._workday_settle(page)
             self._ensure_signed_in(page)
         elif ats == "generic" and not self._form_fields(page):
+            # Careers pages that render the posting by script (Exotel's "#op-..." links) draw Apply late,
+            # and show the form under the posting a moment after the click: wait for each.
+            for _ in range(20):
+                if page.evaluate(BUTTONS_JS, [APPLY_RE, True]):
+                    break
+                page.wait_for_timeout(500)
             page = self._open_application(page)
+            for _ in range(20):
+                if self._form_fields(page):
+                    break
+                page.wait_for_timeout(500)
             if self._needs_account(page):
                 self._ensure_signed_in(page)
             elif not self._form_fields(page):
@@ -667,8 +709,9 @@ class Session:
                         ans = resolver.resolve(label, kind, required=f["required"])
                     if ans:
                         loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
-                        value = self._text_value(f, label, ans, has_dial_picker)
+                        value = fit_length(self._text_value(f, label, ans, has_dial_picker), loc)
                         loc.fill(value)
+                        value = refit_if_cut(value, loc)
                         note(f, label, ans, expected=value, was=was)
                     elif f["required"]:
                         skipped.append(label)

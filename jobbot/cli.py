@@ -340,6 +340,9 @@ def sync_gmail(conn, args):
     rows = mailimport.rows_from(messages)
     added, updated = mailimport.import_rows(conn, rows)
     print(f"Read {len(messages)} emails: {len(rows)} about applications, {added} new applications, {updated} status updates.")
+    named = mailimport.name_unnamed(conn, gmail)
+    if named:
+        print(f"Found the role in the email body for {named} application(s) whose subject did not name it.")
 
 
 def cmd_answers(args):

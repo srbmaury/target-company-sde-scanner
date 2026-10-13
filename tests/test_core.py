@@ -55,6 +55,11 @@ class PickTest(unittest.TestCase):
         self.assertEqual(r.resolve("End date month", "text", quick=True).value, "June")
         self.assertEqual(r.resolve("What year did you graduate in?", "text", quick=True).value, "2024")
 
+    def test_location_comfort_and_last_working_day(self):
+        r = Resolver(Profile({**PROFILE, "preferences": {"locations": "hyderabad|bengaluru|bangalore"}}, "x"), None, job={})
+        self.assertEqual(r.resolve("Comfortable working in Bangalore location?", "choice", ["Yes", "No"], quick=True).display, "Yes")
+        self.assertTrue(r.resolve("If serving, when is your last working day", "text", quick=True).value.startswith("Not applicable"))
+
     def test_country_with_dial_code(self):
         self.assertEqual(pick("India", ["British Indian Ocean Territory +246", "India +91"]), 1)
 
