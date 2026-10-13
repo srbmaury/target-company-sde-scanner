@@ -264,7 +264,8 @@ TRANSIENT = re.compile(r"maintenance|gave up after|next step is blocked|tab was 
 def retry_worthy(result):
     note = (result or {}).get("note") or ""
     return (result or {}).get("status") in ("needs you", "not submitted") and bool(TRANSIENT.search(note)) \
-        and not re.search(r"captcha|sign in|account|password", note, re.I)
+        and not re.search(r"captcha|sign in|account|password|maximum number of applications|already applied|"
+                          r"no longer (available|accepting)|posting unavailable", note, re.I)
 
 
 def worker_browser_dir(i):

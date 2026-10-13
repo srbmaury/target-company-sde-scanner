@@ -1093,6 +1093,23 @@ class ValidationPromptTest(unittest.TestCase):
         session.llm.review_application_step.assert_called_once()
         self.assertFalse(check.ok)
 
+    def test_empty_middle_page_passes_a_bare_rejection(self):
+        from jobbot.apply.engine import Session
+        from jobbot.apply.verify import Check
+        from unittest.mock import Mock
+        session = Session.__new__(Session)
+        session.profile, session.llm, session.ui = Mock(), Mock(enabled=True), Mock()
+        session.audit_fields = Mock(return_value=[])
+        session.llm.review_application_step.return_value = {"approved": False, "reviewed_field_ids": [], "issues": []}
+        check = Check()
+        session._ollama_review(Mock(inner_text=Mock(return_value="Autofill with Resume Continue")), Mock(resume_key=None, job={}), {}, check, 1)
+        self.assertTrue(check.ok)   # nothing to point at on an upload step; a stated problem would still block
+        session.llm.review_application_step.return_value = {"approved": False, "reviewed_field_ids": [],
+                                                            "issues": [{"field_id": "", "reason": "resume missing"}]}
+        check = Check()
+        session._ollama_review(Mock(inner_text=Mock(return_value="Autofill with Resume Continue")), Mock(resume_key=None, job={}), {}, check, 1)
+        self.assertFalse(check.ok)
+
     def test_parallel_workers_never_share_a_code(self):
         from jobbot import gmail
         from unittest.mock import patch

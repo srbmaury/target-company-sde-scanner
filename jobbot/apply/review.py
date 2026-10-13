@@ -1,4 +1,6 @@
 """Mandatory semantic approval with explicit field coverage."""
+import re
+
 
 REVIEW_BATCH = 8
 
@@ -13,11 +15,12 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
         if not self.llm or not self.llm.enabled:
             raise RuntimeError("Ollama is unavailable")
         page_text = page.inner_text("body")[:18000]
+        final = bool(re.search(r"\bsubmit\b", page_text, re.I))   # the last page before the application goes out
         facts = self.profile.facts()
         resume_text = self.profile.resume_text(resolver.resume_key) if resolver.resume_key else ""
         # A 7B model drops ids when asked to echo 20+ of them at once, so review in small batches
         # and give it one more pass at any it skipped; every field must still be covered.
-        covered, issues, rejected = set(), [], False
+        covered, issues, rejected, page_problems = set(), [], False, []
         batches = [fields[i:i + REVIEW_BATCH] for i in range(0, len(fields), REVIEW_BATCH)] or [[]]
 
         def review(todo):
@@ -39,6 +42,13 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
                     raised = [x for x in result.get("issues", []) if x.get("field_id") in todo]
                     kept = [x for x in raised if x.get("field_id") not in confirmed]
                     issues += kept
+                    if not todo and not final:
+                        # An in-between page with no fields (Workday's "Autofill with Resume" after the upload): only a
+                        # problem the model states blocks it. The final Submit page keeps the strict rule below.
+                        stated = [str(x.get("reason") or "").strip() for x in result.get("issues", [])]
+                        page_problems += [r for r in stated if r]
+                        rejected |= result.get("approved") is not True and any(stated)
+                        continue
                     # A rejection stands unless every complaint was about a field the profile check confirmed.
                     rejected |= result.get("approved") is not True and (bool(kept) or not raised)
         # Every field needs review: by the model, or (if it skipped one) by the profile check.
@@ -51,9 +61,12 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
             check.errors.append("Ollama review did not cover every field.")
         if rejected:
             check.errors.append("Ollama did not approve this step.")
+        check.errors += [f"Ollama: {r[:160]}" for r in page_problems]
         by_id = {f["id"]: f for f in fields}
         for issue in issues:
-            f = by_id[issue["field_id"]]
+            f = by_id.get(issue.get("field_id"))
+            if f is None:
+                continue
             expected = resolver._profile_fact(f["label"], "text")
             if expected is not None and str(expected.value) != f.get("actual"):
                 check.mismatches.append((f["label"], str(expected.value), f.get("actual", "")))

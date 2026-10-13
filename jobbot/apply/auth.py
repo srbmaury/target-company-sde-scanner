@@ -137,18 +137,27 @@ def password_sign_in(self, page, button=None, email_input=None, password_input=N
     pw_box.fill(password)
     password = None
     press(button, pw_box)
-    page.wait_for_timeout(2000)
+    page.wait_for_timeout(2500)
     sites.wait_rendered(page)
-    body = page.inner_text("body")
-    if NO_ACCOUNT_RE.search(body):
-        self._no_account = True   # sign up next
+    # Judge the result by the site's own messages, never by static page text: Workday's sign-in form always
+    # says "Don't have an account?", which used to make every refused sign-in look like "no account".
+    said = " ".join(page.locator('[role="alert"]:visible, [data-automation-id*="error" i]:visible, '
+                                 '[aria-live="assertive"]:visible, [class*="error" i]:visible').all_inner_texts())
+    workday = "myworkdayjobs.com" in (key[0] or "")
+    wrong = re.search(r"incorrect|invalid (credentials|password|e-?mail|login)|wrong (e-?mail|password)|"
+                      r"unable to sign in|(does|did) not match|try again", said, re.I)
+    if NO_ACCOUNT_RE.search(said) or (wrong and workday):
+        self._no_account = True   # no account here (Workday says "wrong email or password" for both): sign up next
         return False
-    if re.search(r"incorrect password|invalid (credentials|password)|wrong (e-?mail|password)|unable to sign in", body, re.I):
+    if wrong:
         self._auth_failure = ("Your Keychain password was rejected here (the account may use another password). "
                               "No reset or repeated attempt was made.")
         return False
-    self.ui.info("Submitted stored credentials to the existing-account sign-in form.")
-    return not needs_account(page)
+    if needs_account(page):
+        self._no_account = True   # still on the sign-in form with no message: treat as no account, try sign-up
+        return False
+    self.ui.info("Signed in with your existing account.")
+    return True
 
 
 def press(button, field):
@@ -228,13 +237,17 @@ def sign_up(self, page):
         self._auth_failure = "An account already exists here with a different password; sign in once yourself, then retry."
         return False
     errors = check_page(page, [], [], []).errors
-    if errors and page.locator('input[type="password"]:visible').count() >= 2:
-        # still on the sign-up form: say what the site objected to (e.g. a password rule) instead of guessing
-        self._auth_failure = "The site did not accept the new account: " + "; ".join(e[:120] for e in errors[:2])
+    said = [t.strip() for t in page.locator('[data-automation-id*="error" i]:visible, [role="alert"]:visible, '
+                                            '[id*="error" i]:visible').all_inner_texts() if t.strip()]
+    if (errors or said) and page.locator('input[type="password"]:visible').count() >= 2:
+        # still on the sign-up form: quote what the site objected to (e.g. "A minimum of 12 characters")
+        self._auth_failure = "The site did not accept the new account: " + \
+            "; ".join(re.sub(r"\s+", " ", e)[:160] for e in (said or errors)[:2])
         return False
     # The account exists now: the sign-in tried before it (and refused) must not block signing in to it.
     self._auth_attempted = getattr(self, "_auth_attempted", set()) - {(host, email)}
-    self._auth_started = getattr(self, "_auth_started", None) or getattr(self, "_started", 0)
+    import time
+    self._auth_started = time.time() - 60   # this sign-up's verification email, never an older one
     return True
 
 
