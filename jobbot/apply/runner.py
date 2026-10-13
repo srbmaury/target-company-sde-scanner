@@ -105,8 +105,14 @@ def run_jobs(session, conn, profile, targets, ui, resume=None, dry_run=False, co
         try:
             status, note = session.apply(job, resume_key)
         except NeedsYou as e:
-            ui.warn(f"Needs you, moving on: {str(e)[:200]}")
-            status, note = "needs you", str(e)[:300]
+            if str(e).startswith("Submit clicked but confirmation"):
+                # Every check passed and Submit was clicked: in practice it went through (the confirmation text
+                # was just unfamiliar). Record it, so a retry can never submit the same application twice.
+                ui.warn("Submit clicked; the site showed no confirmation text. Recorded as applied: check your email.")
+                status, note = "applied", "Submit clicked; no confirmation text seen (check your email)"
+            else:
+                ui.warn(f"Needs you, moving on: {str(e)[:200]}")
+                status, note = "needs you", str(e)[:300]
         except KeyboardInterrupt:
             raise
         except Exception as e:  # one broken site must not stop the batch
