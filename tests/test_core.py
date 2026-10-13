@@ -60,6 +60,24 @@ class PickTest(unittest.TestCase):
         self.assertEqual(r.resolve("Comfortable working in Bangalore location?", "choice", ["Yes", "No"], quick=True).display, "Yes")
         self.assertTrue(r.resolve("If serving, when is your last working day", "text", quick=True).value.startswith("Not applicable"))
 
+    def test_sign_up_password_rules(self):
+        from jobbot.apply.auth import meets_rules
+        visa = "Password Requirements: A minimum of 12 characters A lowercase character A special character A numeric character An uppercase character"
+        self.assertFalse(meets_rules("Short1!aB", visa))
+        self.assertTrue(meets_rules("LongerPass12!x", visa))
+        self.assertFalse(meets_rules("longerpass12!x", visa))   # no uppercase
+        self.assertTrue(meets_rules("Abcdef1!", "A minimum of 8 characters"))
+
+    def test_password_candidates_order_and_dedup(self):
+        from unittest.mock import patch
+        from jobbot import credentials
+        store = {"jobbot job sites:visa.example": "SiteOne1!", "jobbot job sites": "Main1!", "jobbot job sites#2": "Alt2!",
+                 "jobbot job sites#3": "Main1!"}
+        with patch.object(credentials, "available", return_value=True), \
+                patch.object(credentials, "_read", side_effect=lambda service, account: store.get(service)):
+            self.assertEqual(credentials.candidates("a@b.c", host="visa.example"), ["SiteOne1!", "Main1!", "Alt2!"])
+            self.assertEqual(credentials.get("a@b.c"), "Main1!")
+
     def test_country_with_dial_code(self):
         self.assertEqual(pick("India", ["British Indian Ocean Territory +246", "India +91"]), 1)
 

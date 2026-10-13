@@ -20,6 +20,7 @@ NO_ACCOUNT_RE = re.compile(r"account (does not exist|not found|doesn.t exist)|no
                            r"(e-?mail|user).{0,25}(not (found|registered|recogni[sz]ed)|does not exist)|"
                            r"couldn.t find (an|your) account|don.t have an account", re.I)
 SIGNUP_BUTTON_RE = r"^(create (an? |my )?account|register|sign up|submit)$"
+MAX_SIGN_IN_TRIES = 3   # stored passwords tried per site and run; more risks locking the account
 VERIFY_RE = re.compile(r"check your (e-?mail|inbox)|verify your (e-?mail|account)|activation (link|email)", re.I)
 
 
@@ -122,8 +123,8 @@ def password_sign_in(self, page, button=None, email_input=None, password_input=N
     attempted = getattr(self, "_auth_attempted", set())
     if key in attempted:
         return False  # avoid repeated rejected attempts and account lockouts
-    password = credentials.get(email, host=key[0])
-    if not password:
+    passwords_to_try = credentials.candidates(email, host=key[0])[:MAX_SIGN_IN_TRIES]
+    if not passwords_to_try:
         self._auth_failure = "No existing password is stored in Keychain; store it with jobbot password."
         return False
     if email_input is None:
@@ -132,32 +133,57 @@ def password_sign_in(self, page, button=None, email_input=None, password_input=N
             return False
         email_input = emails.first
     self._auth_attempted = attempted | {key}
-    email_input.fill(email)
-    pw_box = password_input or passwords.first
-    pw_box.fill(password)
-    password = None
-    press(button, pw_box)
-    page.wait_for_timeout(2500)
-    sites.wait_rendered(page)
-    # Judge the result by the site's own messages, never by static page text: Workday's sign-in form always
-    # says "Don't have an account?", which used to make every refused sign-in look like "no account".
-    said = " ".join(page.locator('[role="alert"]:visible, [data-automation-id*="error" i]:visible, '
-                                 '[aria-live="assertive"]:visible, [class*="error" i]:visible').all_inner_texts())
     workday = "myworkdayjobs.com" in (key[0] or "")
-    wrong = re.search(r"incorrect|invalid (credentials|password|e-?mail|login)|wrong (e-?mail|password)|"
-                      r"unable to sign in|(does|did) not match|try again", said, re.I)
-    if NO_ACCOUNT_RE.search(said) or (wrong and workday):
-        self._no_account = True   # no account here (Workday says "wrong email or password" for both): sign up next
+    refused = False
+    for password in passwords_to_try:   # this site's own password, the main one, then alternates (at most 3)
+        email_input.fill(email)
+        pw_box = password_input or page.locator('input[type="password"]:visible').first
+        pw_box.fill(password)
+        press(button, pw_box)
+        page.wait_for_timeout(2500)
+        sites.wait_rendered(page)
+        # Judge the result by the site's own messages, never by static page text: Workday's sign-in form always
+        # says "Don't have an account?", which used to make every refused sign-in look like "no account".
+        said = " ".join(page.locator('[role="alert"]:visible, [data-automation-id*="error" i]:visible, '
+                                     '[aria-live="assertive"]:visible, [class*="error" i]:visible').all_inner_texts())
+        wrong = re.search(r"incorrect|invalid (credentials|password|e-?mail|login)|wrong (e-?mail|password)|"
+                          r"unable to sign in|(does|did) not match|try again", said, re.I)
+        # A clear "no account" anywhere on the page (some sites print it as plain text), but not the static
+        # "Don't have an account?" line every sign-in form carries.
+        body = re.sub(r"don.t have an account\??", "", page.inner_text("body"), flags=re.I)
+        if NO_ACCOUNT_RE.search(said) or NO_ACCOUNT_RE.search(body):
+            break   # definitely no account: other passwords cannot help
+        if wrong or needs_account(page):
+            refused = True
+            if re.search(r"locked|too many", said, re.I):
+                break   # never push a lockout further
+            continue   # this password was refused: try the next one
+        password = None
+        self.ui.info("Signed in with your existing account.")
+        return True
+    password = None
+    if refused and not workday:
+        self._auth_failure = ("None of your stored passwords was accepted here (the account may use another one; "
+                              "add it with `jobbot password --site HOST`). No reset was attempted.")
         return False
-    if wrong:
-        self._auth_failure = ("Your Keychain password was rejected here (the account may use another password). "
-                              "No reset or repeated attempt was made.")
-        return False
-    if needs_account(page):
-        self._no_account = True   # still on the sign-in form with no message: treat as no account, try sign-up
-        return False
-    self.ui.info("Signed in with your existing account.")
-    return True
+    self._no_account = True   # no account (Workday says "wrong email or password" for both): sign up next
+    return False
+
+
+def meets_rules(password, text):
+    """Does `password` satisfy the rules a sign-up form lists ("A minimum of 12 characters", "A special character")?"""
+    m = re.search(r"minimum of (\d+) characters|at least (\d+) characters|(\d+) or more characters", text, re.I)
+    need = int(next(g for g in m.groups() if g)) if m else 8
+    checks = [len(password) >= need]
+    if re.search(r"uppercase", text, re.I):
+        checks.append(bool(re.search(r"[A-Z]", password)))
+    if re.search(r"lowercase", text, re.I):
+        checks.append(bool(re.search(r"[a-z]", password)))
+    if re.search(r"numeric|number|digit", text, re.I):
+        checks.append(bool(re.search(r"\d", password)))
+    if re.search(r"special character|symbol", text, re.I):
+        checks.append(bool(re.search(r"[^A-Za-z0-9]", password)))
+    return all(checks)
 
 
 def press(button, field):
@@ -183,8 +209,8 @@ def sign_up(self, page):
         return False   # one attempt per site and run: never loop on a rejected sign-up
     if check_page(page, [], [], []).captcha:
         raise NeedsYou("The sign-up form shows a CAPTCHA; complete it in the browser, then retry.")
-    password = credentials.get(email, host=host)
-    if not password:
+    stored = credentials.candidates(email, host=host)
+    if not stored:
         self._auth_failure = "No password is stored for job-site accounts: run `jobbot password` once."
         return False
     workday = "myworkdayjobs.com" in (host or "")
@@ -203,6 +229,11 @@ def sign_up(self, page):
     if passwords.count() == 1 and not re.search(CREATE_RE[1:-1], " ".join(page.locator("h1,h2,h3,button").all_inner_texts()), re.I):
         return False   # a single password box with no sign-up wording is a sign-in form
     if not passwords.count():
+        return False
+    password = next((pw for pw in stored if meets_rules(pw, page.inner_text("body"))), None)
+    if not password:
+        self._auth_failure = ("None of your stored passwords meets this site's password rules (shown on its sign-up "
+                              "form, e.g. 12+ characters); add one with `jobbot password --add`.")
         return False
     self._signed_up = getattr(self, "_signed_up", set()) | {(host, email)}
     emails = page.locator('[data-automation-id="email"]:visible' if workday else
