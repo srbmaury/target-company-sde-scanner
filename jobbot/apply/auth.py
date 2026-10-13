@@ -179,9 +179,17 @@ def sign_up(self, page):
         press(button.first, passwords.last)
     page.wait_for_timeout(3000)
     sites.wait_rendered(page)
-    if re.search(r"already (exists|in use|registered)|account .{0,40}exists", page.inner_text("body"), re.I):
+    body = page.inner_text("body")
+    if re.search(r"already (exists|in use|registered)|account .{0,40}exists", body, re.I):
         self._auth_failure = "An account already exists here with a different password; sign in once yourself, then retry."
         return False
+    errors = check_page(page, [], [], []).errors
+    if errors and page.locator('input[type="password"]:visible').count() >= 2:
+        # still on the sign-up form: say what the site objected to (e.g. a password rule) instead of guessing
+        self._auth_failure = "The site did not accept the new account: " + "; ".join(e[:120] for e in errors[:2])
+        return False
+    # The account exists now: the sign-in tried before it (and refused) must not block signing in to it.
+    self._auth_attempted = getattr(self, "_auth_attempted", set()) - {(host, email)}
     self._auth_started = getattr(self, "_auth_started", None) or getattr(self, "_started", 0)
     return True
 

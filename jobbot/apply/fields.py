@@ -148,6 +148,8 @@ SCAN_JS = r"""
     } else if (t === 'button' && el.getAttribute('aria-haspopup') === 'listbox' && visible(el)) {
       // Workday-style dropdown buttons
       const label = labelFor(el);
+      // a site's header controls (Workday's language picker, "Settings") are not application questions
+      if (!label && el.closest('header, nav, [role="banner"], [data-automation-id*="header" i], [data-automation-id*="utility" i]')) continue;
       out.push({ id: tag(el), kind: 'listbutton', label, required: required(el, label), value: textOf(el) });
     }
   }
