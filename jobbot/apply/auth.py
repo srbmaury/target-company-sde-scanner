@@ -72,6 +72,11 @@ def workday_sign_in(self, page):
             except Exception:
                 link.last.click(force=True, timeout=5000)
             page.wait_for_timeout(2000)
+    # Some tenants (eBay) first ask how to sign in: Google or email. Use email (your Keychain password).
+    with_email = page.get_by_role("button", name=re.compile(r"^sign in with e-?mail$", re.I))
+    if not by("signInSubmitButton").count() and with_email.count():
+        press(with_email.first, with_email.first)
+        page.wait_for_timeout(2000)
     if not by("signInSubmitButton").count():
         return False
     # Workday lays an invisible click_filter over its Sign In button; it carries the name in aria-label, not text.
@@ -173,13 +178,24 @@ def sign_up(self, page):
     if not password:
         self._auth_failure = "No password is stored for job-site accounts: run `jobbot password` once."
         return False
+    workday = "myworkdayjobs.com" in (host or "")
     passwords = page.locator('input[type="password"]:visible')
+    if workday and passwords.count() < 2:
+        # After a refused sign-in Workday still shows its Sign In form; its "Create Account" link opens the
+        # real sign-up form (password + Verify New Password). Never "create" an account on the sign-in form.
+        link = page.locator('[data-automation-id="createAccountLink"]:visible')
+        if link.count():
+            press(link.first, link.first)
+            page.wait_for_timeout(2000)
+            sites.wait_rendered(page)
+        passwords = page.locator('input[type="password"]:visible')
+        if passwords.count() < 2:
+            return False
     if passwords.count() == 1 and not re.search(CREATE_RE[1:-1], " ".join(page.locator("h1,h2,h3,button").all_inner_texts()), re.I):
         return False   # a single password box with no sign-up wording is a sign-in form
     if not passwords.count():
         return False
     self._signed_up = getattr(self, "_signed_up", set()) | {(host, email)}
-    workday = "myworkdayjobs.com" in (host or "")
     emails = page.locator('[data-automation-id="email"]:visible' if workday else
                           'input[type="email"]:visible, input[autocomplete="username"]:visible, input[name*="email" i]:visible')
     if emails.count():
