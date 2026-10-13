@@ -16,6 +16,11 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
             raise RuntimeError("Ollama is unavailable")
         page_text = page.inner_text("body")[:18000]
         final = bool(re.search(r"\bsubmit\b", page_text, re.I))   # the last page before the application goes out
+        if not fields and not final:
+            # An in-between step with nothing to fill (Workday's "Autofill with Resume" after the upload): nothing
+            # to review. The final Submit page is always reviewed, fields or not.
+            self.ui.info(f"Page {step} has no fields to review; continuing.")
+            return
         facts = self.profile.facts()
         resume_text = self.profile.resume_text(resolver.resume_key) if resolver.resume_key else ""
         # A 7B model drops ids when asked to echo 20+ of them at once, so review in small batches

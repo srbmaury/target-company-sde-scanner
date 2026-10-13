@@ -922,7 +922,11 @@ class Session:
         hits = self._buttons(page, pattern)
         if not hits:
             return False
-        page.locator(f'[data-jobbot-btn="{hits[-1]["id"]}"]').click()
+        target = page.locator(f'[data-jobbot-btn="{hits[-1]["id"]}"]')
+        try:
+            target.click(timeout=8000)
+        except Exception:
+            target.click(force=True, timeout=8000)   # an overlay (Oracle, Workday) covers the button
         if wait:
             page.wait_for_timeout(wait)
         return True
