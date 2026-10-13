@@ -481,11 +481,12 @@ class AnswerLogAndCapTest(unittest.TestCase):
                 self.assertEqual(server._new_jobs(conn), 1)
 
     def test_roles_missing_from_a_good_scan_are_gone(self):
-        # Acme's board was read and no longer lists u1; Beta's board errored, so u3 is kept.
+        # Acme's board was read twice and no longer lists u1; Beta's board errored, so u3 is kept.
         with tempfile.TemporaryDirectory() as d:
             conn = tracker.connect(os.path.join(d, "t.db"))
             job = lambda u, c: {"url": u, "company": c, "title": "SDE II", "location": "", "experience": "", "evidence": ""}
             tracker.upsert_jobs(conn, [job("u1", "Acme"), job("u2", "Acme"), job("u3", "Beta")])
+            self.assertEqual(tracker.mark_gone(conn, ["u2"], ["Acme"]), 0)   # one miss is not enough
             self.assertEqual(tracker.mark_gone(conn, ["u2"], ["Acme"]), 1)
             self.assertEqual({r["url"] for r in tracker.list_jobs(conn)}, {"u2", "u3"})
             self.assertEqual(len(tracker.list_jobs(conn, include_gone=True)), 3)
@@ -1226,6 +1227,78 @@ class ValidationPromptTest(unittest.TestCase):
                 "Have you previously applied to Acme?", "choice", ["Yes", "No"], quick=True)
         self.assertEqual(ans.display, "Yes")
         conn.close.assert_called_once()
+
+    def test_role_gone_only_after_two_complete_misses(self):
+        conn = tracker.connect(Path(tempfile.mkdtemp()) / "t.db")
+        job = {"url": "https://acme.example/1", "company": "Acme", "title": "Engineer", "location": "Pune",
+               "experience": "", "evidence": ""}
+        tracker.upsert_jobs(conn, [job])
+        self.assertEqual(tracker.mark_gone(conn, [], ["Acme"]), 0)     # one missed scan: still listed
+        self.assertEqual(conn.execute("SELECT gone FROM jobs").fetchone()[0], 0)
+        tracker.upsert_jobs(conn, [job])                               # seen again: the count starts over
+        tracker.mark_gone(conn, [], ["Acme"])
+        self.assertEqual(conn.execute("SELECT gone FROM jobs").fetchone()[0], 0)
+        self.assertEqual(tracker.mark_gone(conn, [], ["Acme"]), 1)     # two in a row: no longer listed
+
+    def test_incomplete_board_reads_are_flagged(self):
+        from jobbot import scan
+        from unittest.mock import patch
+        def flaky(url, data=None, timeout=25):
+            if "/jobs" in url and data is not None:
+                return {"total": 1, "jobPostings": [{"externalPath": "/job/x", "title": "Software Engineer",
+                                                     "locationsText": "Bengaluru, India"}]}
+            raise OSError("detail fetch failed")
+        with patch.object(scan, "http_json", side_effect=flaky):
+            out = list(scan.workday({"host": "h", "tenant": "t", "site": "s"}, ["engineer"], __import__("re").compile("India")))
+        self.assertEqual(out, [scan.INCOMPLETE])   # the posting exists but was not read: never "no longer listed"
+
+    def test_duplicate_check_uses_same_company(self):
+        conn = tracker.connect(Path(tempfile.mkdtemp()) / "t.db")
+        tracker.add_application(conn, "Cisco Systems", "Software Engineer II")
+        level, _ = tracker.applied_match(conn, url="https://cisco.example/2", company="Cisco", title="Software Engineer II")
+        self.assertEqual(level, "likely")
+
+    def test_title_shorthand_whole_words_only(self):
+        self.assertIn("development", tracker.title_tokens("SDE-2 Backend"))
+        self.assertNotIn("development", tracker.title_tokens("Insider Threat Analyst"))
+
+    def test_status_never_moves_back_to_applied(self):
+        conn = tracker.connect(Path(tempfile.mkdtemp()) / "t.db")
+        tracker.add_application(conn, "Acme", "Engineer", url="https://acme.example/1", status="rejected")
+        row = tracker.add_application(conn, "Acme", "Engineer", url="https://acme.example/1", status="applied")
+        self.assertEqual(row["status"], "rejected")
+
+    def test_saved_runs_leave_out_screenshots(self):
+        import json
+        from unittest.mock import patch
+        from jobbot.ui import bridge
+        run = bridge.ApplyRun()
+        run.preview = "x" * 1000
+        out = Path(tempfile.mkdtemp()) / "runs.json"
+        with patch.object(bridge, "RUNS_FILE", return_value=out), patch.object(bridge, "_load_runs", return_value=[]):
+            run.save()
+        self.assertIsNone(json.loads(out.read_text())[0]["preview"])
+
+    def test_every_model_call_uses_one_context_size(self):
+        import io
+        import json
+        from unittest.mock import patch
+        from jobbot import llm
+        model = llm.LLM.__new__(llm.LLM)
+        model.enabled, model.model = True, "qwen2.5:7b"
+        sent = []
+        def capture(req, timeout=None):
+            sent.append(json.loads(req.data)["options"]["num_ctx"])
+            return io.BytesIO(json.dumps({"message": {"content": "{}"}}).encode())
+        with patch("jobbot.llm.urllib.request.urlopen", side_effect=capture):
+            model.chat("s", "u")
+            model.review_application_step([], "", "", "", {})
+        self.assertEqual(sent, [llm.CONTEXT_TOKENS, llm.CONTEXT_TOKENS])   # no reload between calls
+
+    def test_required_experience_wins_over_preferred(self):
+        from jobbot.scan import stated_years
+        text = "5+ years of experience preferred in distributed systems. Minimum 2+ years of experience in Java required."
+        self.assertEqual(stated_years(text)[0], 2)
 
     def test_yes_no_against_sentence_options(self):
         from jobbot.apply.consistency import yes_no_sentence

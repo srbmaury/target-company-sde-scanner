@@ -86,8 +86,14 @@ def text_of(markup):
     return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", html.unescape(markup or ""))))
 
 
+REQUIRED_RE = re.compile(r"minimum|at least|required|must have|must possess|requirement|qualifications?:", re.I)
+PREFERRED_RE = re.compile(r"preferred|nice to have|bonus|plus|ideally|desired", re.I)
+
+
 def stated_years(text):
-    """Return (min_years, snippet) for the first experience requirement found."""
+    """Return (min_years, snippet) for the posting's experience requirement. "5+ years preferred ... 2+ years
+    required" is 2: a stated requirement wins over a preference, and among several the lowest counts."""
+    found = []
     for m in YEARS.finditer(text or ""):
         low = int(m.group(1))
         if low > 20:
@@ -95,11 +101,22 @@ def stated_years(text):
         start = max(0, m.start() - 60)
         context = text[start : m.end() + 50]
         if re.search(r"experience|exp\b|expertise|professional|industry|hands-on|relevant|engineering|building|working|develop", context, re.I):
-            return low, context.strip()
-    return None, ""
+            near = text[max(0, m.start() - 40): m.end() + 40]
+            rank = 0 if REQUIRED_RE.search(near) else (2 if PREFERRED_RE.search(near) else 1)
+            found.append((rank, low, context.strip()))
+    if not found:
+        return None, ""
+    best_rank = min(f[0] for f in found)
+    rank, low, context = min(f for f in found if f[0] == best_rank)
+    return low, context
 
 
 # --- Adapters: each yields dicts with title, location, url, text, posted ---------
+
+# Yielded by an adapter that could not read every posting (a detail fetch failed, a search was capped): the
+# company's board was not fully seen, so roles missing from this scan must not be marked "no longer listed".
+INCOMPLETE = {"_incomplete": True}
+
 
 def greenhouse(entry):
     d = http_json(f"https://boards-api.greenhouse.io/v1/boards/{entry['id']}/jobs?content=true")
@@ -142,19 +159,29 @@ def ashby(entry):
         }
 
 
+WORKDAY_MAX = 400   # results read per search term (20 per page)
+
+
 def workday(entry, queries, location_re):
     host, tenant, site = entry["host"], entry["tenant"], entry["site"]
     base = f"https://{host}/wday/cxs/{tenant}/{site}"
     seen = {}
+    capped = False
     for q in queries:
-        for offset in range(0, 100, 20):
+        total = None
+        for offset in range(0, WORKDAY_MAX, 20):
             d = http_json(f"{base}/jobs", {"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": q})
             posts = d.get("jobPostings", [])
+            total = d.get("total", total)   # Workday reports the total only on the first page
             for p in posts:
                 if p.get("externalPath"):
                     seen.setdefault(p["externalPath"], p)
-            if len(posts) < 20:
+            if len(posts) < 20 or (total is not None and offset + 20 >= total):
                 break
+        else:
+            capped = True   # more results than WORKDAY_MAX for this search: the rest were never seen
+    if capped:
+        yield INCOMPLETE
     for path, p in seen.items():
         loc = p.get("locationsText", "")
         title = p.get("title", "")
@@ -166,6 +193,7 @@ def workday(entry, queries, location_re):
         try:
             info = http_json(f"{base}{path}")["jobPostingInfo"]
         except Exception:
+            yield INCOMPLETE   # this posting exists but could not be read: the board was not fully seen
             continue
         yield {
             "title": info.get("title", title),
@@ -177,20 +205,26 @@ def workday(entry, queries, location_re):
 
 
 def smartrecruiters(entry, queries, location_re):
-    seen = {}
+    seen, capped = {}, False
     for q in queries:
         url = (
             f"https://api.smartrecruiters.com/v1/companies/{entry['id']}/postings?"
             + urllib.parse.urlencode({"q": q, "country": "in", "limit": 100})
         )
-        for p in http_json(url).get("content", []):
+        found = http_json(url)
+        for p in found.get("content", []):
             seen[p["id"]] = p
+        if (found.get("totalFound") or 0) > len(found.get("content", [])):
+            capped = True
+    if capped:
+        yield INCOMPLETE   # a search returned more than one page: the rest were never seen
     for pid, p in seen.items():
         if SENIOR.search(p.get("name", "")) or not ENGINEERING.search(p.get("name", "")):
             continue
         try:
             d = http_json(f"https://api.smartrecruiters.com/v1/companies/{entry['id']}/postings/{pid}")
         except Exception:
+            yield INCOMPLETE   # this posting exists but could not be read: the board was not fully seen
             continue
         sections = (d.get("jobAd") or {}).get("sections", {})
         yield {
@@ -232,6 +266,7 @@ def eightfold(entry, queries, location_re):
         try:
             d = http_json(f"https://{host}/api/pcsx/position_details?position_id={pid}&domain={domain}")["data"]
         except Exception:
+            yield INCOMPLETE   # this posting exists but could not be read: the board was not fully seen
             continue
         yield {
             "title": d.get("name", ""),
@@ -331,6 +366,7 @@ def apple(entry, queries, location_re):
     with cf.ThreadPoolExecutor(6) as ex:   # detail pages are slow; fetch a few at a time
         for (r, loc, url), d in zip(wanted, ex.map(details, wanted)):
             if d is None:
+                yield INCOMPLETE
                 continue
             yield {
                 "title": r.get("postingTitle", ""),
@@ -364,6 +400,7 @@ def oracle(entry, queries, location_re):
             d = http_json(f"{api}/recruitingCEJobRequisitionDetails?expand=all&onlyData=true"
                           f"&finder=ById;Id=%22{rid}%22,siteNumber={site}")["items"][0]
         except Exception:
+            yield INCOMPLETE   # this posting exists but could not be read: the board was not fully seen
             continue
         yield {
             "title": r.get("Title", ""),
@@ -397,6 +434,7 @@ def workable(entry, queries, location_re):
         try:
             d = http_json(f"https://apply.workable.com/api/v2/accounts/{account}/jobs/{j['shortcode']}")
         except Exception:
+            yield INCOMPLETE   # this posting exists but could not be read: the board was not fully seen
             continue
         yield {
             "title": j.get("title", ""),
@@ -473,6 +511,7 @@ def freshteam(entry, queries, location_re):
         try:
             body = http_text(base + path)
         except Exception:
+            yield INCOMPLETE   # this posting exists but could not be read: the board was not fully seen
             continue
         yield {"title": title, "location": where, "url": base + path, "text": text_of(body.split("<form")[0])[:12000],
                "posted": ""}
@@ -599,6 +638,9 @@ def run_scan(companies=None, exclude=(), locations=DEFAULT_LOCATIONS, max_yoe=3,
                 coverage[name] = f"error: {type(jobs).__name__}"
                 return
             kept, entry, urls = 0, registry[name], {r["url"] for r in results}
+            jobs = list(jobs)
+            incomplete = any(j.get("_incomplete") for j in jobs)
+            jobs = [j for j in jobs if not j.get("_incomplete")]
             for job in jobs:
                 verdict = classify(job, location_re, max_yoe)
                 if not verdict or job["url"] in skip_urls or job["url"] in urls:
@@ -614,7 +656,7 @@ def run_scan(companies=None, exclude=(), locations=DEFAULT_LOCATIONS, max_yoe=3,
                     "experience": verdict[0], "evidence": verdict[1][:160],
                     "description": (job.get("text") or "")[:8000],
                 })
-            coverage[name] = f"{len(jobs)} postings, {kept} kept"
+            coverage[name] = f"{len(jobs)} postings, {kept} kept" + (" (incomplete)" if incomplete else "")
 
     browser = None
     if pages and careers_pages:
