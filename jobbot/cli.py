@@ -400,15 +400,25 @@ def cmd_password(args):
         sys.exit("Storing the job-site password needs the macOS Keychain.")
     if not email:
         sys.exit("Set personal.email in profile.yaml first: the password is stored for that account.")
+    site, slot = getattr(args, "site", None), None
+    if getattr(args, "add", False):
+        slot = credentials.next_free_slot(email)
+        if not slot:
+            sys.exit(f"All {credentials.MAX_ALTERNATES} alternate slots are used; remove one with --delete --slot N.")
+    elif getattr(args, "slot", None):
+        slot = args.slot
     if args.delete:
-        print("Removed." if credentials.delete(email) else "No password was stored.")
+        print("Removed." if credentials.delete(email, slot=slot, site=site) else "No password was stored there.")
         return
-    print(f"Password jobbot will use to sign in to, or create, job-site accounts (Workday and similar) as {email}.\n"
-          "Use one you don't use anywhere else: 8+ characters with upper and lower case, a number and a symbol.\n"
-          "It goes straight into your macOS Keychain; jobbot never writes it to a file or log.")
-    if not credentials.set_interactive(email):
+    what = f"for {site} only" if site else (f"as alternate #{slot}" if slot and slot > 1 else "as your main job-site password")
+    print(f"Password {what} ({email}). Sign-in tries this site's own password, then the main one, then the alternates\n"
+          "(at most 3 per site, to avoid lockouts); sign-up uses the first that meets the site's stated rules.\n"
+          "Use passwords you don't use anywhere else: 12+ characters with upper and lower case, a number and a symbol\n"
+          "satisfies every job site seen so far. It goes straight into your macOS Keychain; jobbot never logs it.")
+    if not credentials.set_interactive(email, slot=slot, site=site):
         sys.exit("Not stored.")
-    print("Stored. Set automation.create_accounts: true in profile.yaml to let apply use it.")
+    print(f"Stored. jobbot now has {credentials.count(email)} job-site password(s) for {email}"
+          + (f", plus one for {site}." if site else "."))
 
 
 def cmd_ui(args):
@@ -510,7 +520,10 @@ def build_parser():
     sp.set_defaults(fn=cmd_resumes)
 
     sp = sub.add_parser("password", help="store the password for job-site accounts in the macOS Keychain")
-    sp.add_argument("--delete", action="store_true", help="remove the stored password")
+    sp.add_argument("--delete", action="store_true", help="remove the stored password (with --slot or --site: that one)")
+    sp.add_argument("--add", action="store_true", help="store another password to try (alternate)")
+    sp.add_argument("--slot", type=int, help="alternate number to replace or delete (2-5)")
+    sp.add_argument("--site", help="a password for one site only, e.g. visa.wd5.myworkdayjobs.com (tried first there)")
     sp.set_defaults(fn=cmd_password)
 
     sp = sub.add_parser("logs", help="show what apply filled, corrected, and checked")

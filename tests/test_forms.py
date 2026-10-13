@@ -198,7 +198,8 @@ class FormTests(unittest.TestCase):
         page = s.ctx.pages[0]
         page.goto(self.base + "/signup.html")
         with patch.object(auth, "host_allowed", return_value=True), \
-             patch.object(auth.credentials, "get", return_value="Str0ng!Pass"):
+             patch.object(auth.credentials, "get", return_value="Str0ng!Pass"), \
+             patch.object(auth.credentials, "candidates", return_value=["Str0ng!Pass"]):
             self.assertTrue(auth.ensure_signed_in(s, page))
         self.assertTrue(page.evaluate("window.signInTried"))
         created = page.evaluate("window.created")
