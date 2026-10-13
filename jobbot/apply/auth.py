@@ -64,7 +64,10 @@ def workday_sign_in(self, page):
         page.wait_for_timeout(1500)
     if not by("signInSubmitButton").count():
         return False
-    cover = page.locator('[data-automation-id="click_filter"]:visible', has_text="Sign In")
+    # Workday lays an invisible click_filter over its Sign In button; it carries the name in aria-label, not text.
+    cover = page.locator('[data-automation-id="click_filter"][aria-label="Sign In" i]:visible')
+    if not cover.count():
+        cover = page.locator('[data-automation-id="click_filter"]:visible', has_text="Sign In")
     target = cover.first if cover.count() else by("signInSubmitButton").first
     return password_sign_in(self, page, target, by("email").first, by("password").first)
 
@@ -97,9 +100,10 @@ def password_sign_in(self, page, button=None, email_input=None, password_input=N
         email_input = emails.first
     self._auth_attempted = attempted | {key}
     email_input.fill(email)
-    (password_input or passwords.first).fill(password)
-    button.click(timeout=5000)
+    pw_box = password_input or passwords.first
+    pw_box.fill(password)
     password = None
+    press(button, pw_box)
     page.wait_for_timeout(2000)
     sites.wait_rendered(page)
     body = page.inner_text("body")
@@ -112,6 +116,17 @@ def password_sign_in(self, page, button=None, email_input=None, password_input=N
         return False
     self.ui.info("Submitted stored credentials to the existing-account sign-in form.")
     return not needs_account(page)
+
+
+def press(button, field):
+    """Click a submit button that an overlay may cover: normally, then forced, then Enter in the field."""
+    for attempt in (lambda: button.click(timeout=5000), lambda: button.click(force=True, timeout=5000),
+                    lambda: field.press("Enter")):
+        try:
+            attempt()
+            return
+        except Exception:
+            continue
 
 
 def sign_up(self, page):
@@ -152,13 +167,16 @@ def sign_up(self, page):
     _tick_signup_terms(page, workday)
     self.ui.info(f"Creating your {host} account with your Keychain password.")
     if workday:
-        cover = page.locator('[data-automation-id="click_filter"]:visible', has_text="Create Account")
-        (cover.first if cover.count() else page.locator('[data-automation-id="createAccountSubmitButton"]:visible').first).click(timeout=5000)
+        cover = page.locator('[data-automation-id="click_filter"][aria-label="Create Account" i]:visible')
+        if not cover.count():
+            cover = page.locator('[data-automation-id="click_filter"]:visible', has_text="Create Account")
+        press(cover.first if cover.count() else page.locator('[data-automation-id="createAccountSubmitButton"]:visible').first,
+              passwords.last)
     else:
         button = page.get_by_role("button", name=re.compile(SIGNUP_BUTTON_RE, re.I))
         if not button.count():
             return False
-        button.first.click(timeout=5000)
+        press(button.first, passwords.last)
     page.wait_for_timeout(3000)
     sites.wait_rendered(page)
     if re.search(r"already (exists|in use|registered)|account .{0,40}exists", page.inner_text("body"), re.I):
