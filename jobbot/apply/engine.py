@@ -15,11 +15,13 @@ import time
 from .. import paths, tracker
 from ..answers import Resolver, real_options
 from . import auth, browser, consistency, dropdowns, email_verification, review, sites, values
-from .browser import browser_profile_holder  # compatibility for existing callers
-from .dropdowns import matching_option as _matching_option  # compatibility for existing callers
-from .review import REVIEW_BATCH  # public compatibility for existing callers
 from .fields import BUTTONS_JS
 from .sites import detect_ats, start_url
+
+# compatibility for existing callers
+browser_profile_holder = browser.browser_profile_holder
+_matching_option = dropdowns.matching_option
+REVIEW_BATCH = review.REVIEW_BATCH
 from .unattended import NeedsYou, UnattendedUI
 from .verify import HEAR_MINE_RE, HEAR_OPTION_RE, READBACK_JS, check_page, matches
 
