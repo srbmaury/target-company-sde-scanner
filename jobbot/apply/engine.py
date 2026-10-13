@@ -294,8 +294,13 @@ class Session:
                 continue
             if choice == "submit":
                 self._click(page, submit_re)
-                page.wait_for_timeout(6000)
-                confirmed = self._confirmation(page)
+                # Slow sites (Workday, careers pages) confirm several seconds later: keep looking, never resubmit.
+                confirmed = None
+                for _ in range(10):
+                    page.wait_for_timeout(2500)
+                    confirmed = self._confirmation(page)
+                    if confirmed or check_page(page, [], [], []).errors:
+                        break
                 if confirmed:
                     self.ui.info(f"Confirmation seen: “{confirmed}”")
                     return "applied", confirmed

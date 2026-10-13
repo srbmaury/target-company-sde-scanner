@@ -120,6 +120,8 @@ SCAN_JS = r"""
   const groups = {};
   for (const el of all) {
     const t = el.tagName.toLowerCase();
+    // Bot traps (Workday's "beecatcher" boxes): filling one flags the application as automated.
+    if (el.closest && el.closest('[data-automation-id="beecatcher"]')) continue;
     if (t === 'input' || t === 'select' || t === 'textarea') {
       const type = (el.getAttribute('type') || t).toLowerCase();
       // Never touch passwords; jobbot leaves sign-in to the user.
