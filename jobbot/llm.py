@@ -13,7 +13,11 @@ import urllib.request
 
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 DEFAULT_MODEL = os.environ.get("JOBBOT_MODEL", "qwen2.5:7b")
-MODEL_SLOTS = threading.BoundedSemaphore(2)  # shared by application workers and review batches
+# Concurrent model calls: as many as Ollama serves at once (OLLAMA_NUM_PARALLEL, default 4), shared by
+# application workers and review batches. Waiting for a slot is bounded too (SLOT_WAIT): an application must
+# never hang in a queue behind other browsers.
+MODEL_SLOTS = threading.BoundedSemaphore(max(1, int(os.environ.get("OLLAMA_NUM_PARALLEL", "4") or 4)))
+SLOT_WAIT = 300
 
 GROUNDING = (
     "You help a job candidate fill in applications. Use only facts from the candidate profile and "
@@ -78,9 +82,13 @@ class LLM:
             body["options"]["num_ctx"] = context_tokens
         req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
-        with MODEL_SLOTS:
+        if not MODEL_SLOTS.acquire(timeout=SLOT_WAIT):
+            raise TimeoutError(f"the local model was busy for {SLOT_WAIT // 60} minutes")
+        try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 content = json.load(resp)["message"]["content"]
+        finally:
+            MODEL_SLOTS.release()
         if as_json:
             try:
                 return json.loads(content)

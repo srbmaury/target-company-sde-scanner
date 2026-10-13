@@ -1198,6 +1198,35 @@ class ValidationPromptTest(unittest.TestCase):
         self.assertIsNone(m.lookup(long_q.format("Bangalore").replace("you willing", "you not willing")))  # negation
         self.assertEqual(m.lookup("How did you hear about us?"), "Company website")     # Title Case is not a name
 
+    def test_resume_terms_match_singular_and_plural(self):
+        from jobbot.resumes import number_forms
+        self.assertEqual(number_forms("distributed system"), {"distributed system", "distributed systems"})
+        self.assertEqual(number_forms("distributed systems"), {"distributed system", "distributed systems"})
+        self.assertEqual(number_forms("aws"), {"aws"})          # not a plural: never "aw"
+        self.assertEqual(number_forms("ios"), {"ios"})
+        self.assertIn("api", number_forms("apis"))
+        self.assertIn("policy", number_forms("policies"))
+
+    def test_model_slot_wait_is_bounded(self):
+        from unittest.mock import patch
+        from jobbot import llm
+        model = llm.LLM.__new__(llm.LLM)
+        model.enabled, model.model = True, "qwen2.5:7b"
+        with patch.object(llm, "MODEL_SLOTS") as slots, patch.object(llm, "SLOT_WAIT", 0):
+            slots.acquire.return_value = False   # every slot busy
+            with self.assertRaises(TimeoutError):
+                model.chat("system", "user")
+
+    def test_applied_before_closes_its_connection(self):
+        from unittest.mock import MagicMock, patch
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [{"company": "Acme"}]
+        with patch("jobbot.tracker.connect", return_value=conn):
+            ans = Resolver(Profile(PROFILE, "x"), None, job={"company": "Acme"}).resolve(
+                "Have you previously applied to Acme?", "choice", ["Yes", "No"], quick=True)
+        self.assertEqual(ans.display, "Yes")
+        conn.close.assert_called_once()
+
     def test_yes_no_against_sentence_options(self):
         from jobbot.apply.consistency import yes_no_sentence
         self.assertIs(yes_no_sentence("No", "I have never been employed by Rubrik"), True)

@@ -214,7 +214,11 @@ class Resolver:
             from . import tracker
             try:
                 conn = tracker.connect()
-                return yes_no(any(tracker.same_company(company, r["company"]) for r in conn.execute("SELECT company FROM applications")))
+                try:
+                    rows = conn.execute("SELECT company FROM applications").fetchall()
+                finally:
+                    conn.close()   # asked on many applications in a long run: never leak a connection per question
+                return yes_no(any(tracker.same_company(company, r["company"]) for r in rows))
             except Exception:
                 return None
 
