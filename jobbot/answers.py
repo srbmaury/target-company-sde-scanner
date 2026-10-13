@@ -64,12 +64,21 @@ def pick(answer, options):
     hits = [i for i, o in enumerate(normed) if pattern.search(o)]
     if len(hits) == 1:
         return hits[0]
+    initials = "".join(w[0] for w in a.split() if w not in ("and", "of", "in", "the", "with"))
+    if len(initials) >= 2:   # "Electronics and Communication Engineering" -> "ECE", "E.C.E."
+        acr = [i for i, o in enumerate(normed) if o.replace(" ", "") == initials]
+        if len(acr) == 1:
+            return acr[0]
+    if a == "no":   # "No" against sentence options: the one negative statement ("I have never been employed by ...")
+        neg = [i for i, o in enumerate(normed) if re.match(r"(i (have|had) (never|not)|i (am|was) not|i do not|i don ?t|never|none|not )", o)]
+        if len(neg) == 1:
+            return neg[0]
     return None
 
 
 HEAR_RE = re.compile(r"how did you (hear|learn|find|come across)|where did you (hear|find|learn)|source of (application|referral)|"
                      r"how (did you|were you) (referred|introduced)", re.I)
-HEAR_PREFERENCES = ["company website", "career site", "careers site", "careers website", "careers page", "company career",
+HEAR_PREFERENCES = ["company website", "career site", "careers site", "careers website", "careers page", "company career", "careers", "carrers", "career",
                     "corporate website", "website", "linkedin", "job board", "online job", "internet", "other"]
 EMPLOYMENT_RE = re.compile(r"employee id|employee number|(company|corporate|work) email|email address|worked|work(ing)? (for|at)|"
                            r"employed|employee|intern|contractor|contingent|consultant|vendor|alumni|former|previous(ly)?|rehire",
@@ -88,7 +97,7 @@ FACT_ONLY_RE = re.compile(r"citizen|nationality|\bvisa\b|green card|permanent re
                           r"\bpassport\b|date of birth|\bage\b|social security|aadhaar|\bpan\b", re.I)
 # Optional catch-all boxes ("Anything else you'd like us to know?") are better left blank than filled.
 OPEN_EXTRA_RE = re.compile(r"anything else|additional (information|comments|details)|other comments|cover letter|^comments?$", re.I)
-SIGN_RE = re.compile(r"signature|sign here|\be-?sign|type your (full |legal )?name to (sign|confirm|acknowledge)", re.I)
+SIGN_RE = re.compile(r"signature|sign here|\be-?sign|type your (full |legal )?name to (sign|confirm|acknowledge)|by typing your (full |legal )?name", re.I)
 
 
 def same_employer(company, past):
@@ -123,9 +132,10 @@ def bucket(years, options):
     "Less than 1 year", "None". None when the options are not year ranges."""
     def bounds(text):
         t = text.lower().replace("–", "-")
-        if "year" not in t and not re.search(r"\bnone\b|no experience", t):
+        bare = bool(re.fullmatch(r"\s*(?:<|>|less than |more than )?\d+(?:\.\d+)?\s*(?:-\s*\d+(?:\.\d+)?|\+)?\s*(?:yrs?)?\s*", t))
+        if "year" not in t and not bare and not re.search(r"\bnone\b|no experience|fresher", t):
             return None
-        if re.search(r"\bnone\b|no experience|^0 years?$", t):
+        if re.search(r"\bnone\b|no experience|fresher|^0 years?$|^0$", t):
             return (0, 0.01)
         nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", t)]
         if re.search(r"less than|under|below|<", t) and len(nums) == 1:
@@ -143,6 +153,26 @@ def bucket(years, options):
         if b and b[0] <= years < b[1]:
             return i
     return None
+
+
+SOCIAL_RE = re.compile(r"^\s*(facebook|twitter|x|instagram|threads|tiktok|youtube|github|gitlab|linkedin|website|portfolio|"
+                       r"personal website|blog|medium|stack ?overflow|stack ?exchange|hacker ?rank|codeforces|codechef|leetcode|kaggle|dribbble|behance|mastodon|bluesky)\b"
+                       r"(?:\s*\(fka twitter\))?(?:\s*(?:profile|url|link|handle|page))*\s*\*?\s*$", re.I)
+SOCIAL_KEYS = {"x": "twitter", "personal website": "website", "blog": "website", "portfolio": "website", "stackoverflow": "stackoverflow",
+               "stack overflow": "stackoverflow", "stack exchange": "stackexchange", "hacker rank": "hackerrank"}
+
+RESUME_FACT_RE = re.compile(
+    r"\b(years?|months?)\b.{0,60}\bexperience\b|\bexperience\b.{0,80}\b(years?|months?)\b|how many (years|months)"
+    r"|^(do|have|are) you (have )?(any )?(worked|work|experience|familiar|hands.?on|used|built|exposure)\b"
+    r"|^(total |work |relevant |overall |professional )?(experience|exp\.?|years|months)( \(?in (years|months)\)?)?$"
+    r"|^(key |technical |primary |core |relevant )?skills?( set)?$"
+    r"|\b(live|based|reside|located) within \d+\s*(miles|mi|km|kilomet)"
+    r"|^(please )?(share|describe|tell us about|explain|walk us through) (your )?(hands.?on |practical |professional )?(experience|work) (with|using|in|on)\b"
+    r"|^(salary |ctc |compensation |preferred |expected )?currency\b|deemed export|(previously|ever|formerly) (worked|been employed|employed) (for|at|by)|former employee|worked (for|at) .{0,40} before"
+    r"|legally authori[sz]ed to work|(require|need)s? .{0,20}sponsorship|(previously|ever|already) appl(y|ied)\b"
+    r"|language.{0,20}\b(fluent|speak|spoken|written)|\bfluent in\b"
+    r"|^(what|which) (city|town)\b.{0,30}\b(live|based|reside|located)|^where do you (currently )?(live|reside)\b|(city|place) of residence"
+    r"|^(current |home )?(location|city)( \((city|city, state|city, country)\))?$|^(current|home) (city|location)\b", re.I)
 
 
 class Resolver:
@@ -177,6 +207,22 @@ class Resolver:
         def experience_years():
             return str(g("work.total_experience_years", ""))
 
+        def applied_before():
+            """'Have you previously applied to Point72?': Yes only if your tracker has an application there."""
+            if not company:
+                return None
+            from . import tracker
+            try:
+                conn = tracker.connect()
+                return yes_no(any(tracker.same_company(company, r["company"]) for r in conn.execute("SELECT company FROM applications")))
+            except Exception:
+                return None
+
+        def total_months():
+            """Your experience in months: work.total_experience_months, else total years x 12."""
+            months = g("work.total_experience_months")
+            return int(months) if months not in (None, "") else int(float(g("work.total_experience_years", 0) or 0) * 12)
+
         def area_years(key):
             """Years in one area (design, SDLC...) when your profile sets it; else your total."""
             value = g(key)
@@ -193,11 +239,32 @@ class Resolver:
             tech = m.group(1).strip().lower()
             if tech in ("software", "software development", "professional", "the industry", "industry", "total"):
                 return experience_years()
-            corpus = " ".join(p.resume_text(k).lower() for k in p.resumes())
-            words = [w for w in re.findall(r"[a-z0-9+#.]+", tech) if len(w) > 1]
-            # whole words: "go" must not match "google" or "good"
-            found = words and all(re.search(rf"(?<![a-z0-9]){re.escape(w)}(?![a-z0-9])", corpus) for w in words)
+            from . import resumes
+            # every "and" part needs one of its "/" choices on a resume (full text, not a truncated preview)
+            found, _missing = resumes.has_all(p, tech)
             return experience_years() if found else "0"
+
+        def tools_statement(question):
+            """'Share your hands-on experience with AWS services like S3, EKS, or MSK': name what your resumes show,
+            say plainly what they don't, and invent no projects or use cases."""
+            m = re.search(r"\b(?:experience|work)\s+(?:with|using|in|on)\s+(.+?)(?:\?|\.\s|$)", question, re.I)
+            if not m:
+                return None
+            from . import resumes
+            phrase = re.sub(r"\b(services?|tools?|technologies|platforms?|frameworks?|like|such as|e\.g\.?|including|etc)\b", ",", m.group(1), flags=re.I)
+            items = [x.strip(" .") for x in re.split(r",|/|\bor\b|\band\b", phrase) if x.strip(" .")]
+            items = [x for x in items if 1 < len(x) <= 25 and len(x.split()) <= 3][:8]
+            if not items or not p.resumes():
+                return None
+            have = [x for x in items if resumes.mentions(p, x)]
+            lack = [x for x in items if x not in have]
+            join = lambda xs: xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]  # noqa: E731
+            parts = []
+            if have:
+                parts.append(f"I have hands-on experience with {join(have)}, as listed on my resume.")
+            if lack:
+                parts.append(f"I have not worked with {join(lack).replace(' and ', ' or ')}.")
+            return " ".join(parts)
 
         def used_tech(question):
             """'Have you worked with Debezium, PeerDB?': Yes only if your resumes mention every tool named."""
@@ -210,10 +277,10 @@ class Resolver:
                     r"\b(our|the|your|this|these|its|company|policy|policies|role|position|team|process|people|"
                     r"customers?|clients?|stakeholders?|environment|industry|domain)\b", t, re.I) for t in tools):
                 return None   # a sentence, not a list of tools: leave it to the model
-            corpus = " ".join(p.resume_text(k).lower() for k in p.resumes())
-            if not corpus:
+            from . import resumes
+            if not p.resumes():
                 return None
-            return yes_no(all(re.search(rf"(?<![a-z0-9]){re.escape(t.lower())}(?![a-z0-9])", corpus) for t in tools))
+            return yes_no(resumes.has_all(p, m.group(1))[0])
 
         def has_credential(question):
             """'Do you hold a PMP certification?': Yes only if your resumes name it."""
@@ -284,11 +351,13 @@ class Resolver:
              r"employed by .* in the past", worked_here),
             (r"\bhybrid\b|in.?office|\bon.?site\b|work (from|in|at) (the|our) .*office|days a week|come (in )?to the office|"
              r"based in our .* office|office.?based", willing),
-            (r"(open|okay|ok|comfortable|fine|willing) (for|to|with|in) .*\b(location|city|office)\b|"
+            (r"(open|okay|ok|comfortable|fine|willing|happy) (working |to work )?(for|to|with|in|at|from) .*\b(location|city|office)\b|"
              r"(open|willing|able) to (work|be based|move) (in|from|at|to) ", open_to_place),
             (r"relocat|work (on a daily basis )?in the (work )?location|able to work from|\bcommute", willing),
-            (r"currently (based|located|living|residing) in|do you (live|reside) in", lambda: None),
+            (r"(?<!city )(?<!town )(currently (based|located|living|residing) in|do you (live|reside) in)\b(?!\s*\?)", lambda: None),
             (r"notice period.*(negotiable|buy ?out|serve)|can you (join|start) (early|sooner|immediately)|buy ?out", lambda: "Yes"),
+            # "If serving, when is your last working day?": you are not serving notice (rule below)
+            (r"if (you are |you.re )?serving|last working (day|date)|\blwd\b", lambda: "Not applicable - not currently serving notice"),
             (r"serving (your )?notice|on notice period|currently on notice", lambda: "No"),
             (r"willing to (work|take|do).*(shift|weekend|on.?call|night|rotational)", lambda: "Yes"),
             (r"open to (contract|full.?time|permanent)|employment type|full.?time (role|position)", lambda: "Yes"),
@@ -305,6 +374,15 @@ class Resolver:
             (r"\b(certification|certificate|certified|license|licence)\b(?!.*(driv|vehicle))", lambda: has_credential(self._q)),
             (r"^(do|have|are) you (have )?(any )?(worked|work|experience|familiar|hands.?on|used|built|exposure)\b",
              lambda: used_tech(self._q)),
+            # Bare boxes: "Experience" / "Years" / "Months" (Keka splits experience into years + months).
+            (r"^(total |work |relevant |overall |professional )?(experience|exp\.?|years)( \(?in years\)?| in years)?\s*[*✱]?$",
+             lambda: str(int(total_months() // 12))),
+            (r"^months\s*[*✱]?$|^(total |work )?experience \(?(in )?months\)?\s*[*✱]?$", lambda: str(int(total_months() % 12))),
+            (r"how many months.*(with|in|using|on) ", lambda: str(total_months()) if tech_years(self._q) != "0" else "0"),
+            (r"^(key |technical |primary |core |relevant )?skills?( set)?\s*[*✱]?$",
+             lambda: __import__("jobbot.resumes", fromlist=["top_skills"]).top_skills(p, self.resume_key) or None),
+            (r"^(please )?(share|describe|tell us about|explain|walk us through) (your )?(hands.?on |practical |professional )?"
+             r"(experience|work) (with|using|in|on)\b", lambda: tools_statement(self._q)),
             (r"years of (hands.?on |professional )?experience (with|in|using|on)|how many years.*(with|in|using|on) ",
              lambda: tech_years(self._q)),
             (r"years of (professional |relevant |total |industry |work )?experience|how many years", experience_years),
@@ -324,7 +402,18 @@ class Resolver:
             (r"country (phone )?code|phone country|dialing code", lambda: g("personal.phone_country")),
             (r"phone (device )?type|type of (phone|device)", lambda: g("personal.phone_device_type") or None),
             (r"language.*\b(fluent|speak|spoken|written|proficien)|\bfluent in\b",
-             lambda: g("personal.languages") or None),
+             lambda: ", ".join(dict.fromkeys(([] if re.search(r"(other than|besides|apart from|except) english", self._q, re.I)
+                                              else ["English"]) + list(g("personal.languages") or []))) or None),
+            # "Do you live within 45 miles of our talent hub in India / of Bangalore?": Yes only when it names your city.
+            (r"\b(live|based|reside|located) within \d+\s*(miles|mi|km|kilomet)",
+             lambda: yes_no(bool(g("personal.city")) and re.search(r"\b" + re.escape(str(g("personal.city"))) + r"\b", self._q, re.I) is not None)),
+            # "Currency" next to a salary box: the currency you are paid in, never a place name.
+            (r"^(salary |ctc |compensation |preferred |expected )?currency\b", lambda: g("work.currency") or "INR"),
+            # US export rule about releasing controlled technology to foreign nationals in the US: not an India-based role.
+            (r"deemed export", lambda: "No" if not any(c.lower() in ("united states", "usa", "us")
+                                                     for c in g("eligibility.authorized_countries") or []) else None),
+            (r"(previously|ever|already|before) appl(y|ied)\b.{0,40}\b(to|with|at|for)\b|have you appl(y|ied) (to|with|at|for) .{0,40} before",
+             lambda: applied_before()),
             (r"phone extension|\bext(ension)?\b", lambda: None),
             (r"\b(phone|mobile|contact) (number|no\.?)\b|^\s*(phone|mobile|telephone)\b(?!.*(app|develop|experience))",
              lambda: g("personal.phone")),
@@ -339,7 +428,8 @@ class Resolver:
             (r"^(your |current |home )?(state|province|region)\b(?!\s+(the|any|your|why|whether|if|how|what)\b)|"
              r"\bstate\s*/\s*(province|region)|\b(state|province|region) of (residence|domicile)|"
              r"(which|what|select( your)?) (state|province|region)\b", lambda: g("personal.state")),
-            (r"\blocation\b|\bcity\b|where are you (based|located)", lambda: g("personal.location_autocomplete") or g("personal.city")),
+            (r"\blocation\b|\bcity\b|where are you (based|located)|where do you (live|reside)\b|place of residence",
+             lambda: g("personal.location_autocomplete") or g("personal.city")),
             (r"^country\b|country of residence|which country", lambda: g("personal.country")),
             (r"current (\(or most recent\) )?(company|employer|organi[sz]ation)|^company$|most recent (company|employer)",
              lambda: g("work.current_company")),
@@ -385,6 +475,22 @@ class Resolver:
                 return None
         return None
 
+    def _none_option(self, question, options):
+        """'Select all that apply' compliance lists (sanctions, export controls): tick "None of the above";
+        for the follow-up "if you selected anything other than none of the above", tick "Not applicable"."""
+        opts = real_options(options or [])
+        if len(opts) < 2:
+            return None
+        def pick(rx):
+            i = next((i for i, o in enumerate(opts) if re.search(rx, o, re.I)), None)
+            return Answer(i, "rule", opts[i]) if i is not None else None
+        if re.search(r"if you selected .{0,40}other than .{0,10}none of the above", question, re.I):
+            return pick(r"^not applicable") or pick(r"^none of (these|the above)")
+        if re.search(r"select all that apply|any of the (below|following) appl", question, re.I) and \
+                re.search(r"sanction|export control|embargo|cuba|iran|north korea|syria|crimea", question + " " + " ".join(opts), re.I):
+            return pick(r"^none of (the above|these)|^none$|do(es)? not apply")
+        return None
+
     def resolve(self, question, kind="text", options=None, required=False, quick=False):
         """kind: text | textarea | choice | checkbox. Returns Answer or None to leave blank.
 
@@ -393,10 +499,49 @@ class Resolver:
         it really answers the question. quick=True never asks you.
         """
         question = re.sub(r"\s+", " ", question or "").strip(" *:")
+        if not required and re.match(r"\s*if (yes|so|applicable|you (answered|selected|chose))\b", question, re.I):
+            return None   # an optional follow-up to another answer ("If you answered Other, please specify"): blank
+        if kind in ("text", "textarea") and re.match(r"\s*if (yes|so)\b", question, re.I) and \
+                re.search(r"visa|sponsor|relative|related to|family|worked (for|at)|employed by|government|convict|referr", question, re.I):
+            # the parent question ("Are you on a visa?", "Do you have relatives here?") is a No from your profile
+            return Answer("Not applicable", "rule")
+        none = self._none_option(question, options)
+        if none is not None:
+            return none
+        if kind == "choice" and options and re.search(r"\bmajor\b|field of study|discipline|specialization|\bbranch\b.*(major|study|engineering|degree)", question, re.I):
+            # Your branch from the profile, else "Other": never the model's guess ("CS" for an ECE graduate).
+            opts = real_options(options)
+            i = pick(self.p.get("education.field") or "", opts)
+            if i is None:
+                i = next((j for j, o in enumerate(opts) if re.fullmatch(r"\s*others?\b.*", o, re.I)), None)
+            return Answer(i, "profile", opts[i]) if i is not None else None
+        factual = self._profile_fact(question, kind, options)
+        if factual is not None:
+            return factual
+        if kind == "choice" and re.fullmatch(r"(?:name of (?:your )?)?(?:school|university|college|institution)(?:\s*/\s*(?:school|university|college|institution))?(?: name)?", question, re.I):
+            # A generic school alias must never select another campus through rule/model fallback.
+            return None
         options = real_options(options or [])
+        social = SOCIAL_RE.search(question)
+        if social:
+            # Social profiles come from your profile's links only: a model must not invent one (it once put
+            # "Telangana" in Facebook). A network you do not list stays blank.
+            return self._fit(self.p.get(f"links.{SOCIAL_KEYS.get(social.group(1).lower(), social.group(1).lower())}"),
+                             kind, options, "profile") if self.p.get(
+                f"links.{SOCIAL_KEYS.get(social.group(1).lower(), social.group(1).lower())}") else None
+        if RESUME_FACT_RE.search(question):
+            # Experience, skills and years/months come from your profile and resumes only: the model never
+            # overrides them, so it cannot claim a tool your resumes do not show or put "Bangalore" in Experience.
+            ans = self._by_rules(question, kind, options, False, quick=True)
+            if ans is not None:
+                return ans
         if not (self.llm and self.llm.enabled) or kind == "checkbox" or (
                 not EEO_RE.match(question) and any(p.search(question) for p in self.always_ask)):
             return self._by_rules(question, kind, options, required, quick)   # consent boxes and always_ask stay yours
+        if HEAR_RE.search(question) and kind == "choice" and options:
+            # Where you found the job is your profile's answer (company website) mapped onto the site's list
+            # ("Carrers"): the model second-guessing it only left such boxes blank.
+            return self._how_did_you_hear(question, kind, options)
         suggestion = self._by_rules(question, kind, options, False, quick=True)
         if suggestion is None and HEAR_RE.search(question):
             suggestion = self._how_did_you_hear(question, kind, options)
@@ -412,6 +557,60 @@ class Resolver:
             return self._cached(("review", question.lower(), kind, tuple(options)), lambda: self._ask(
                 question, kind, options, required, ans.value, reason="model draft, review it"))
         return ans
+
+    def _profile_fact(self, question, kind, options=None):
+        """User-confirmed facts cannot be replaced by a model draft or fuzzy memory."""
+        q = question.lower()
+        if OTHER_PERSON_RE.search(question):
+            return None
+        value = None
+        if re.search(r"salary|compensation|\bctc\b|remuneration|pay expectation|benefit.*expect", q):
+            if re.search(r"current|present|existing|previous", q):
+                value = self.p.get("work.current_ctc")
+            elif re.search(r"expect|desired|target|require|seeking|looking for", q):
+                value = self.p.get("work.expected_ctc")
+        elif "pronoun" in q:
+            value = self.p.get("personal.pronouns")
+        elif re.fullmatch(r"(?:your )?(?:mobile(?: phone)?|phone|telephone)(?: number)?", q):
+            value = self.p.get("personal.phone")
+        elif re.fullmatch(r"(?:your )?e-?mail(?: address)?", q):
+            value = self.p.get("personal.email")
+        elif re.search(r"(?:ever |have you |did you ).*(?:serve|served).*(?:military|armed forces)|military service", q):
+            value = self.p.get("eligibility.military_service")
+        elif "veteran" in q:
+            value = self.p.get("eeo.veteran")
+            if kind == "choice" and {o.strip().lower() for o in (options or [])} == {"yes", "no"}:
+                value = self.p.get("eligibility.military_service")
+        elif (re.search(r"school|university|college|education|course", q) and re.search(r"start|end|graduat|completion|from|to date", q)) \
+                or re.fullmatch(r"(start|end) date (month|year)", q) or re.search(r"\b(year|when) did you graduate|graduation year", q):
+            # Greenhouse's education block asks "Start date year" / "End date month" with no school word
+            end = bool(re.search(r"end|graduat|completion|to date", q))
+            key = "end" if end else "start"
+            month = self.p.get(f"education.{key}_month")
+            if month:
+                year, month_number = month.split("-")
+                if "year" in q:
+                    value = year
+                elif "month" in q and ("date" not in q or q.endswith("date month")):
+                    import calendar
+                    value = calendar.month_name[int(month_number)]
+                else:
+                    value = month
+        elif re.fullmatch(r"(?:name of (?:your )?)?(?:school|university|college|institution)(?:\s*/\s*(?:school|university|college|institution))?(?: name)?", q):
+            schools = self.p.get("education.school")
+            value = schools if kind == "choice" else self.p.get("education.school_name") or (schools[0] if isinstance(schools, list) and schools else schools)
+            if kind == "choice" and options:
+                # Only an option naming your school: a distinctive word from your aliases (BHU, Banaras, Varanasi),
+                # never just "Indian Institute of Technology", which would pick IIT Bombay.
+                generic = {"indian", "institute", "technology", "of", "the", "university", "college", "school", "and", "iit", "it", "univ"}
+                names = schools if isinstance(schools, list) else [schools or self.p.get("education.school_name") or ""]
+                marks = {w for n in names for w in re.findall(r"[a-z]+", str(n).lower())} - generic
+                ok = [i for i, o in enumerate(real_options(options)) if marks & set(re.findall(r"[a-z]+", o.lower()))]
+                if not ok:
+                    return None
+                opts = real_options(options)
+                return Answer(ok[0], "profile", opts[ok[0]])
+        return self._fit(value, kind, real_options(options or []), "profile") if value is not None else None
 
     def _by_model(self, question, kind, options, suggestion):
         try:
@@ -598,6 +797,13 @@ class Resolver:
             return next((a for a in (self._fit(v, kind, options, source) for v in value) if a), None)
         if kind == "choice":
             idx = pick(value, options)
+            if idx is None and str(value).strip().lower() == "yes":
+                # "Comfortable working from our Bengaluru office?" offering "Bengaluru" / "Others": a Yes is
+                # the one option naming a place the question names.
+                q = getattr(self, "_q", "") or ""
+                named = [i for i, o in enumerate(options) if len(norm(o)) > 2 and not re.match(r"others?\b", norm(o))
+                         and re.search(r"\b" + re.escape(norm(o)) + r"\b", norm(q))]
+                idx = named[0] if len(named) == 1 else None
             return Answer(idx, source, options[idx]) if idx is not None else None
         return Answer(str(value), source)
 

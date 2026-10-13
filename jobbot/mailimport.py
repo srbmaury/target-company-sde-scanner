@@ -68,7 +68,7 @@ def _sender_company(sender):
     return parts[-1].capitalize() if parts else None
 
 
-TITLE_JUNK = re.compile(r"^(?:the|our|your application to the|applying (?:to|for)(?: the)?|(?:expressing an )?interest in(?: the)?|your|an?)\s+|"
+TITLE_JUNK = re.compile(r"^(?:applying (?:with|to|at) [^,]{2,40}? for(?: the)?|the|our|your application to the|applying (?:to|for)(?: the)?|(?:expressing an )?interest in(?: the)?|your|an?)\s+|"
                         r"\s+(?:has been (?:received|successfully)|and wil\w*)$|^R\d{5,}\s+", re.I)
 NOT_A_TITLE = re.compile(r"^(this|following|that|it|expressing an interest in|interest in)$", re.I)
 ROLE_WORDS = re.compile(r"engineer|developer|\bsde\b|backend|frontend|full ?stack|software|intelligence|analyst|^opportunit|^job ", re.I)
@@ -168,3 +168,36 @@ def import_rows(conn, rows):
 def load(path):
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def name_unnamed(conn, gmail, days_around=1):
+    """Applications whose email named no role ("Thank you for applying to X"): read that email's body for
+    the role, so a different opening at the same company is not taken for this one. Returns the count named."""
+    from . import tracker
+    import datetime as _dt
+
+    named = 0
+    for a in conn.execute("SELECT * FROM applications WHERE source='gmail' AND title LIKE '(role not stated%'").fetchall():
+        try:
+            day = _dt.date.fromisoformat((a["applied_on"] or "")[:10])
+        except ValueError:
+            continue
+        after, before = day - _dt.timedelta(days=days_around), day + _dt.timedelta(days=days_around + 1)
+        q = f'"{a["company"]}" after:{after:%Y/%m/%d} before:{before:%Y/%m/%d}'
+        try:
+            ids = [m["id"] for m in gmail._get("messages", {"q": q, "maxResults": 10}).get("messages", [])]
+            for mid in ids:
+                msg = gmail._get(f"messages/{mid}", {"format": "full"})
+                headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
+                subject = _clean(headers.get("subject"))
+                if classify(subject, msg.get("snippet", "")) != "applied" or not tracker.same_company(
+                        a["company"], _first(COMPANY_PATTERNS, subject) or _sender_company(headers.get("from")) or ""):
+                    continue
+                title = _title(_clean(gmail._body_text(msg))[:3000], subject)
+                if title and ROLE_WORDS.search(title):
+                    tracker.edit_application(conn, a["id"], title=title)
+                    named += 1
+                    break
+        except Exception:
+            continue   # one unreadable email never stops the sync
+    return named

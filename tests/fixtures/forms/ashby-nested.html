@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><style>.required:after{content:'*'} .hidden{display:none} button[aria-pressed=true]{background:#bdf}</style></head><body>
+<div class="ashby-application-form-field-entry" data-field-path="authorization">
+<label class="required" for="authorization">Are you authorized to work in India?</label>
+<div class="ashby-application-form-input-yesno"><button aria-pressed="false" type="button" data-option="yes">Yes</button><button aria-pressed="false" type="button" data-option="no">No</button><input class="hidden" type="checkbox" tabindex="-1" name="authorization"></div>
+</div>
+<div class="ashby-application-form-field-entry" data-field-path="sponsor">
+<label class="required" for="sponsor">Will you require sponsorship?</label>
+<div><button aria-pressed="false" type="button" data-option="yes">Yes</button><button aria-pressed="false" type="button" data-option="no">No</button><input class="hidden" type="checkbox" name="sponsor"></div>
+</div>
+<fieldset class="ashby-application-form-input-radio-group">
+<label class="required">Do you consent to processing your application?</label>
+<div><input type="radio" name="privacy" id="privacy"><label for="privacy">I consent</label></div>
+</fieldset>
+<button type="submit">Submit Application</button>
+<script>document.querySelectorAll('button[data-option]').forEach(b=>b.addEventListener('click',()=>{b.parentElement.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)))}));</script>
+</body></html>

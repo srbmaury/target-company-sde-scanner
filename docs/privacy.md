@@ -6,11 +6,17 @@
   you connect Gmail, and to Ollama on localhost.
 - **Your data folder is private.** `~/.jobbot` (tracker, logs with the values filled into forms, Gmail token,
   browser profile) is readable by your user account only.
-- **No automatic submits.** The final Submit always needs your keypress, or your click in the dashboard.
-- **No passwords.** jobbot never reads, stores, or types passwords, and skips password fields.
-  Gmail uses Google's own sign-in page with read-only access, and you can revoke it with
-  `jobbot gmail logout`.
-  When a site needs you to sign in, it waits for you to do it in the browser.
+- **Reviewed automatic submits.** Automatic mode requires explicit Ollama approval before every Next and Submit. Use `--no-auto-submit` or uncheck automatic submission in the dashboard for manual review.
+- **One job-site password, in your Keychain.** If you store one with `jobbot password` and set
+  `automation.create_accounts: true`, jobbot signs in to job sites with it, and when a site has no account
+  for you it signs up with it, then verifies by email. The password goes from the macOS Keychain straight
+  into the site's password box: never into profile.yaml, logs, the dashboard, or the local model. A
+  rejected password is not retried; CAPTCHAs and password resets are left to you. Without a stored
+  password, jobbot waits for you to sign in in the browser.
+- **Gmail: a job-hunting mailbox.** jobbot asks for full mailbox access on Google's own sign-in page
+  (the mailbox is meant for job hunting only). It reads application emails and verification codes and
+  links, labels the ones it used "jobbot" and marks them read; it never sends or deletes mail. Revoke it
+  with `jobbot gmail logout`.
 - **No CAPTCHA solving.** CAPTCHAs are left to you.
 - **No made-up answers.** Answers come from your profile, your resumes, or you. Model drafts are
   grounded in those facts. They are used without asking only if `auto_accept_drafts` is on (the

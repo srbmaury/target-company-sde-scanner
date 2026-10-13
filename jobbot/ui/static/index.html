@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="conn-banner" class="conn-banner" role="alert" hidden></div>
   <header class="top">
     <div class="brand">jobbot</div>
     <nav class="tabs" role="tablist">
@@ -30,22 +31,30 @@
     <section class="panel" id="tab-jobs">
       <div class="run-strip" id="run-strip" hidden></div>
       <div class="toolbar">
-        <input type="search" id="jobs-q" placeholder="Filter company, role, location">
+        <input type="search" id="jobs-q" placeholder="Filter company, role, location, or site (greenhouse, workday…)">
         <label>Min fit <input type="number" id="jobs-min" min="0" max="100" step="5" placeholder="0"></label>
-        <div class="views" id="jobs-views" role="tablist" aria-label="Which roles"></div>
         <span class="muted" id="jobs-count"></span>
-        <button id="jobs-refresh" title="Scan every company's job board, then rank the new roles">Refresh jobs</button>
+        <button id="jobs-refresh" title="Sync Gmail, scan every company's job board, then rank the new roles">Refresh jobs</button>
       </div>
+      <div class="toolbar"><div class="views" id="jobs-views" role="tablist" aria-label="Which roles"></div></div>
       <p class="refresh-status" id="refresh-status" hidden></p>
-      <div class="toolbar selbar">
-        <span id="sel-count" class="muted">Select roles with the checkboxes to apply from here.</span>
-        <button id="sel-all">Select all shown</button>
-        <button class="primary" id="apply-selected" disabled>Apply to selected</button>
-        <button id="dry-selected" disabled>Dry run</button>
-        <button id="notdup-selected" disabled hidden title="These are different openings from the applications they look like">Mark selected as not duplicates</button>
-        <label class="check" title="Never stop: jobs that need you are listed at the end, and each finished application waits for your Submit"><input type="checkbox" id="unattended"> Don't stop for me</label>
-        <button class="link" id="sel-clear" hidden>Clear selection</button>
+      <div class="selbar">
+        <div class="toolbar">
+          <span class="sel-top"><button id="sel-top">Select top</button><input type="number" id="sel-top-n" min="1" max="500" value="10" aria-label="How many roles to select"></span>
+          <button id="sel-all">Select all shown</button>
+          <button class="primary" id="apply-selected" disabled>Apply to selected</button>
+          <button id="dry-selected" disabled>Dry run</button>
+          <button id="notdup-selected" disabled hidden title="These are different openings from the applications they look like">Mark selected as not duplicates</button>
+          <span class="sel-state"><span id="sel-count" class="muted">None selected</span>
+            <button class="link" id="sel-clear">Clear</button></span>
+        </div>
+        <div class="toolbar run-options">
+          <label class="check" title="Never stop: jobs that need you are listed at the end, and each finished application waits for your Submit"><input type="checkbox" id="unattended"> Don't stop for me</label>
+          <label class="check" title="Fill and check every page, but never submit"><input type="checkbox" id="validate-steps"> Validate every step (no submission)</label>
+          <label class="check" title="Runs without prompts and submits only after Ollama approves every field"><input type="checkbox" id="auto-submit" checked> Submit verified applications</label>
+        </div>
       </div>
+      <div id="run-confirmation" class="prompt" role="region" aria-label="Confirm application run" hidden></div>
       <div class="table-wrap"><table class="grid" id="jobs-table">
         <thead><tr>
           <th data-sort="n">#</th><th data-sort="fit_score">Fit</th><th data-sort="company">Company</th>
@@ -54,7 +63,7 @@
         </tr></thead>
         <tbody></tbody>
       </table></div>
-      <p class="hint">Applications open in jobbot's own Chrome window. jobbot fills and checks every page; you confirm each Submit in the Apply tab.</p>
+      <p class="hint">Applications open in jobbot's own Chrome window. Automatic submission requires Ollama approval of every page. Jobs needing your action are listed while the batch continues.</p>
     </section>
 
     <!-- Apply (live run) -->
@@ -69,6 +78,7 @@
         <div>
           <div id="prompt"></div>
           <div id="needs"></div>
+          <details id="page-preview" hidden><summary>Application page preview</summary><img id="page-preview-image" alt="Current application page" style="width:100%;height:auto"></details>
           <h3 class="section-title">Activity</h3>
           <div id="feed" class="feed"></div>
         </div>
@@ -106,7 +116,9 @@
           <button class="primary" data-task="scan">Run scan</button></div>
         <div class="card"><h3>Rank</h3><p>Score new roles against your resumes with the local model.</p>
           <button class="primary" data-task="rank">Run rank</button></div>
-        <div class="card"><h3>Gmail</h3><p id="gmail-text">Import application emails into the tracker (read-only).</p>
+        <div class="card"><h3>Resumes</h3><p>Read every resume and list the skills each shows. Questions about tools none of them name are answered 0 / No.</p>
+          <button class="primary" data-task="resumes">Parse resumes</button></div>
+        <div class="card"><h3>Gmail</h3><p id="gmail-text">Import application emails, and read verification codes and links for sign-ups.</p>
           <button class="primary" data-task="sync-gmail" id="gmail-sync">Sync Gmail</button>
           <button data-task="gmail-login" id="gmail-login">Connect Gmail</button></div>
       </div>

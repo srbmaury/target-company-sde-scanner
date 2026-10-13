@@ -1,6 +1,17 @@
 # How `apply` works
 
-For each job you pass, one after another:
+Automatic applications are the default. `./jobbot.sh apply --top 20` runs without user
+prompts, requires Ollama approval covering every field before each Next and Submit, and
+records confirmed submissions. Jobs blocked by missing facts, sign-in, CAPTCHA, rejected
+review, or unavailable verification codes are listed with a reason; the batch moves on.
+A Submit click with no recognised confirmation is reported for checking and is never
+blindly repeated. Ollama must be running with the selected model installed.
+
+The dashboard runs `automation.parallel_workers` independent application browsers (default 1,
+limited to the selected batch size). All browsers and review batches share at most two concurrent Ollama calls. An optional daily application cap also applies to parallel batches. CLI applications are
+sequential. To use the interactive workflow below, pass `--no-auto-submit`.
+
+For each job in the interactive workflow:
 
 1. **Opens the posting** in a separate Chrome window with its own profile, so it never touches your
    everyday browser. Site sign-ins you make there are remembered for next time.
@@ -66,7 +77,7 @@ For each job you pass, one after another:
 what it corrected (with the old value), and what the check found. Logs are in `~/.jobbot/logs/`.
 
 **Useful flags:** `--dry-run` (fill and check, but never submit or record), `--resume ai_engineer`
-(override the ranked resume), `--llm none` (skip Ollama), `--no-upload`, `--force` (reopen a role
+(override the ranked resume), `--no-auto-submit --llm none` (interactive mode without Ollama), `--no-upload`, `--force` (reopen a role
 already marked applied).
 
 > Try your first application on any new site with `--dry-run`.
@@ -74,7 +85,7 @@ already marked applied).
 ## Unattended mode
 
 ```bash
-./jobbot.sh apply --top 20 --unattended
+./jobbot.sh apply --top 20 --no-auto-submit --unattended
 ```
 
 jobbot works through the whole batch without stopping:
@@ -91,8 +102,7 @@ before **Apply to selected**; the ready applications then come up one by one wit
 application** button.
 
 `--unattended` also skips the batch list at the start, but never the "you may have applied
-already" check: those roles are skipped. jobbot never presses Submit by itself and never types
-passwords.
+already" check: those roles are skipped. In this manual submission mode, jobbot waits for your Submit.
 
 ## Checking the model's answers
 
@@ -110,7 +120,7 @@ good enough to trust with `--unattended`.
 ## Daily limit
 
 jobbot stops a batch once it has submitted `automation.max_applications_per_day` applications today
-(25 by default; 0 turns the limit off). Many job sites discourage high-volume applying; a modest
+(unlimited by default; a positive value enables a cap). Many job sites discourage high-volume applying; a modest
 daily number keeps your accounts in good standing.
 
 ## Dry run

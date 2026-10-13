@@ -9,7 +9,7 @@ profile and logs as the commands.
 
 | Tab | What you can do |
 | --- | --- |
-| **Jobs** | Ranked roles with fit scores and reasons, a text filter and minimum fit, and views: **New** (roles you can apply to), **Possibly applied**, **Applied**, **Dismissed**, **All**, each with its count. Tick roles (or **Select all shown**) and click **Apply to selected** (or **Dry run**). Applied and dismissed roles can't be ticked |
+| **Jobs** | Ranked roles with fit scores and reasons, a text filter and minimum fit, and views: **New** (roles you can apply to), **Possibly applied**, **Applied**, **Dismissed**, **Excluded** (companies in `preferences.exclude_companies`, which `apply` skips), **All**, each with its count. Tick roles (or **Select top** *N*, the best *N* in the current view and order, or **Select all shown**) and click **Apply to selected** (or **Dry run**). Applied and dismissed roles can't be ticked |
 | **Runs** | The running batch (live activity, queue, questions for you, the final Submit) and earlier runs. After a run: what needs you, with the reason, **Open posting** and **Retry** / **Retry all**. History survives restarts |
 | **Applications** | Every application with status pills and history; click one to change its status, notes, company, role or posting link; add applications made elsewhere |
 | **Actions** | Run Scan, Rank, and Gmail sync in the background and watch their output; connect Gmail |
@@ -33,14 +33,18 @@ The quickest fix for an application listed as "(role not stated in email)" is to
 
 ### Applying from the dashboard
 
-Tick roles in **Jobs**, then click **Apply to selected**. jobbot opens its own Chrome window, as
-`apply` does, and the **Runs** tab shows its progress. When it needs you (an unanswered question,
-a verification code, a sign-in or CAPTCHA, or the final **Submit application**), the question
-appears at the top of the Runs tab, a red dot appears on the tab, and the browser tab title shows
-"● jobbot needs you". Nothing is submitted until you click Submit. **Dry run** fills and checks
-every page but never submits. **Stop after this step** ends the batch without submitting the
-current application. Only one run happens at a time. Skipping rules match `apply`: already-applied
-and dismissed roles are skipped, and for possible matches you are asked first.
+Tick roles in **Jobs**, then click **Apply to selected**. **Submit verified applications**
+is selected by default: the batch starts directly, runs without questions, and submits each
+application only after deterministic checks pass and Ollama explicitly approves every field
+on every step. Unknown answers, sign-in/CAPTCHA gates and rejected reviews skip that role
+with a reason and continue the batch. No confirmation after a Submit click is listed for
+checking; jobbot does not repeat that click blindly.
+
+Set `automation.parallel_workers` in your profile for the number of concurrent application
+browsers (default 1, capped by the number of selected jobs). Each browser uses its own profile.
+There is no daily cap by default; an optional positive cap limits the batch before workers start. Ollama must be
+available. **Dry run** never submits. Uncheck automatic submission to use the interactive
+review and Submit controls. Only one batch runs at a time.
 
 The dashboard listens only on `127.0.0.1`, and each run generates a random access token that is
 embedded in the page, so other websites in your browser can't call it. Stop it with Ctrl+C.

@@ -76,9 +76,57 @@ def signin_page(page):
     try:
         if page.locator("input[type=password]:visible").count():
             return True
-        heading = " ".join(page.locator("h1, h2, button").all_inner_texts()[:20])
+        heading = " ".join(page.locator("h1, h2").all_inner_texts()[:20])
     except Exception:
         return False
     host = urllib.parse.urlparse(page.url).netloc
     return bool(re.search(r"^(passport|login|signin|accounts?|auth|sso|id)\.", host)
                 or SIGNIN_RE.search(urllib.parse.urlparse(page.url).path) or SIGNIN_RE.search(heading))
+
+
+UNAVAILABLE_RE = re.compile(
+    r"(?:the )?(?:page|job|role|opening|position|posting|vacancy|requisition) (?:you(?: are|’re|'re) looking for )?"
+    r"(?:doesn[’']t exist|does not exist|(?:is |was )?(?:no longer available|not found|unavailable|closed))"
+    r"|(?:this|the) (?:job|role|opening|position|posting|vacancy|requisition) has (?:been closed|expired|been removed|been filled)"
+    r"|(?:this|the) job may be no longer available or does not exist", re.I)
+
+
+def wait_rendered(page, timeout_ms=10000):
+    """Single-page boards (Workday) show an empty body or a spinner for several seconds before the
+    posting, or their "page doesn't exist" message, appears; wait for real text before checking."""
+    waited = 0
+    while waited < timeout_ms:
+        try:
+            text = page.inner_text("body").strip()
+            loading = page.locator("[data-automation-id='loading']").count()
+        except Exception:
+            text, loading = "", 0
+        if len(text) > 40 and not loading:
+            return
+        page.wait_for_timeout(500)
+        waited += 500
+
+
+MAINTENANCE_RE = re.compile(r"is currently unavailable|service interruption|(?:scheduled|under) maintenance"
+                            r"|down for maintenance|please check back later", re.I)
+
+
+def maintenance(page):
+    """True when the whole site (not this posting) is down, e.g. Workday's maintenance page."""
+    try:
+        if "maintenance" in page.url.lower():
+            return True
+        text = re.sub(r"\s+", " ", page.inner_text("body"))[:2000]
+    except Exception:
+        return False
+    return bool(MAINTENANCE_RE.search(text)) and len(text) < 1500   # a short page that is only the notice
+
+
+def unavailable_reason(page):
+    """Recognise explicit missing/closed posting messages before filling or reviewing."""
+    try:
+        text = re.sub(r"\s+", " ", page.inner_text("body"))
+    except Exception:
+        return None
+    match = UNAVAILABLE_RE.search(text)
+    return match.group(0) if match else None

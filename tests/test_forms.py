@@ -96,6 +96,52 @@ class FormTests(unittest.TestCase):
         return {"url": url, "company": "TestCo", "title": "Backend Engineer II", "location": "Hyderabad", "ats": ats,
                 "board": None, "description": "", "experience": "2+ yrs"}
 
+    def test_nested_ashby_yesno_and_css_required(self):
+        ui = RecordingUI()
+        session = self.session(ui, {"automation": {"auto_consent": False}})
+        session.auto_submit = True
+        self.approving_model(session)
+        page = session.ctx.pages[0]
+        page.goto(self.base + "/ashby-nested.html")
+        fields = session._fields(page)
+        yesno = [f for f in fields if f["kind"] == "yesno"]
+        self.assertEqual(len(yesno), 2)
+        self.assertTrue(all(f["required"] for f in yesno))
+        from jobbot.apply.verify import check_page
+        self.assertFalse(check_page(page, [], [], fields).ok)
+        session.apply(self.job(self.base + "/ashby-nested.html"), "backend")
+        self.assertEqual(page.get_by_role("button", name="Yes", exact=True).nth(0).get_attribute("aria-pressed"), "true")
+        self.assertEqual(page.get_by_role("button", name="No", exact=True).nth(1).get_attribute("aria-pressed"), "true")
+        self.assertFalse(ui.final["check_ok"])  # consent was declined; the page must not pass
+
+    def test_authorized_submit_requires_verified_final_page(self):
+        ui = RecordingUI({"Why do you want": "I like building backend systems."})
+        session = self.session(ui)
+        session.auto_submit = True
+        self.approving_model(session)
+        status, note = session.apply(self.job(self.base + "/greenhouse.html"), "backend")
+        self.assertEqual(status, "applied")
+        self.assertIn("Thank you for applying", note)
+        self.assertIsNone(ui.final)  # authorized submission did not ask for a second approval
+
+    @staticmethod
+    def approving_model(session):
+        from unittest.mock import Mock
+        session.llm = Mock(enabled=True)
+        session.llm.answer.side_effect = RuntimeError("Use deterministic fixture answers")
+        session.llm.review_application_step.side_effect = lambda fields, *a: {
+            "approved": True, "reviewed_field_ids": [f["id"] for f in fields], "issues": []}
+
+    def test_auto_submit_without_model_never_submits_or_prompts(self):
+        ui = RecordingUI()
+        session = self.session(ui, {"answers": [{"match": "why do you want", "answer": "I like backend work."}]}, unattended=True)
+        session.auto_submit = True
+        from jobbot.apply.engine import NeedsYou
+        with self.assertRaises(NeedsYou):
+            session.apply(self.job(self.base + "/greenhouse.html"), "backend")
+        self.assertEqual(ui.asked, [])
+        self.assertIsNone(ui.final)
+
     def test_greenhouse_style_form(self):
         ui = RecordingUI({"Why do you want": "I like building backend systems."})
         s = self.session(ui)
@@ -141,6 +187,24 @@ class FormTests(unittest.TestCase):
         self.assertEqual((txt("au"), txt("sp")), ("Yes", "No"))
         self.assertEqual(ui.asked, [])
         self.assertEqual(ui.final, {"final_page": True, "check_ok": True})
+
+    def test_sign_in_first_then_sign_up(self):
+        # No account for this email: sign-in is tried once, then the account is created with the Keychain
+        # password, only the terms box is ticked (never marketing), and the application continues.
+        from unittest.mock import patch
+        from jobbot.apply import auth
+        ui = RecordingUI()
+        s = self.session(ui, {"automation": {"create_accounts": True}}, unattended=True)
+        page = s.ctx.pages[0]
+        page.goto(self.base + "/signup.html")
+        with patch.object(auth, "host_allowed", return_value=True), \
+             patch.object(auth.credentials, "get", return_value="Str0ng!Pass"):
+            self.assertTrue(auth.ensure_signed_in(s, page))
+        self.assertTrue(page.evaluate("window.signInTried"))
+        created = page.evaluate("window.created")
+        self.assertEqual((created["email"], created["password"], created["marketing"]),
+                         (PROFILE["personal"]["email"], "Str0ng!Pass", False))
+        self.assertIn("Apply for", page.inner_text("body"))
 
     def test_code_from_email(self):
         from jobbot import gmail

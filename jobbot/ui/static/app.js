@@ -14,10 +14,27 @@ async function api(path, body) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
-  const res = await fetch("/api/" + path, opts);
+  let res;
+  try { res = await fetch("/api/" + path, opts); } catch (e) {
+    connection("Can't reach jobbot. Is <code>./jobbot.sh ui</code> still running?");
+    throw e;
+  }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 403 && /token/.test(data.error || "")) {
+    // A page left open across a restart holds the old access token: every call fails until it reloads.
+    connection("jobbot was restarted, so this page is out of date.", true);
+  } else connection(null);
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
+}
+
+function connection(msg, reload) {
+  const el = document.getElementById("conn-banner");
+  if (!el) return;
+  el.hidden = !msg;
+  if (!msg) return;
+  el.innerHTML = msg + (reload ? ' <button class="primary">Reload</button>' : "");
+  if (reload) el.querySelector("button").addEventListener("click", () => location.reload());   // CSP: no inline handlers
 }
 
 function debounce(fn, ms = 250) {
@@ -42,16 +59,22 @@ async function loadSummary() {
   const s = (state.summary = await api("summary"));
   const a = s.applications;
   const cards = [
-    ["Open roles", s.open_jobs], ["Applications", s.total], ["Applied", a.applied || 0],
+    ["Open roles", s.open_jobs], ["Applications", s.total], ["Waiting response", a.applied || 0],
     ["Assessments", a.assessment || 0], ["Interviews", a.interview || 0], ["Offers", a.offer || 0],
     ["Rejected", a.rejected || 0], ["Response rate", s.response_rate + "%"],
   ];
-  $("#stats").innerHTML = cards.map(([l, v]) => `<div class="stat"><div class="label">${esc(l)}</div><div class="value">${esc(v)}</div></div>`).join("");
+  const tips = {
+    "Open roles": "Roles in the New view: listed today, not applied to, not dismissed or excluded",
+    "Applications": "Every application in your tracker, whatever its status",
+    "Waiting response": "Applications still at status \"applied\": sent, with no reply yet",
+    "Response rate": "Applications that got any reply (assessment, interview, offer or rejection)",
+  };
+  $("#stats").innerHTML = cards.map(([l, v]) => `<div class="stat" title="${esc(tips[l] || "")}"><div class="label">${esc(l)}</div><div class="value">${esc(v)}</div></div>`).join("");
   const dot = (ok) => `<span class="dot" style="background:${ok ? "var(--good)" : "var(--border)"}"></span>`;
   $("#status").innerHTML = `<span>${dot(s.gmail)}Gmail ${s.gmail ? "connected" : "not connected"}</span>
     <span>${dot(s.ollama)}Ollama ${s.ollama ? "running" : "off"}</span>`;
   $("#gmail-text").textContent = s.gmail
-    ? "Import application emails into the tracker (read-only)."
+    ? "Import application emails, and read verification codes and links for sign-ups."
     : "Connect Gmail (read-only) to import your applications. Needs the one-time OAuth client from the README.";
   $("#gmail-sync").disabled = !s.gmail;
   const sel = $("#apps-status");
@@ -79,6 +102,8 @@ async function loadJobs() {
     include_applied: "1", include_dismissed: "1",   // every role; the view buttons choose which to show
   });
   state.allJobs = await api("jobs?" + params);
+  state.jobCatalog = state.jobCatalog || new Map();
+  state.allJobs.forEach((j) => state.jobCatalog.set(String(j.n), j));
   renderJobs();
 }
 
@@ -86,10 +111,12 @@ function fitClass(f) { return f == null ? "" : f >= 80 ? "high" : f >= 60 ? "mid
 
 // Which roles a view shows. "New" = ones you can apply to: not applied, not possibly applied, not dismissed.
 const VIEWS = [
-  ["new", "New", (j) => !j.dismissed && !j.applied],
-  ["possible", "Possibly applied", (j) => !j.dismissed && j.applied === "possible"],
+  ["new", "New", (j) => !j.dismissed && !j.applied && !j.excluded && !j.gone],
+  ["possible", "Possibly applied", (j) => !j.dismissed && !j.excluded && !j.gone && j.applied === "possible"],
   ["applied", "Applied", (j) => !j.dismissed && (j.applied === "exact" || j.applied === "likely")],
   ["dismissed", "Dismissed", (j) => !!j.dismissed],
+  ["excluded", "Excluded", (j) => !j.dismissed && j.applied !== "exact" && j.applied !== "likely" && !j.gone && !!j.excluded],
+  ["gone", "No longer listed", (j) => !j.dismissed && !j.applied && !!j.gone],
   ["all", "All", () => true],
 ];
 
@@ -122,12 +149,15 @@ function renderJobs() {
     const dup = j.applied === "possible" && !j.dismissed ? `<div class="dup">Looks like your application ${esc(j.applied_note)}.
         <button class="link" data-job="${j.n}" data-act="not-duplicate">Not a duplicate</button>
         <button class="link" data-job="${j.n}" data-act="dismiss">Same role, hide it</button></div>` : "";
-    const lock = j.dismissed ? "" : (j.applied === "exact" || j.applied === "likely") ? "disabled title=\"Already applied\"" : "";
+    const lock = j.dismissed ? "" : (j.applied === "exact" || j.applied === "likely") ? "disabled title=\"Already applied\""
+      : j.excluded ? "disabled title=\"Excluded in your profile (preferences.exclude_companies)\"" : "";
+    const excl = (j.excluded ? `<span class="pill" title="preferences.exclude_companies in your profile">excluded</span>` : "")
+      + (j.gone ? `<span class="pill withdrawn" title="The last scan read this company's board and the role was not on it">no longer listed</span>` : "");
     return `<tr class="${j.dismissed ? "dim" : ""}">
       <td class="num">${j.n}</td>
       <td><span class="fit ${fitClass(j.fit_score)}">${j.fit_score ?? "–"}</span></td>
       <td>${esc(j.company)}</td>
-      <td class="role"><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a> ${applied}
+      <td class="role"><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a> ${applied}${excl}
         ${j.fit_reason ? `<div class="reason">${esc(j.fit_reason)}</div>` : ""}${dup}</td>
       <td>${esc(j.location)}</td>
       <td class="num" title="${esc(j.evidence)}">${esc(j.experience)}</td>
@@ -141,17 +171,18 @@ function renderJobs() {
 
 // Roles "select all" picks: the ones shown, minus dismissed and already-applied roles (apply skips those anyway).
 function selectable() {
-  return state.jobs.filter((j) => !j.dismissed && j.applied !== "exact" && j.applied !== "likely").map((j) => String(j.n));
+  return state.jobs.filter((j) => !j.dismissed && !j.excluded && j.applied !== "exact" && j.applied !== "likely").map((j) => String(j.n));
 }
 
 // ---------- selection & apply runs ----------
 function updateSelection() {
+  if (state.pendingRun && !state.runStarting) cancelRun();
   const n = state.selected.size;
   $("#notdup-selected").hidden = state.view !== "possible";
   $("#notdup-selected").disabled = !n;
-  $("#sel-count").textContent = n ? `${n} role${n === 1 ? "" : "s"} selected` : "Select roles with the checkboxes to apply from here.";
+  $("#sel-count").textContent = n ? `${n} selected` : "None selected";
   $("#apply-selected").disabled = $("#dry-selected").disabled = !n;
-  $("#sel-clear").hidden = !n;
+  $("#sel-clear").classList.toggle("invisible", !n);   // keeps its space: buttons never shift under the cursor
   const keys = selectable(), picked = keys.filter((k) => state.selected.has(k)).length;
   const all = keys.length > 0 && picked === keys.length;
   const box = $("#sel-all-box");
@@ -162,21 +193,67 @@ function updateSelection() {
   $("#sel-all").textContent = keys.length ? `Select all shown (${keys.length})` : "Select all shown";
 }
 
+// The best N roles you can apply to, in the order the table shows them.
+function selectTop(n) {
+  const ok = new Set(selectable());
+  state.selected.clear();
+  sortRows(state.jobs, state.jobSort).map((j) => String(j.n)).filter((k) => ok.has(k)).slice(0, n)
+    .forEach((k) => state.selected.add(k));
+  remember("topN", n);
+  renderJobs();
+}
+
 function selectAll(on) {
   for (const k of selectable()) on ? state.selected.add(k) : state.selected.delete(k);
   renderJobs();
 }
 
-async function startRun(dry) {
+function startRun(dry) {
   const jobs = Array.from(state.selected);
-  const msg = `${dry ? "Dry-run" : "Apply to"} ${jobs.length} role${jobs.length === 1 ? "" : "s"}? Chrome will open in its own window.` +
-    (dry ? "" : " You'll confirm each Submit here.");
-  if (!confirm(msg)) return;
+  if (!jobs.length) return;
+  dry = dry || ($("#validate-steps").checked && !$("#auto-submit").checked);
+  state.pendingRun = { jobs, dry_run: dry || $("#validate-steps").checked, unattended: $("#unattended").checked, validation: $("#validate-steps").checked, auto_next: $("#unattended").checked || !$("#validate-steps").checked };
+  if (!dry && $("#auto-submit").checked) {
+    state.pendingRun = {jobs, dry_run: false, unattended: true, validation: true, auto_next: true, auto_submit: true};
+  }
+  const box = $("#run-confirmation");
+  const roles = jobs.map((key) => state.jobCatalog.get(key)).filter(Boolean);
+  box.hidden = false;
+  box.innerHTML = `<h4>${dry ? "Confirm dry run" : "Confirm application run"}</h4>
+    <p>${dry ? "Dry-run" : "Apply to"} ${jobs.length} role${jobs.length === 1 ? "" : "s"}? Chrome will open in its own window.
+    ${dry ? "Forms may be filled and resumes uploaded; nothing will be submitted." : state.pendingRun.auto_submit ? "Completed applications will be submitted automatically after every check passes." : state.pendingRun.unattended ? "jobbot works through every role without stopping. Finished applications wait for your Submit, and roles that need you are listed at the end." : "You’ll confirm each Submit here."}</p>
+    <details><summary>Review selected roles</summary><ul>${roles.map((j) => `<li>${esc(j.company)} — ${esc(j.title)}</li>`).join("")}</ul></details>
+    <p id="run-confirm-error" role="alert"></p>
+    <div class="actions"><button class="primary" id="run-confirm-start">${dry ? "Start dry run" : "Start applications"}</button>
+    <button id="run-confirm-cancel">Cancel</button></div>`;
+  $("#run-confirm-start").addEventListener("click", confirmRun);
+  $("#run-confirm-cancel").addEventListener("click", cancelRun);
+  $("#run-confirm-start").focus();
+  if (state.pendingRun.auto_submit) {
+    box.hidden = true;
+    confirmRun();
+  }
+}
+
+function cancelRun() {
+  state.pendingRun = null;
+  $("#run-confirmation").hidden = true;
+}
+
+async function confirmRun() {
+  if (!state.pendingRun || state.runStarting) return;
+  state.runStarting = true;
+  $("#run-confirm-start").disabled = true;
   try {
-    await api("apply", { jobs, dry_run: dry, unattended: $("#unattended").checked });
+    await api("apply", state.pendingRun);
+    cancelRun();
     state.selected.clear(); updateSelection();
     showTab("apply");
-  } catch (e) { alert(e.message); }
+  } catch (e) {
+    $("#run-confirmation").hidden = false;
+    $("#run-confirm-error").textContent = e.message;
+    $("#run-confirm-start").disabled = false;
+  } finally { state.runStarting = false; }
 }
 
 async function loadRun() {
@@ -237,38 +314,80 @@ function renderRun(run) {
   $("#run-stop").hidden = !active;
   $("#queue").innerHTML = run.jobs.map((j, i) => {
     const r = run.results[j.url];
-    const pill = r ? `<span class="pill ${r.status === "applied" ? "applied" : r.status === "ready" ? "interview" : r.status === "needs you" ? "maybe" : "rejected"}">${esc(r.status)}</span>` : i === run.current ? `<span class="pill interview">now</span>` : "";
+    const gone = r && /^posting unavailable/.test(r.note || "");
+    const label = gone ? "posting gone" : r && r.status;
+    const pill = r ? `<span class="pill ${r.status === "applied" ? "applied" : r.status === "ready" ? "interview" : r.status === "needs you" ? "maybe" : gone ? "withdrawn" : "rejected"}" title="${esc(r.note || "")}">${esc(label)}</span>` : i === run.current ? `<span class="pill interview">now</span>` : "";
     return `<li class="${i === run.current ? "now" : ""}">${esc(j.company)} ${pill}<span class="sub">${esc(j.title)}</span></li>`;
   }).join("");
   const feed = $("#feed");
   const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
   feed.innerHTML = run.events.map(renderEvent).join("");
   if (nearBottom) feed.scrollTop = feed.scrollHeight;
+  $("#page-preview").hidden = !run.preview;
+  if (run.preview && $("#page-preview-image").dataset.run !== run.id + ":" + run.events.length) {
+    $("#page-preview-image").src = "data:image/jpeg;base64," + run.preview;
+    $("#page-preview-image").dataset.run = run.id + ":" + run.events.length;
+  }
   renderPrompt(run.history ? null : run.prompt);
   renderNeeds(run, active);
 }
 
 // Jobs that need you, as actions: open the posting, or retry once you've sorted it out.
+// What needs you after a run, grouped by why, each group with its own Retry.
+const NEED_GROUPS = [
+  ["Sign-in or account", /sign in|account|password|log ?in/i, "Store a password with `jobbot password` (jobbot then signs in or signs up), or sign in once in jobbot's Chrome window."],
+  ["CAPTCHA", /captcha/i, "Solve the CAPTCHA in jobbot's Chrome window, then retry."],
+  ["Site down", /maintenance/i, "The job site was down; retry later."],
+  ["Unanswered questions", /unanswered|still empty|requires your answer/i, "Answer in the browser, or add an answers: rule in your profile, then retry."],
+  ["Stuck or slow page", /gave up after|blocked|timeout|tab was closed|no application fields/i, "Usually fixed by a retry."],
+];
+
+function needGroup(note) {
+  return NEED_GROUPS.find(([, rx]) => rx.test(note || "")) || ["Other", null, "Open the posting to see what it needs, then retry."];
+}
+
 function renderNeeds(run, active) {
-  const needs = run.jobs.filter((j) => (run.results[j.url] || {}).status === "needs you");
-  if (!needs.length) { $("#needs").innerHTML = run.history && !active ? `<div class="empty">Nothing from this run needs you.</div>` : ""; return; }
-  $("#needs").innerHTML = `<div class="needs"><h4>Needs you (${needs.length})</h4><ul>${needs.map((j) => `<li>
-      <b>${esc(j.company)}</b> — ${esc(j.title)}<div class="reason">${esc(run.results[j.url].note || "")}</div>
-      <a href="${esc(j.url)}" target="_blank" rel="noopener">Open posting</a>
-      ${active ? "" : `<button class="link" data-retry="${esc(String(j.n || j.url))}">Retry</button>`}</li>`).join("")}</ul>
-      ${active || needs.length < 2 ? "" : `<button data-retry-all="${esc(needs.map((j) => j.n || j.url).join("\n"))}">Retry all ${needs.length}</button>`}
-      <p class="hint">Sign in or answer what's missing (in jobbot's Chrome window, or with an <code>answers:</code> rule in your profile), then retry.</p></div>`;
+  const results = run.results || {};
+  const needs = run.jobs.filter((j) => (results[j.url] || {}).status === "needs you");
+  const submitted = run.jobs.filter((j) => (results[j.url] || {}).status === "applied").length;
+  const tally = run.jobs.length ? `<p class="hint"><b>${submitted}</b> submitted · <b>${needs.length}</b> need you · ${Object.keys(results).length} of ${run.jobs.length} done</p>` : "";
+  if (!needs.length) {
+    $("#needs").innerHTML = tally + (run.history && !active ? `<div class="empty">Nothing from this run needs you.</div>` : "");
+    return;
+  }
+  const groups = new Map();
+  for (const j of needs) {
+    const [name, , hint] = needGroup(results[j.url].note);
+    if (!groups.has(name)) groups.set(name, { hint, jobs: [] });
+    groups.get(name).jobs.push(j);
+  }
+  $("#needs").innerHTML = tally + `<div class="needs"><h4>Needs you (${needs.length})</h4>` + [...groups].map(([name, g]) => `
+    <details open><summary><b>${esc(name)}</b> (${g.jobs.length})
+      ${active ? "" : `<button class="link" data-retry-all="${esc(g.jobs.map((j) => j.n || j.url).join("\n"))}">Retry ${g.jobs.length > 1 ? "these " + g.jobs.length : "it"}</button>`}</summary>
+      <p class="hint">${esc(g.hint)}</p>
+      <ul>${g.jobs.map((j) => `<li><b>${esc(j.company)}</b> — ${esc(j.title)}<div class="reason">${esc(results[j.url].note || "")}</div>
+        <a href="${esc(j.url)}" target="_blank" rel="noopener">Open posting</a>
+        ${active ? "" : `<button class="link" data-retry="${esc(String(j.n || j.url))}">Retry</button>`}</li>`).join("")}</ul></details>`).join("")
+    + (active || needs.length < 2 ? "" : `<button data-retry-all="${esc(needs.map((j) => j.n || j.url).join("\n"))}">Retry all ${needs.length}</button>`)
+    + `</div>`;
 }
 
 async function retry(keys) {
   try {
-    await api("apply", { jobs: keys, unattended: true });
+    // a retry keeps the run's mode: auto-submit runs submit again, dry runs stay dry
+    await api("apply", state.run.auto_submit ? { jobs: keys, auto_submit: true }
+      : { jobs: keys, unattended: !state.run.validation, validation: !!state.run.validation, dry_run: !!state.run.dry_run });
     state.viewing = false;
     loadRun();
-  } catch (e) { alert(e.message); }
+  } catch (e) { alertInline($("#needs"), e.message); }
 }
 
 function renderEvent(e) {
+  if (e.kind === "audit") {
+    return `<details class="ev"><summary>${esc(e.t)} Page ${e.step}, revision ${e.round} — ${e.ok ? "verified" : "needs revision"} (${e.fields.length} fields)</summary>
+      <table class="grid"><thead><tr><th>Field</th><th>Expected</th><th>Page value</th><th>Result</th></tr></thead><tbody>${e.fields.map((f) => `<tr><td>${esc(f.label)}${f.required ? " *" : ""}</td><td>${esc(f.expected ?? "Not set by jobbot")}</td><td>${esc(f.actual)}</td><td>${esc(f.status)}</td></tr>`).join("")}</tbody></table>
+      <ul>${(e.problems || []).map((p) => `<li>${esc(p)}</li>`).join("")}</ul></details>`;
+  }
   if (e.kind === "report") {
     const items = e.filled.map((f) => `<li><b>${esc(f.label)}</b> → ${esc(f.value)} <span class="muted">${esc(f.source)}</span></li>`).join("");
     const probs = (e.problems || []).map((p) => `<li style="color:var(--bad)">${esc(p)}</li>`).join("");
@@ -276,6 +395,18 @@ function renderEvent(e) {
     return `<div class="ev report ${e.ok === false ? "bad" : ""}"><span class="t">${esc(e.t)}</span>${esc(e.text)} — ${e.filled.length} field(s) set${status}<ul>${items}${probs}</ul></div>`;
   }
   return `<div class="ev ${esc(e.kind)}"><span class="t">${esc(e.t)}</span>${esc(e.text)}</div>`;
+}
+
+// The role a run is on now, and the latest read-back of its newest page.
+function currentJob() {
+  const run = state.run;
+  return run && run.current != null ? (run.jobs || [])[run.current] : null;
+}
+
+function currentAudit() {
+  const job = currentJob(), audits = (state.run && state.run.audits) || [];
+  const mine = job ? audits.filter((a) => a.job && a.job.url === job.url) : audits;
+  return mine.reduce((best, a) => (!best || a.step >= best.step ? a : best), null);
 }
 
 function renderPrompt(p) {
@@ -292,16 +423,25 @@ function renderPrompt(p) {
   const q = `<div class="q">${esc(p.question || "")}</div>`;
   let html = "";
   if (p.kind === "action") {
-    const labels = { submit: "Submit application", next: "Next step", refill: "Re-fill this page", done: "I submitted it myself", quit: "Quit without submitting" };
-    const head = p.final ? "Final step: every check passed" : p.check_ok ? "Review the page in Chrome" : "The check found problems";
-    html = `<div class="prompt ${p.final ? "final" : ""}"><h4>${esc(head)}</h4>
-      <div class="q">${p.final ? (p.dry_run ? "Dry run: this is the last page and nothing will be submitted. Look it over in Chrome, then quit." : "Look over the application in the Chrome window, then submit.") : "Fix anything in the Chrome window if needed, then choose:"}</div>
-      <div class="actions">${p.choices.map((c) => `<button data-answer="${c}" class="${c === "submit" ? "primary" : ""}">${esc(labels[c] || c)}</button>`).join("")}</div>
+    const labels = { submit: p.check_ok ? "Submit application" : "Submit anyway", next: "Next step", refill: "Revise and re-check", done: "I submitted it myself", quit: "Quit without submitting" };
+    // With problems open, re-checking is the safe default; Submit is only primary once every check passed.
+    const primary = p.check_ok ? (p.final ? "submit" : "next") : "refill";
+    const head = p.final && p.check_ok ? "Final step: every check passed" : p.check_ok ? "Review the page in Chrome" : "The check found problems";
+    const job = currentJob();
+    const problems = p.check_ok ? [] : ((currentAudit() || {}).problems || []);
+    const hint = p.final && p.check_ok
+      ? (p.dry_run ? "Dry run: this is the last page and nothing will be submitted. Look it over in Chrome, then quit." : "Look over the application in jobbot's Chrome window, then submit.")
+      : problems.length ? "Fix these in jobbot's Chrome window, or correct a field below, then re-check:" : "Look over the page in jobbot's Chrome window, then choose:";
+    html = `<div class="prompt ${p.final && p.check_ok ? "final" : ""}"><h4>${esc(head)}</h4>
+      ${job ? `<div class="prompt-job">${esc(job.company)} — ${esc(job.title)}</div>` : ""}
+      <div class="q">${hint}</div>
+      ${problems.length ? `<ul class="problems">${problems.slice(0, 8).map((l) => `<li>${esc(l.replace(/^page says: /, ""))}</li>`).join("")}</ul>` : ""}
+      <div class="actions">${p.choices.filter((c) => !(p.dry_run && c === "done")).map((c) => `<button data-answer="${c}" class="${c === primary ? "primary" : ""}">${esc(labels[c] || c)}</button>`).join("")}</div>
       ${p.dry_run ? `<p class="reason">Dry run: submitting is disabled.</p>` : ""}</div>`;
   } else if (p.kind === "confirm") {
-    html = `<div class="prompt"><h4>Confirm</h4>${q}<div class="actions"><button class="primary" data-answer="true">Yes</button><button data-answer="false">No</button></div></div>`;
+    html = `<div class="prompt"><h4>Confirm</h4>${q}<div class="actions"><button class="primary" data-answer="true">Yes</button><button data-answer="false">No</button><button data-answer="skip">Skip this role</button></div></div>`;
   } else if (p.kind === "wait") {
-    html = `<div class="prompt"><h4>Your turn in Chrome</h4>${q}<div class="actions"><button class="primary" data-answer="null">Done, continue</button></div></div>`;
+    html = `<div class="prompt"><h4>Your turn in Chrome</h4>${q}<div class="actions"><button class="primary" data-answer="null">Done, continue</button><button data-answer="skip">Skip this role</button></div></div>`;
   } else if (p.kind === "code") {
     html = `<div class="prompt"><h4>Verification code</h4>${q}<input type="text" id="p-text" placeholder="Code from your email" autocomplete="one-time-code">
       <div class="actions"><button class="primary" data-answer="text">Enter code</button><button data-answer="null">Skip</button></div></div>`;
@@ -314,6 +454,11 @@ function renderPrompt(p) {
       html = `<div class="prompt"><h4>Question</h4>${q}${reason}<textarea id="p-text" rows="${p.suggestion ? 5 : 3}">${esc(p.suggestion || "")}</textarea>
         <div class="actions"><button class="primary" data-answer="text">${p.suggestion ? "Use this answer" : "Answer"}</button><button data-answer="null">Leave blank</button></div></div>`;
     }
+  }
+  if (p.kind === "action") {
+    const audit = currentAudit();
+    const editable = audit ? audit.fields.filter((f) => ["text", "textarea", "select", "radio", "yesno"].includes(f.kind) && !/consent|agree|terms|certify|gender|race|ethnic|veteran|disability|signature|password/i.test(f.label)) : [];
+    if (editable.length) html += `<details class="prompt"><summary>Correct a field and re-check</summary>${editable.map((f, i) => `<label>${esc(f.label)}${["select", "radio", "yesno"].includes(f.kind) ? `<select id="correction-${i}">${f.options.map((o) => `<option ${o === f.actual ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>` : `<input id="correction-${i}" type="text" value="${esc(f.actual)}">`}</label><button data-correct="${esc(f.id)}" data-input="correction-${i}">Correct: ${esc(f.label)}</button>`).join("")}</details>`;
   }
   box.innerHTML = html;
   const input = $("#p-text", box);
@@ -329,7 +474,11 @@ async function answerPrompt(raw) {
   else if (raw === "false") value = false;
   else if (raw !== "null") value = /^\d+$/.test(raw) && p.kind === "ask" ? Number(raw) : raw;
   $$("#prompt button").forEach((b) => (b.disabled = true));
-  try { await api("apply/answer", { prompt_id: p.id, value }); } catch (e) { alert(e.message); }
+  try { await api("apply/answer", { prompt_id: p.id, value }); } catch (e) {
+    alertInline($("#prompt"), e.message);
+    $$("#prompt button").forEach((b) => (b.disabled = false));
+    return;
+  }
   await loadRun();
 }
 
@@ -418,7 +567,7 @@ function alertInline(root, msg) {
 
 // ---------- actions / tasks ----------
 async function startTask(name) {
-  try { await api("tasks/" + name, {}); } catch (e) { alert(e.message); }
+  try { await api("tasks/" + name, {}); } catch (e) { alertInline($(`[data-task="${name}"]`).closest(".card"), e.message); }
   loadTasks();
 }
 
@@ -449,12 +598,16 @@ function renderRefresh(tasks) {
   const el = $("#refresh-status"), btn = $("#jobs-refresh");
   const busy = t && t.status === "running";
   btn.disabled = busy;
-  btn.textContent = busy ? (t.step === "rank" ? "Ranking…" : "Scanning…") : "Refresh jobs";
+  const steps = { track: ["Syncing Gmail…", "Reading application emails"], scan: ["Scanning…", "Scanning job boards"], rank: ["Ranking…", "Ranking new roles"] };
+  const order = t && t.name === "refresh" ? ["track", "scan", "rank"] : [];
+  const [short, long] = (t && steps[t.step]) || steps.scan;
+  const of = order.includes(t && t.step) ? ` (${order.indexOf(t.step) + 1}/3)` : "";
+  btn.textContent = busy ? short : "Refresh jobs";
   if (!t) { el.hidden = true; return; }
   const last = t.lines.filter((l) => l.trim() && !l.startsWith("$ ")).slice(-1)[0] || "";
   el.hidden = false;
   el.className = "refresh-status " + (t.status === "failed" ? "bad" : "");
-  el.textContent = busy ? `${t.step === "rank" ? "Ranking new roles" : "Scanning job boards"}… ${last}`
+  el.textContent = busy ? `${long}${of}… ${last}`
     : t.status === "failed" ? `${t.name} failed: ${last} (details in Actions)`
     : `Last ${t.name} finished ${t.ended ? t.ended.slice(11, 16) : ""}. ${last}`;
 }
@@ -602,10 +755,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#dry-selected").addEventListener("click", () => startRun(true));
   $("#sel-clear").addEventListener("click", () => { state.selected.clear(); renderJobs(); });
   $("#sel-all").addEventListener("click", () => selectAll(true));
+  $("#sel-top-n").value = recall("topN") || 10;
+  $("#sel-top").addEventListener("click", () => selectTop(Math.max(1, parseInt($("#sel-top-n").value, 10) || 10)));
   $("#sel-all-box").addEventListener("change", (ev) => selectAll(ev.target.checked));
   $("#prompt").addEventListener("click", (ev) => {
     const b = ev.target.closest("button[data-answer]");
     if (b) answerPrompt(b.dataset.answer);
+    const correction = ev.target.closest("button[data-correct]");
+    if (correction) {
+      const p = state.run.prompt;
+      $$("#prompt button").forEach((b) => b.disabled = true);
+      api("apply/answer", {prompt_id:p.id, value:{action:"correct", field:correction.dataset.correct, value:$("#" + correction.dataset.input).value}}).then(loadRun).catch((e) => { correction.disabled=false; $("#prompt").insertAdjacentHTML("beforeend", `<p role="alert">${esc(e.message)}</p>`); });
+    }
   });
   $("#run-stop").addEventListener("click", async () => { await api("apply/stop", {}); loadRun(); });
   $("#jobs-table tbody").addEventListener("click", async (ev) => {
@@ -655,7 +816,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#logs-q").addEventListener("input", debounce(renderLogs, 150));
   $("#profile-save").addEventListener("click", saveProfile);
 
+  showTab(recall("tab") || "jobs");   // before any await, so a tab you click while it loads stays chosen
   await loadSummary();
-  showTab(recall("tab") || "jobs");
-  loadRun();   // picks up a run that is already in progress (and keeps polling while it is)
+  loadRun();
+  // Keeps the counts fresh and notices a restarted or stopped dashboard even when nothing else polls.
+  setInterval(() => { if (!document.hidden) loadSummary().catch(() => {}); }, 30000);   // picks up a run that is already in progress (and keeps polling while it is)
 });
