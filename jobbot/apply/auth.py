@@ -59,9 +59,19 @@ def workday_sign_in(self, page):
     if "myworkdayjobs.com" not in (urllib.parse.urlparse(page.url).hostname or ""):
         return False
     by = lambda aid: page.locator(f'[data-automation-id="{aid}"]:visible')
-    if not by("signInSubmitButton").count() and by("signInLink").count():
-        by("signInLink").first.click()
-        page.wait_for_timeout(1500)
+    if not by("signInSubmitButton").count():
+        # Workday often opens on Create Account with "Already have an account? Sign In" underneath:
+        # try your existing account first, by the link's id or else its visible text.
+        link = by("signInLink")
+        if not link.count():
+            link = page.locator('main button:visible, main a:visible, [role="main"] button:visible, form ~ * button:visible, button:visible',
+                                has_text=re.compile(r"^\s*sign in\s*$", re.I))
+        if link.count():
+            try:
+                link.last.click(timeout=5000)
+            except Exception:
+                link.last.click(force=True, timeout=5000)
+            page.wait_for_timeout(2000)
     if not by("signInSubmitButton").count():
         return False
     # Workday lays an invisible click_filter over its Sign In button; it carries the name in aria-label, not text.
@@ -70,6 +80,24 @@ def workday_sign_in(self, page):
         cover = page.locator('[data-automation-id="click_filter"]:visible', has_text="Sign In")
     target = cover.first if cover.count() else by("signInSubmitButton").first
     return password_sign_in(self, page, target, by("email").first, by("password").first)
+
+
+def _evidence(page):
+    """What the page itself says, plus a screenshot in the logs folder, for a sign-in that did not complete."""
+    note = ""
+    try:
+        errors = check_page(page, [], [], []).errors
+        if errors:
+            note += " The site says: " + "; ".join(e[:120] for e in errors[:3]) + "."
+        import time
+        from .. import paths
+        shot = paths.HOME / "logs" / f"auth-{urllib.parse.urlparse(page.url).hostname}-{time.strftime('%H%M%S')}.png"
+        shot.parent.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(shot), full_page=True)
+        note += f" Screenshot: {shot}"
+    except Exception:
+        pass
+    return note
 
 
 def password_sign_in(self, page, button=None, email_input=None, password_input=None):
@@ -259,6 +287,7 @@ def ensure_signed_in(self, page, attempts=4):
                 self._no_account = False
                 continue
         reason = self._auth_failure or "The site requires an account or sign-in method jobbot cannot complete."
+        reason += _evidence(page)
         self._wait_for_user(page, reason + " Sign in or create the account in the browser; "
                             "jobbot then handles the verification email and resumes the application.")
     if needs_account(page):
