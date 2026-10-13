@@ -124,10 +124,20 @@ def number_forms(term):
     return {" ".join(words[:-1] + [f]) for f in forms}
 
 
+# Technology names that are also ordinary words ("go-live", "on the go", "plan c"): they count only when a
+# resume lists them as a skill, or under an unambiguous spelling ("Golang").
+AMBIGUOUS = {"go": "golang", "r": "r programming", "c": "c programming"}
+
+
 def mentions(profile, term):
     """True when a resume names `term` (or one of its spellings, singular or plural) as a whole word."""
-    text = corpus(profile)
     term = term.strip().lower()
+    canonical = ALIASES.get(term, term)
+    if canonical in AMBIGUOUS:
+        info = parse_all(profile)
+        listed = {s for e in info.values() for s in e.get("skills", [])}
+        return canonical in listed or AMBIGUOUS[canonical] in corpus(profile)
+    text = corpus(profile)
     spellings = {term, ALIASES.get(term, term)} | {k for k, v in ALIASES.items() if v == term}
     for t in {f for sp in spellings for f in number_forms(sp)}:
         if t and re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9+#])", text):

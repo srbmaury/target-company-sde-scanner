@@ -1300,6 +1300,53 @@ class ValidationPromptTest(unittest.TestCase):
         text = "5+ years of experience preferred in distributed systems. Minimum 2+ years of experience in Java required."
         self.assertEqual(stated_years(text)[0], 2)
 
+    def test_yes_to_a_place_uses_this_question_only(self):
+        r = Resolver(Profile({**PROFILE, "answers": [{"match": "office", "answer": "Yes"}]}, "x"), None, job={})
+        r.resolve("Are you comfortable working from our Bengaluru office?", "choice", ["Bengaluru", "Others"], quick=True)
+        # a later question naming no place: its "Yes" must not pick "Bengaluru" from the question before
+        self.assertIsNone(r.resolve("Can you work from the office three days a week?", "choice", ["Bengaluru", "Others"], quick=True))
+
+    def test_hear_about_never_claims_an_event_or_linkedin(self):
+        r = Resolver(Profile({**PROFILE, "preferences": {"how_did_you_hear": "Company website"}}, "x"), None, job={})
+        q = "How did you hear about this job?"
+        self.assertEqual(r.resolve(q, "choice", ["Career Fair", "LinkedIn", "Other"], quick=False).display, "Other")
+        self.assertEqual(r.resolve(q, "choice", ["--Select--", "Linkedin", "Carrers"], quick=False).display, "Carrers")
+        self.assertEqual(r.resolve(q, "choice", ["Campus Career Fair", "Careers Page"], quick=False).display, "Careers Page")
+
+    def test_careers_pages_never_mark_roles_gone(self):
+        from jobbot import scan
+        from unittest.mock import patch
+        registry = {"Exotel": {"ats": "careers-page", "url": "https://exotel.example/careers"}}
+        def fake_pages(pages, rules, on_done):
+            on_done("Exotel", [{"title": "Software Engineer 2", "location": "Bengaluru", "url": "https://exotel.example/1",
+                                "text": "2+ years of experience", "posted": ""}])
+        with patch.object(scan, "load_registry", return_value=registry), \
+                patch("jobbot.careers_page.scan_careers_pages", side_effect=fake_pages):
+            _, coverage, _ = scan.run_scan(companies=["Exotel"])
+        self.assertIn("incomplete", coverage["Exotel"])
+
+    def test_gmail_token_written_atomically(self):
+        import json
+        from unittest.mock import patch
+        from jobbot import gmail
+        home = Path(tempfile.mkdtemp())
+        with patch.object(gmail, "token_path", return_value=home / "gmail_token.json"), \
+                patch.object(gmail.paths, "ensure_home"):
+            gmail._save_token({"access_token": "a", "expires_at": 9e12})
+            self.assertEqual(json.loads((home / "gmail_token.json").read_text())["access_token"], "a")
+            self.assertFalse((home / "gmail_token.tmp").exists())
+            self.assertEqual(gmail.access_token(), "a")
+
+    def test_go_needs_a_skills_listing(self):
+        from unittest.mock import patch
+        from jobbot import resumes
+        info = {"r": {"text": "led the go-live of a payments service; java and python", "skills": ["java", "python"]}}
+        with patch.object(resumes, "parse_all", return_value=info):
+            self.assertFalse(resumes.mentions(None, "Golang"))   # "go-live" is not Go
+            self.assertFalse(resumes.mentions(None, "go"))
+            info["r"]["skills"].append("go")
+            self.assertTrue(resumes.mentions(None, "Golang"))
+
     def test_yes_no_against_sentence_options(self):
         from jobbot.apply.consistency import yes_no_sentence
         self.assertIs(yes_no_sentence("No", "I have never been employed by Rubrik"), True)

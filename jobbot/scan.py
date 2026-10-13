@@ -639,7 +639,9 @@ def run_scan(companies=None, exclude=(), locations=DEFAULT_LOCATIONS, max_yoe=3,
                 return
             kept, entry, urls = 0, registry[name], {r["url"] for r in results}
             jobs = list(jobs)
-            incomplete = any(j.get("_incomplete") for j in jobs)
+            # Careers pages are read best-effort (40 links at most, lists that change between loads): never a
+            # complete read, so they never mark a role "no longer listed".
+            incomplete = any(j.get("_incomplete") for j in jobs) or registry[name]["ats"] == "careers-page"
             jobs = [j for j in jobs if not j.get("_incomplete")]
             for job in jobs:
                 verdict = classify(job, location_re, max_yoe)
