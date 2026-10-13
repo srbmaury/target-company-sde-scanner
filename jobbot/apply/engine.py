@@ -517,6 +517,16 @@ class Session:
                     self._click(page, pick, wait=2000)
             self._workday_settle(page)
             self._ensure_signed_in(page)
+            # Signing in (or creating the account) lands back on the posting or the start choice: go on to the form.
+            if self._buttons(page, r"^apply$"):
+                self._click(page, r"^apply$")
+            choice = self._wait_for_button(page, r"^(autofill with resume|apply manually|use my last application)$", 8000)
+            if choice:
+                texts = [c["text"] for c in choice]
+                pick = next((r for r in (r"^autofill with resume$", r"^use my last application$", r"^apply manually$")
+                             if any(re.match(r, t, re.I) for t in texts)), r"^apply manually$")
+                self._click(page, pick, wait=2000)
+                self._workday_settle(page)
         elif ats == "generic" and not self._form_fields(page):
             # Careers pages that render the posting by script (Exotel's "#op-..." links) draw Apply late,
             # and show the form under the posting a moment after the click: wait for each.
