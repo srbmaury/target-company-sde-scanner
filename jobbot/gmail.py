@@ -88,10 +88,12 @@ def load_client(path=None):
 def _save_token(token):
     paths.ensure_home()
     path = token_path()
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # never readable by others, even briefly
+    tmp = path.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # never readable by others, even briefly
     with os.fdopen(fd, "w") as fh:
         fh.write(json.dumps(token))
-    os.chmod(path, 0o600)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)   # atomic: a reader (another process too) sees the old token or the new, never half
 
 
 def is_connected():
@@ -165,19 +167,23 @@ def login(client_file=None, open_browser=True, timeout=300):
     return profile_email()
 
 
+_TOKEN_LOCK = threading.Lock()   # parallel browsers: one refresh at a time, never a read of a half-written file
+
+
 def access_token():
-    if not token_path().exists():
-        raise GmailError("Gmail is not connected. Run `jobbot gmail login`.")
-    token = json.loads(token_path().read_text())
-    if token.get("expires_at", 0) > time.time():
+    with _TOKEN_LOCK:
+        if not token_path().exists():
+            raise GmailError("Gmail is not connected. Run `jobbot gmail login`.")
+        token = json.loads(token_path().read_text())
+        if token.get("expires_at", 0) > time.time():
+            return token["access_token"]
+        client = load_client()
+        fresh = _post(TOKEN_URL, {"client_id": client["client_id"], "client_secret": client["client_secret"],
+                                  "refresh_token": token["refresh_token"], "grant_type": "refresh_token"})
+        token.update(fresh)
+        token["expires_at"] = time.time() + int(fresh.get("expires_in", 3600)) - 60
+        _save_token(token)
         return token["access_token"]
-    client = load_client()
-    fresh = _post(TOKEN_URL, {"client_id": client["client_id"], "client_secret": client["client_secret"],
-                              "refresh_token": token["refresh_token"], "grant_type": "refresh_token"})
-    token.update(fresh)
-    token["expires_at"] = time.time() + int(fresh.get("expires_in", 3600)) - 60
-    _save_token(token)
-    return token["access_token"]
 
 
 def _get(path, params=None):
@@ -331,11 +337,7 @@ _USED_CODES, _CODE_LOCK = set(), threading.Lock()
 def latest_code(since, hint="", wait=90, poll=5):
     """Like _latest_code, but each code is handed out once: with parallel workers a code never goes
     to two applications."""
-    with _CODE_LOCK:
-        code = _latest_code(since, hint, wait, poll)
-        if code:
-            _USED_CODES.add(code)
-        return code
+    return _latest_code(since, hint, wait, poll)   # claims the code under _CODE_LOCK; waiting happens unlocked
 
 
 def _latest_code(since, hint="", wait=90, poll=5):
@@ -362,8 +364,14 @@ def _latest_code(since, hint="", wait=90, poll=5):
                 code = extract_code(_body_text(_get(f"messages/{mid}", {"format": "full"})))
             if code and code not in _USED_CODES:
                 found.append((bool(hints), int(meta["internalDate"]), code, mid))
-        if found:
-            best = max(found)   # from the site if any, newest first
+        # Claim under the lock only (another worker may have taken a code since we looked); never hold it while
+        # waiting, or every parallel browser queues behind one that is waiting for its email.
+        with _CODE_LOCK:
+            fresh = [f for f in found if f[2] not in _USED_CODES]
+            if fresh:
+                best = max(fresh)   # from the site if any, newest first
+                _USED_CODES.add(best[2])
+        if fresh:
             mark_used(best[3])
             return best[2]
         if time.time() >= deadline:

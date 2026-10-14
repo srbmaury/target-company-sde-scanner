@@ -1,8 +1,15 @@
 """Mandatory semantic approval with explicit field coverage."""
-import re
 
 
 REVIEW_BATCH = 8
+
+
+def is_final_page(self, page):
+    """The last page before the application goes out: a Submit button and no Next (the main loop's own test).
+    Words on the page ("before you submit", "submit a ticket") never decide it."""
+    from .engine import NEXT_RE, SUBMIT_RE, WORKDAY_SUBMIT_RE
+    submit_re = WORKDAY_SUBMIT_RE if getattr(self, "_ats", None) == "workday" else SUBMIT_RE
+    return bool(self._buttons(page, submit_re)) and not self._buttons(page, NEXT_RE)
 
 def review_step(self, page, resolver, report, check, step, confirmed=frozenset()):
     """A mandatory semantic review; outage, incomplete coverage or rejection blocks navigation.
@@ -15,12 +22,16 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
         if not self.llm or not self.llm.enabled:
             raise RuntimeError("Ollama is unavailable")
         page_text = page.inner_text("body")[:18000]
-        final = bool(re.search(r"\bsubmit\b", page_text, re.I))   # the last page before the application goes out
+        if not fields and not is_final_page(self, page):
+            # An in-between step with nothing to fill (Workday's "Autofill with Resume" after the upload): nothing
+            # to review. The final Submit page is always reviewed, fields or not.
+            self.ui.info(f"Page {step} has no fields to review; continuing.")
+            return
         facts = self.profile.facts()
         resume_text = self.profile.resume_text(resolver.resume_key) if resolver.resume_key else ""
         # A 7B model drops ids when asked to echo 20+ of them at once, so review in small batches
         # and give it one more pass at any it skipped; every field must still be covered.
-        covered, issues, rejected, page_problems = set(), [], False, []
+        covered, issues, rejected = set(), [], False
         batches = [fields[i:i + REVIEW_BATCH] for i in range(0, len(fields), REVIEW_BATCH)] or [[]]
 
         def review(todo):
@@ -42,13 +53,6 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
                     raised = [x for x in result.get("issues", []) if x.get("field_id") in todo]
                     kept = [x for x in raised if x.get("field_id") not in confirmed]
                     issues += kept
-                    if not todo and not final:
-                        # An in-between page with no fields (Workday's "Autofill with Resume" after the upload): only a
-                        # problem the model states blocks it. The final Submit page keeps the strict rule below.
-                        stated = [str(x.get("reason") or "").strip() for x in result.get("issues", [])]
-                        page_problems += [r for r in stated if r]
-                        rejected |= result.get("approved") is not True and any(stated)
-                        continue
                     # A rejection stands unless every complaint was about a field the profile check confirmed.
                     rejected |= result.get("approved") is not True and (bool(kept) or not raised)
         # Every field needs review: by the model, or (if it skipped one) by the profile check.
@@ -61,7 +65,6 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
             check.errors.append("Ollama review did not cover every field.")
         if rejected:
             check.errors.append("Ollama did not approve this step.")
-        check.errors += [f"Ollama: {r[:160]}" for r in page_problems]
         by_id = {f["id"]: f for f in fields}
         for issue in issues:
             f = by_id.get(issue.get("field_id"))

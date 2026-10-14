@@ -92,11 +92,54 @@ def corpus(profile):
     return " ".join(e["text"] for e in parse_all(profile).values()).lower()
 
 
+# Names that end in "s" but are not plurals: never singularised ("aws" must not become "aw").
+NOT_PLURAL = {"aws", "ios", "css", "sass", "js", "os", "gcs", "ecs", "eks", "sns", "sqs", "kms", "dns", "https",
+              "jenkins", "redis", "kubernetes", "postgres", "pandas", "numpy", "analytics", "devops", "mlops",
+              "dataops", "gitops", "graphics", "physics", "statistics", "economics"}
+
+
+def number_forms(term):
+    """`term` with its last word in singular and plural ("distributed system" <-> "distributed systems")."""
+    words = term.split()
+    if not words:
+        return {term}
+    last, forms = words[-1], {words[-1]}
+    if re.fullmatch(r"[a-z]{4,}", last) and last not in NOT_PLURAL:
+        if last.endswith("ies"):
+            forms.add(last[:-3] + "y")
+        elif re.search(r"(s|x|ch|sh)es$", last):
+            forms.add(last[:-2])
+        elif last.endswith("s") and not last.endswith("ss"):
+            forms.add(last[:-1])
+        elif last.endswith("y") and last[-2:-1] not in "aeiou":
+            forms.add(last[:-1] + "ies")
+        elif re.search(r"(s|x|ch|sh)$", last):
+            forms.add(last + "es")
+        else:
+            forms.add(last + "s")
+    elif re.fullmatch(r"[a-z]{2,3}", last) and last not in NOT_PLURAL:
+        forms.add(last + "s")            # "api" -> "apis", never the other way round
+    elif re.fullmatch(r"[a-z]{3,4}s", last) and last not in NOT_PLURAL:
+        forms.add(last[:-1])             # "apis" -> "api", but "aws", "ios" stay
+    return {" ".join(words[:-1] + [f]) for f in forms}
+
+
+# Technology names that are also ordinary words ("go-live", "on the go", "plan c"): they count only when a
+# resume lists them as a skill, or under an unambiguous spelling ("Golang").
+AMBIGUOUS = {"go": "golang", "r": "r programming", "c": "c programming"}
+
+
 def mentions(profile, term):
-    """True when a resume names `term` (or one of its spellings) as a whole word."""
-    text = corpus(profile)
+    """True when a resume names `term` (or one of its spellings, singular or plural) as a whole word."""
     term = term.strip().lower()
-    for t in {term, ALIASES.get(term, term)} | {k for k, v in ALIASES.items() if v == term}:
+    canonical = ALIASES.get(term, term)
+    if canonical in AMBIGUOUS:
+        info = parse_all(profile)
+        listed = {s for e in info.values() for s in e.get("skills", [])}
+        return canonical in listed or AMBIGUOUS[canonical] in corpus(profile)
+    text = corpus(profile)
+    spellings = {term, ALIASES.get(term, term)} | {k for k, v in ALIASES.items() if v == term}
+    for t in {f for sp in spellings for f in number_forms(sp)}:
         if t and re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9+#])", text):
             return True
     return False
