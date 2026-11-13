@@ -204,12 +204,31 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    # security: only our page, only on localhost
+    def _loopback_hosts(self):
+        return (f"127.0.0.1:{self.port}", f"localhost:{self.port}")
+
+    def _codespaces_proxy(self):
+        return bool(self.account and os.getenv("CODESPACES") == "true"
+                    and not os.getenv("RENDER_EXTERNAL_URL", "").strip())
+
     def _allowed_host(self):
         host = (self.headers.get("Host") or "").lower()
-        if self.account:
-            return host == urllib.parse.urlsplit(self.account.origin).netloc
-        return host in (f"127.0.0.1:{self.port}", f"localhost:{self.port}")
+        if not self.account:
+            return host in self._loopback_hosts()
+        if host == urllib.parse.urlsplit(self.account.origin).netloc:
+            return True
+        # The Codespaces forwarder can replace Host with the loopback target.
+        return self._codespaces_proxy() and host in (*self._loopback_hosts(), "localhost", "127.0.0.1")
+
+    def _allowed_origin(self):
+        origin = self.headers.get("Origin")
+        if origin == self.account.origin:
+            return True
+        # Same-origin browser requests can arrive with a rewritten Origin.
+        # The session cookie and custom CSRF header are still checked separately.
+        return self._codespaces_proxy() and origin in {
+            f"{scheme}://{host}" for scheme in ("http", "https") for host in self._loopback_hosts()
+        }
 
     def _cookie(self, name):
         jar = SimpleCookie()
@@ -230,7 +249,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self._allowed_host() or not secrets.compare_digest(self.headers.get("X-Jobbot-Token", ""), self.token):
             return False
         return not self.account or (self.account.session(self._session()) and (
-            self.command != "POST" or self.headers.get("Origin") == self.account.origin))
+            self.command != "POST" or self._allowed_origin()))
 
     def _auth_get(self, url):
         if url.path == "/auth/google":
