@@ -84,7 +84,7 @@ async function loadSummary() {
   $("#account-signout").hidden = !s.account;
   $("#gmail-disconnect").hidden = !(s.account && s.gmail);
   $("#gmail-login").hidden = !!(s.account && s.gmail);
-  $("#account-resume").hidden = !s.account;
+  setAccountProfile(s.account);
   $("#local-profile-hint").hidden = !!s.account;
   if (s.account) {
     $("#apply-selected").title = $("#dry-selected").title = "Run browser applications from local Jobbot.";
@@ -654,132 +654,238 @@ function renderLogs() {
   }).join("\n") || "No log lines. `apply` writes here as it fills applications.";
 }
 
-// ---------- profile ----------
-async function loadProfile() {
-  const p = await api("profile");
-  $("#profile-path").textContent = p.path;
-  $("#profile-text").value = p.text;
-  $("#profile-msg").textContent = "";
+// ---------- profile and resume library ----------
+function setAccountProfile(hosted) {
+  $("#account-resume").hidden = !hosted;
+  $("#local-profile-hint").hidden = hosted;
+  $("#profile-editor-heading").textContent = hosted ? "Advanced settings · Profile YAML" : "Profile YAML";
+  if (state.profileHosted !== hosted) $("#profile-advanced").open = !hosted;
+  state.profileHosted = hosted;
+}
+
+function applyProfile(p) {
   state.profileMtime = p.mtime;
   state.savedProfile = p.text;
   state.resumeKeys = p.resume_keys || [];
-  if (p.resume_keys) await loadResumeKeys();
+  $("#profile-text").value = p.text;
+}
+
+function resumeNotice(message, failed = false) {
+  const box = $("#resume-list-msg");
+  box.hidden = !message;
+  box.textContent = message || "";
+  box.classList.toggle("resume-error", failed);
+}
+
+async function loadProfile() {
+  try {
+    const p = await api("profile");
+    setAccountProfile(Array.isArray(p.resume_keys));
+    $("#profile-path").textContent = p.path;
+    // Switching tabs must not discard unsaved edits.
+    if (state.savedProfile === undefined || $("#profile-text").value === state.savedProfile) applyProfile(p);
+    if (state.profileHosted) await loadResumeKeys();
+  } catch (e) {
+    $("#profile-msg").textContent = e.message;
+    if (state.profileHosted) resumeNotice(e.message, true);
+  }
 }
 
 async function saveProfile() {
-  const msg = $("#profile-msg");
+  if (state.resumeBusy) return;
+  const msg = $("#profile-msg"), text = $("#profile-text").value;
+  state.resumeBusy = true;
+  $("#profile-save").disabled = true;
   try {
-    const text = $("#profile-text").value;
     const r = await api("profile", { text, mtime: state.profileMtime });
     state.profileMtime = r.mtime;
     state.savedProfile = text;
-    if (r.resume_keys) {
+    if (Array.isArray(r.resume_keys)) {
       state.resumeKeys = r.resume_keys;
       renderResumeKeys();
     }
-    msg.textContent = "Saved."; msg.style.color = "var(--good)";
+    msg.textContent = "Saved.";
+    msg.style.color = "var(--good)";
   } catch (e) {
-    msg.textContent = e.message; msg.style.color = "var(--bad)";
+    msg.textContent = e.message;
+    msg.style.color = "var(--bad)";
+  } finally {
+    state.resumeBusy = false;
+    $("#profile-save").disabled = false;
   }
 }
 
 async function loadResumeKeys() {
   try {
     const r = await api("account/resumes");
-    state.uploadedResumes = r.keys;
+    state.uploadedResumes = r.resumes || r.keys.map(key => ({ key }));
     renderResumeKeys();
+    return true;
   } catch (e) {
-    $("#resume-list-msg").textContent = e.message;
+    resumeNotice("Could not refresh the resume library. " + e.message, true);
+    return false;
   }
+}
+
+function resumeName(key) {
+  return key.replace(/[_-]+/g, " ").replace(/\b\w/g, letter => letter.toUpperCase());
 }
 
 function renderResumeKeys() {
-  const uploaded = state.uploadedResumes || [];
-  const configured = state.resumeKeys || [];
-  const keys = [...new Set([...uploaded, ...configured])].sort();
-  $("#resume-list").innerHTML = keys.length ? keys.map((key) => {
-    const saved = configured.includes(key), exists = uploaded.includes(key);
-    const button = saved ? '<button type="button" data-action="remove">Remove from profile</button>'
-      : '<button type="button" data-action="add">Add to profile</button>';
-    return `<li data-key="${esc(key)}"><code>${esc(key)}</code>
-      <span class="muted">${saved ? (exists ? "In profile" : "No PDF uploaded") : "Uploaded only"}</span>
-      ${button}${exists ? ' <button type="button" data-action="view">View PDF</button>' +
-      ' <button type="button" data-action="rename">Rename key</button>' +
-      ' <button type="button" data-action="copy">Copy to new key</button>' +
-      (saved ? '' : ' <button type="button" data-action="delete">Delete PDF</button>') : ""}</li>`;
-  }).join("") : '<li class="muted">No resumes uploaded or configured yet.</li>';
+  const uploaded = new Map((state.uploadedResumes || []).map(item => [item.key, item]));
+  const configured = new Set(state.resumeKeys || []);
+  const keys = [...new Set([...uploaded.keys(), ...configured])].sort();
+  $("#resume-count").textContent = `${uploaded.size} uploaded · ${[...uploaded.keys()].filter(k => configured.has(k)).length} used for ranking`;
+  $("#resume-list").innerHTML = keys.map(key => {
+    const active = configured.has(key), file = uploaded.get(key), name = file?.name || resumeName(key);
+    const status = !file ? "missing" : active ? "active" : "ready";
+    return `<li class="resume-row" data-key="${esc(key)}">
+      <div class="resume-identity"><span class="resume-file-icon" aria-hidden="true">PDF</span><div>
+        <strong>${esc(name)}</strong><code>${esc(key)}</code></div></div>
+      <span class="resume-badge ${status}">${!file ? "PDF missing" : active ? "Used for ranking" : "Uploaded only"}</span>
+      <div class="resume-actions">
+        ${file ? `${active ? "" : '<button class="link" type="button" data-action="add">Use for ranking</button>'}<button type="button" data-action="view">View PDF</button>`
+                 : '<button type="button" data-action="upload">Upload PDF</button>'}
+        <details class="resume-more"><summary aria-label="More actions for ${esc(name)}">⋯</summary><div class="resume-menu">
+          ${file ? '<button type="button" data-action="rename">Rename</button><button type="button" data-action="copy">Copy to new key</button>' : ""}
+          ${active ? '<button type="button" data-action="remove">Remove from ranking</button>' : ""}
+          ${file ? '<button type="button" class="resume-danger" data-action="delete">Delete PDF</button>' : ""}
+        </div></details>
+      </div></li>`;
+  }).join("") || '<li class="resume-empty"><strong>No resumes yet</strong><span>Upload a PDF to start ranking jobs.</span></li>';
+}
+
+function openResumeDialog(title, description, fields, label, action) {
+  const dialog = $("#resume-dialog");
+  $("#resume-dialog-title").textContent = title;
+  $("#resume-dialog-description").textContent = description;
+  $("#resume-dialog-fields").innerHTML = fields;
+  $("#resume-dialog-error").hidden = true;
+  $("#resume-dialog-submit").textContent = label;
+  $("#resume-dialog-submit").classList.toggle("danger", label === "Delete PDF");
+  state.resumeSubmit = action;
+  dialog.showModal();
+}
+
+function resumeFields(name = "", key = "") {
+  return `<label>Display name<input name="display" type="text" required maxlength="80" value="${esc(name)}"></label>
+    <label>Resume key<input name="key" type="text" required maxlength="48" pattern="[A-Za-z0-9_\\-]{1,48}" value="${esc(key)}">
+    <small>Letters, numbers, underscores, or dashes.</small></label>`;
+}
+
+function requireSavedProfile() {
+  if ($("#profile-text").value !== state.savedProfile) {
+    $("#profile-advanced").open = true;
+    throw new Error("Save your Profile YAML changes first, then try again.");
+  }
+}
+
+async function finishResumeChange(r, message, reload = true) {
+  if (typeof r.text === "string") {
+    if ($("#profile-text").value === state.savedProfile) applyProfile(r);
+    else {
+      state.profileMtime = null;
+      r.warning = "Profile changed while you were editing. Copy your edits and reload before saving.";
+    }
+  }
+  if (reload && !await loadResumeKeys()) return;
+  if (!reload) renderResumeKeys();
+  resumeNotice(r.warning || message, !!r.warning);
+}
+
+function openResumeUpload(key = "") {
+  const item = (state.uploadedResumes || []).find(x => x.key === key);
+  openResumeDialog("Upload PDF", "Choose a PDF up to 5 MiB. Review the name and key before saving.",
+    `<label>PDF file<input name="pdf" type="file" accept=".pdf,application/pdf" required></label>
+    ${resumeFields(item?.name || (key ? resumeName(key) : ""), key)}
+    <label class="resume-check"><input name="ranking" type="checkbox" checked> Use for ranking</label>
+    <label class="resume-check" id="resume-replace" hidden><input name="replace" type="checkbox"> Replace the PDF already stored under this key</label>`,
+    "Upload PDF", async f => {
+      const file = f.get("pdf"), target = f.get("key").trim();
+      if (!f.get("display").trim()) throw new Error("Enter a display name.");
+      if (!file?.size || file.size > 5 * 1024 * 1024) throw new Error("Choose a PDF up to 5 MiB.");
+      if (f.has("ranking")) requireSavedProfile();
+      const current = (state.uploadedResumes || []).find(x => x.key === target);
+      if (current && !f.has("replace")) {
+        $("#resume-replace").hidden = false;
+        throw new Error("That key already has a PDF. Confirm replacement or choose a different key.");
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const chunks = [];
+      for (let i = 0; i < bytes.length; i += 8192) chunks.push(String.fromCharCode(...bytes.subarray(i, i + 8192)));
+      const result = await api("account/resume", { key: target, name: f.get("display").trim(), pdf: btoa(chunks.join("")),
+        use_for_ranking: f.has("ranking"), mtime: state.profileMtime, replace_version: current?.version || "" });
+      await finishResumeChange(result, current ? "PDF replaced." : "PDF uploaded.");
+    });
+  const form = $("#resume-form");
+  form.elements.key.addEventListener("input", () => {
+    form.elements.replace.checked = false;
+    $("#resume-replace").hidden = true;
+  });
+  form.elements.pdf.addEventListener("change", () => {
+    const filename = form.elements.pdf.files[0]?.name.replace(/\.pdf$/i, "");
+    if (!filename) return;
+    if (!form.elements.display.value) form.elements.display.value = filename.replace(/[_-]+/g, " ").slice(0, 80);
+    if (!form.elements.key.value) form.elements.key.value = filename.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 48);
+  });
 }
 
 async function changeResume(event) {
-  const button = event.target.closest("button[data-action]");
-  if (!button) return;
-  const key = button.closest("[data-key]").dataset.key;
-  const action = button.dataset.action, msg = $("#resume-list-msg"), editor = $("#profile-text");
+  const action = event.target.closest("[data-action]")?.dataset.action;
+  if (!action || state.resumeBusy) return;
+  const key = event.target.closest("[data-key]").dataset.key;
+  const item = (state.uploadedResumes || []).find(x => x.key === key);
+  const name = item?.name || resumeName(key);
+  const active = (state.resumeKeys || []).includes(key);
+  const menu = event.target.closest(".resume-more");
+  if (menu) menu.open = false;
+  resumeNotice("");
   if (action === "view") {
-    const tab = window.open("about:blank", "_blank");
-    if (!tab) { msg.textContent = "Allow pop-ups to view this PDF."; return; }
-    tab.opener = null;
-    try {
-      const res = await fetch("/api/account/resume/pdf/" + encodeURIComponent(key), {
-        headers: { "X-Jobbot-Token": TOKEN }
+    const url = "/resume-file/" + encodeURIComponent(key);
+    $("#resume-preview-title").textContent = name;
+    $("#resume-preview-frame").src = url;
+    $("#resume-download").href = url + "?download=1";
+    $("#resume-download").download = key + ".pdf";
+    $("#resume-preview").showModal();
+    return;
+  }
+  if (action === "upload") return openResumeUpload(key);
+  if (action === "rename" || action === "copy") {
+    const copy = action === "copy";
+    return openResumeDialog(copy ? "Copy resume" : "Rename resume",
+      copy ? "Keep the original and create a copy under a new key." : "The display name is shown in the library. The key identifies the resume in your profile.",
+      resumeFields(name, copy ? "" : key), copy ? "Copy PDF" : "Save changes", async f => {
+        const target = f.get("key").trim(), display = f.get("display").trim();
+        if (!display) throw new Error("Enter a display name.");
+        if (copy && target === key) throw new Error("Choose a different key for the copy.");
+        if (!copy && target !== key) requireSavedProfile();
+        const body = copy ? { source: key, key: target, name: display } :
+          { action: "rename", key, target, name: display, mtime: state.profileMtime };
+        const r = await api(copy ? "account/resume/copy" : "account/resume/profile", body);
+        await finishResumeChange(r, copy ? "PDF copied. Choose Use for ranking to enable the copy." : "Renamed to " + display + ".");
       });
-      if (!res.ok) throw new Error("Could not open this PDF. Reload Profile and try again.");
-      const url = URL.createObjectURL(await res.blob());
-      tab.location.replace(url);
-      // Allow time for the browser's PDF viewer to read the object.
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch (e) {
-      tab.close();
-      msg.textContent = e.message;
-    }
-    return;
   }
-  if (action !== "copy" && editor.value !== state.savedProfile) {
-    msg.textContent = "Save your YAML edits before changing resume keys.";
-    return;
+  if (action === "delete") {
+    return openResumeDialog("Delete PDF?", `${name} will be permanently deleted${active ? " and removed from ranking" : ""}. Past applications are unchanged.`,
+      "", "Delete PDF", async () => {
+        requireSavedProfile();
+        const r = await api("account/resume/delete", { key, mtime: state.profileMtime, confirm: true,
+          version: item?.version, remove_from_ranking: active });
+        await finishResumeChange(r, "PDF deleted.");
+      });
   }
+  state.resumeBusy = true;
+  const button = event.target.closest("button");
   button.disabled = true;
   try {
-    if (action === "copy") {
-      const target = prompt("Copy this PDF to a new resume key:", key);
-      if (target === null || target.trim() === key) return;
-      await api("account/resume/copy", { source: key, key: target.trim() });
-      await loadResumeKeys();
-      msg.textContent = "PDF copied. Choose Add to profile next to the new key.";
-      return;
-    }
-    if (action === "delete") {
-      if (!confirm(`Delete the uploaded PDF for “${key}” from your account?`)) return;
-      await api("account/resume/delete", { key, mtime: state.profileMtime, confirm: true });
-      await loadResumeKeys();
-      msg.textContent = "Uploaded PDF deleted.";
-      return;
-    }
-    const target = action === "rename" ? prompt("New resume key:", key)?.trim() : undefined;
-    if (action === "rename" && (!target || target === key)) return;
-    const before = editor.value;
-    const r = await api("account/resume/profile", { action, key, target, mtime: state.profileMtime });
-    state.profileMtime = r.mtime;
-    state.savedProfile = r.text;
-    state.resumeKeys = r.resume_keys;
-    if (editor.value === before) {
-      editor.value = r.text;
-      msg.textContent = r.warning || {
-        add: "Added. You can edit its focus in the YAML.",
-        remove: "Removed from YAML. The PDF is still uploaded.",
-        rename: "Resume key renamed."
-      }[action];
-    } else {
-      msg.textContent = "Profile changed while you were editing. Copy your edits and reload Profile before saving.";
-      // Keep the stale editor version so a later Save cannot overwrite the change.
-      state.profileMtime = null;
-    }
-    if (action === "rename") await loadResumeKeys();
-    else renderResumeKeys();
+    requireSavedProfile();
+    const r = await api("account/resume/profile", { key, action, mtime: state.profileMtime });
+    await finishResumeChange(r, action === "add" ? "Resume is now used for ranking." : "Removed from ranking. The PDF was kept.", false);
   } catch (e) {
-    msg.textContent = e.message;
+    resumeNotice(e.message, true);
   } finally {
     button.disabled = false;
+    state.resumeBusy = false;
   }
 }
 
@@ -880,18 +986,36 @@ document.addEventListener("DOMContentLoaded", async () => {
     catch (e) { alertInline($("#gmail-text"), e.message); }
   });
   $("#resume-list").addEventListener("click", changeResume);
-  $("#resume-upload").addEventListener("submit", async (event) => {
+  $("#resume-upload-open").addEventListener("click", () => { if (!state.resumeBusy) openResumeUpload(); });
+  document.addEventListener("click", event => {
+    $$(".resume-more[open]").forEach(menu => { if (!menu.contains(event.target)) menu.open = false; });
+  });
+  $("#resume-list").addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    const menu = event.target.closest(".resume-more[open]");
+    if (menu) { menu.open = false; menu.querySelector("summary").focus(); }
+  });
+  $("#resume-dialog-close").addEventListener("click", () => $("#resume-dialog").close());
+  $("#resume-dialog").addEventListener("cancel", e => { if (state.resumeBusy) e.preventDefault(); });
+  $("#resume-preview-close").addEventListener("click", () => $("#resume-preview").close());
+  $("#resume-preview").addEventListener("close", () => $("#resume-preview-frame").removeAttribute("src"));
+  $("#resume-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const msg = $("#resume-msg"), file = $("#resume-file").files[0];
-    if (!file || file.size > 5 * 1024 * 1024) { msg.textContent = "Choose a PDF up to 5 MiB."; return; }
+    if (state.resumeBusy) return;
+    const form = event.currentTarget, error = $("#resume-dialog-error");
+    state.resumeBusy = true;
+    $("#resume-dialog-submit").disabled = $("#resume-dialog-close").disabled = true;
+    error.hidden = true;
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const chunks = [];
-      for (let i = 0; i < bytes.length; i += 8192) chunks.push(String.fromCharCode(...bytes.subarray(i, i + 8192)));
-      await api("account/resume", { key: $("#resume-key").value, pdf: btoa(chunks.join("")) });
-      await loadResumeKeys();
-      msg.textContent = "Uploaded. Use Add to profile if the key is not already in your YAML.";
-    } catch (e) { msg.textContent = e.message; }
+      await state.resumeSubmit(new FormData(form));
+      $("#resume-dialog").close();
+    } catch (e) {
+      error.hidden = false;
+      error.textContent = e.message;
+    } finally {
+      state.resumeBusy = false;
+      $("#resume-dialog-submit").disabled = $("#resume-dialog-close").disabled = false;
+    }
   });
   $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
   const reloadJobs = debounce(loadJobs);

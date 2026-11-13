@@ -56,10 +56,12 @@ class Account:
         row = self.db.account_data.find_one({"_id": self.owner + ":" + name})
         return (self._unseal(name, row["value"]), row["version"]) if row else (None, "")
 
-    def write(self, name, value, expected=None):
+    def write(self, name, value, expected=None, label=None):
         key = self.owner + ":" + name
         version = secrets.token_hex(16)
         row = {"_id": key, "version": version, "value": self._seal(name, value)}
+        if label is not None:
+            row["label"] = self._seal(name + ":label", label.encode())
         if expected == "":
             try:
                 self.db.account_data.insert_one(row)
@@ -73,10 +75,15 @@ class Account:
             self.db.account_data.replace_one({"_id": key}, row, upsert=True)
         return version
 
-    def resume_keys(self):
+    def resume_entries(self):
         prefix = self.owner + ":resume:"
-        rows = self.db.account_data.find({"_id": {"$regex": "^" + prefix}}, {"_id": 1})
-        return sorted(row["_id"][len(prefix):] for row in rows)
+        rows = self.db.account_data.find({"_id": {"$regex": "^" + prefix}}, {"_id": 1, "label": 1, "version": 1})
+        return sorted([{"key": row["_id"][len(prefix):], "version": row["version"],
+                        "name": self._unseal("resume:" + row["_id"][len(prefix):] + ":label", row["label"]).decode()
+                        if "label" in row else ""} for row in rows], key=lambda row: row["key"])
+
+    def resume_keys(self):
+        return [row["key"] for row in self.resume_entries()]
 
     def remove(self, name, expected=None):
         query = {"_id": self.owner + ":" + name}
