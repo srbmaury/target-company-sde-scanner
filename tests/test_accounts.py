@@ -202,7 +202,16 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(self.new_account().read("resume:backend")[0], base64.b64decode(pdf))
         self.new_account("other@example.com").write("resume:private", b"%PDF-1.4")
         self.assertEqual(request("/api/account/resumes")[0], 401)
-        self.assertEqual(json.loads(request("/api/account/resumes", cookie=session)[1]), {"keys": ["backend"]})
+        library = json.loads(request("/api/account/resumes", cookie=session)[1])
+        self.assertEqual(library["keys"], ["backend"])
+        self.assertEqual(library["resumes"][0]["name"], "")
+        self.assertEqual(request("/api/account/resume", {"key": "backend", "pdf": pdf}, cookie=session)[0], 409)
+        self.assertEqual(request("/resume-file/backend")[0], 401)
+        self.assertEqual(request("/resume-file/private", cookie=session)[0], 404)
+        status, raw, headers = request("/resume-file/backend", cookie=session)
+        self.assertEqual((status, raw), (200, base64.b64decode(pdf)))
+        self.assertIn("frame-ancestors 'self'", headers["Content-Security-Policy"])
+        self.assertIn("attachment", request("/resume-file/backend?download=1", cookie=session)[2]["Content-Disposition"])
         copy_path = "/api/account/resume/copy"
         self.assertEqual(request(copy_path, {"source": "private", "key": "new"}, cookie=session)[0], 404)
         self.assertEqual(request(copy_path, {"source": "backend", "key": "corrected"}, cookie=session)[0], 200)
@@ -223,7 +232,51 @@ class AccountTests(unittest.TestCase):
         status, raw, _ = request(edit_path, {**edit, "action": "remove", "mtime": changed["mtime"]}, cookie=session)
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(raw)["resume_keys"], ["other"])
-        self.assertEqual(self.account.read("resume:corrected")[0], base64.b64decode(pdf))
+        view = "/api/account/resume/pdf/"
+        self.assertEqual(request(view + "corrected")[0], 401)
+        self.assertEqual(request(view + "private", cookie=session)[0], 404)
+        status, data, headers = request(view + "corrected", cookie=session)
+        self.assertEqual((status, data), (200, base64.b64decode(pdf)))
+        self.assertEqual(headers["Content-Type"], "application/pdf")
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        self.assertIn('inline; filename="corrected.pdf"', headers["Content-Disposition"])
+
+        version = self.account.write("profile", b"personal: {}\nresumes:\n  backend: # keep\n    focus: Java\n")
+        rename = {"action": "rename", "key": "backend", "target": "corrected", "mtime": version}
+        self.assertEqual(request(edit_path, rename, cookie=session)[0], 409)
+        self.assertEqual(self.account.read("profile")[1], version)
+        status, data, _ = request(edit_path, {**rename, "target": "platform"}, cookie=session)
+        self.assertEqual(status, 200)
+        updated = json.loads(data)
+        self.assertEqual(updated["resume_keys"], ["platform"])
+        self.assertIn("focus: Java", updated["text"])
+        self.assertIn("# keep", updated["text"])
+        self.assertEqual(request(view + "backend", cookie=session)[0], 404)
+        self.assertEqual(request(view + "platform", cookie=session)[1], base64.b64decode(pdf))
+
+        delete_path = "/api/account/resume/delete"
+        delete = {"confirm": True, "key": "corrected", "mtime": updated["mtime"]}
+        self.assertEqual(request(delete_path, {**delete, "confirm": False}, cookie=session)[0], 400)
+        self.assertEqual(request(delete_path, {**delete, "key": "platform"}, cookie=session)[0], 409)
+        self.assertEqual(request(delete_path, {**delete, "mtime": version}, cookie=session)[0], 409)
+        self.assertEqual(request(delete_path, delete, cookie=session)[0], 200)
+        self.assertEqual(request(view + "corrected", cookie=session)[0], 404)
+        self.assertIsNone(self.account.read("resume:corrected")[0])
+        self.assertEqual(request(edit_path, {"action": "rename", "key": "platform", "target": "platform",
+                                             "name": "Backend Platform", "mtime": updated["mtime"]}, cookie=session)[0], 200)
+        self.assertEqual(self.account.resume_entries()[0]["name"], "Backend Platform")
+        self.assertEqual(self.account.read("profile")[1], updated["mtime"])
+        status, raw, _ = request("/api/account/resume", {"key": "fullstack", "name": "Full Stack",
+                                                        "pdf": pdf, "use_for_ranking": True,
+                                                        "mtime": updated["mtime"]}, cookie=session)
+        self.assertEqual(status, 200)
+        configured = json.loads(raw)
+        self.assertIn("fullstack", configured["resume_keys"])
+        status, raw, _ = request(delete_path, {"key": "platform", "confirm": True, "remove_from_ranking": True,
+                                               "mtime": configured["mtime"]}, cookie=session)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(raw)["resume_keys"], ["fullstack"])
+        self.assertIsNone(self.account.read("resume:platform")[0])
 
         self.assertEqual(request("/api/apply", {"jobs": ["1"]}, cookie=session)[0], 400)
         redirect = request("/auth/google")

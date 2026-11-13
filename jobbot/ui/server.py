@@ -294,9 +294,13 @@ class Handler(BaseHTTPRequestHandler):
             data, _ = self.account.read("resume:" + source)
             if data is None:
                 return self._send(404, {"error": "That uploaded PDF was not found."})
-            self.account.write("resume:" + key, data, expected="")
+            self.account.write("resume:" + key, data, expected="", label=self._resume_name(body))
             return self._send(200, {"ok": True})
+        if parts == ["account", "resume", "delete"]:
+            return self._delete_resume(body)
         if parts == ["account", "resume", "profile"]:
+            if body.get("action") == "delete":
+                return self._send(400, {"error": "Use the confirmed PDF deletion action."})
             return self._edit_resume_profile(body)
         if parts == ["account", "resume"]:
             key = body.get("key")
@@ -308,20 +312,52 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "Invalid PDF upload."})
             if not data.startswith(b"%PDF-") or len(data) > accounts.MAX_PDF:
                 return self._send(400, {"error": "Select a PDF no larger than 5 MiB."})
-            self.account.write("resume:" + key, data)
+            name = self._resume_name(body)
+            version = body.get("replace_version", "")
+            if not isinstance(version, str):
+                raise ValueError("Refresh the resume library before replacing a PDF.")
+            existing = next((row for row in self.account.resume_entries() if row["key"] == key), None)
+            if existing and existing["version"] != version:
+                return self._send(409, {"error": "That key already has a PDF. Refresh the library before replacing it."})
+            self.account.write("resume:" + key, data, expected=version, label=name)
+            if body.get("use_for_ranking") is True:
+                raw, current_version = self.account.read("profile")
+                if current_version != body.get("mtime"):
+                    return self._send(200, {"warning": "PDF uploaded. Profile changed, so reload before enabling ranking."})
+                config = yaml.safe_load(profile_mod.ACCOUNT_PROFILE if raw is None else raw)
+                if isinstance(config, dict) and isinstance(config.get("resumes"), dict) and key in config["resumes"]:
+                    return self._send(200, {"ok": True})
+                return self._edit_resume_profile({"key": key, "action": "add", "mtime": current_version}, uploaded=True)
             return self._send(200, {"ok": True})
         return self._send(404, {"error": "not found"})
 
 
-    def _edit_resume_profile(self, body):
+    @staticmethod
+    def _resume_name(body):
+        value = body.get("name", "")
+        if not isinstance(value, str) or len(value.strip()) > 80 or any(ord(c) < 32 for c in value):
+            raise ValueError("Use a display name up to 80 characters.")
+        return value.strip()
+
+    def _edit_resume_profile(self, body, uploaded=False):
         from io import StringIO
 
         from ruamel.yaml import YAML
         from ruamel.yaml.error import YAMLError
 
         key, action, expected = body.get("key"), body.get("action"), body.get("mtime")
-        if not profile_mod.valid_resume_key(key) or action not in ("add", "remove") or not isinstance(expected, str):
+        target = body.get("target")
+        if (not profile_mod.valid_resume_key(key) or action not in ("add", "remove", "rename", "delete")
+                or not isinstance(expected, str) or (action == "rename" and (
+                    not profile_mod.valid_resume_key(target)))):
             return self._send(400, {"error": "Invalid resume profile change."})
+        name = self._resume_name(body)
+        if action == "rename" and target == key:
+            pdf, pdf_version = self.account.read("resume:" + key)
+            if pdf is None:
+                return self._send(404, {"error": "That uploaded PDF was not found."})
+            self.account.write("resume:" + key, pdf, expected=pdf_version, label=name)
+            return self._send(200, {"ok": True})
         raw, version = self.account.read("profile")
         if expected != version:
             return self._send(409, {"error": "Profile changed. Reload it before editing resume keys."})
@@ -336,12 +372,28 @@ class Handler(BaseHTTPRequestHandler):
                 resumes = data["resumes"] = {}
             if not isinstance(resumes, dict):
                 raise ValueError()
-            if action == "add" and key not in resumes:
+            if action == "rename":
+                if target in resumes:
+                    return self._send(409, {"error": "That key is already in the profile."})
+                pdf, pdf_version = self.account.read("resume:" + key)
+                if pdf is None:
+                    return self._send(404, {"error": "That uploaded PDF was not found."})
+                if key in resumes:
+                    # Retain the existing focus, comments, and position of the YAML entry.
+                    position = list(resumes).index(key)
+                    entry = resumes.pop(key)
+                    comment = resumes.ca.items.pop(key, None)
+                    resumes.insert(position, target, entry)
+                    if comment is not None:
+                        resumes.ca.items[target] = comment
+            elif action == "add" and key not in resumes:
                 if key not in self.account.resume_keys():
                     return self._send(404, {"error": "Upload a PDF under that key first."})
                 resumes[key] = {"focus": ""}
-            elif action == "remove" and key in resumes:
+            elif action in ("remove", "delete") and key in resumes:
                 del resumes[key]
+            elif action == "delete":
+                pass
             else:
                 return self._send(409, {"error": "That key is already in the requested state. Reload Profile."})
             out = StringIO()
@@ -350,12 +402,72 @@ class Handler(BaseHTTPRequestHandler):
             if len(text.encode()) > 2_000_000:
                 raise ValueError()
         except (YAMLError, ValueError):
+            if uploaded:
+                return self._send(200, {"warning": "PDF uploaded. Save a valid profile before enabling ranking."})
             return self._send(400, {"error": "Edit and save a valid profile with a resumes mapping first."})
-        version = self.account.write("profile", text.encode(), expected=version)
-        return self._send(200, {"text": text, "mtime": version,
+        if action == "rename":
+            # Copy first so a failed profile write never loses the original. If the final
+            # cleanup fails, leave both uploads intact instead of removing a newer PDF.
+            if "name" not in body:
+                name = next((row["name"] for row in self.account.resume_entries() if row["key"] == key), "")
+            try:
+                self.account.write("resume:" + target, pdf, expected="", label=name)
+            except accounts.AccountError:
+                return self._send(409, {"error": "That key already has an uploaded PDF."})
+            try:
+                version = self.account.write("profile", text.encode(), expected=version)
+            except accounts.AccountError:
+                return self._send(409, {"error": "Profile changed. Both PDFs were kept. Reload Profile."})
+            warning = None
+            try:
+                if not self.account.remove("resume:" + key, expected=pdf_version):
+                    warning = "The original upload changed and was kept."
+            except PyMongoError:
+                warning = "Could not confirm removal of the original upload. Refresh the list."
+        else:
+            try:
+                version = self.account.write("profile", text.encode(), expected=version)
+            except accounts.AccountError:
+                if not uploaded:
+                    raise
+                return self._send(200, {"warning": "PDF uploaded. Reload Profile before enabling ranking."})
+            warning = None
+        if action == "delete":
+            try:
+                if not self.account.remove("resume:" + key, expected=body["pdf_version"]):
+                    warning = "Removed from ranking, but the upload changed and was kept."
+            except PyMongoError:
+                warning = "Removed from ranking. Could not confirm PDF deletion. Refresh the list."
+        return self._send(200, {"text": text, "mtime": version, "warning": warning,
                                 "resume_keys": [key for key in resumes if profile_mod.valid_resume_key(key)]})
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8", headers=()):
+    def _delete_resume(self, body):
+        key = body.get("key")
+        if not profile_mod.valid_resume_key(key) or body.get("confirm") is not True:
+            return self._send(400, {"error": "Confirm deletion of a valid resume key."})
+        raw, version = self.account.read("profile")
+        if body.get("mtime") != version:
+            return self._send(409, {"error": "Profile changed. Reload it before deleting an upload."})
+        data = yaml.safe_load(profile_mod.ACCOUNT_PROFILE if raw is None else raw)
+        resumes = data.get("resumes") if isinstance(data, dict) else None
+        if resumes is not None and not isinstance(resumes, dict):
+            return self._send(400, {"error": "Save a valid resumes mapping before deleting uploads."})
+        linked = bool(resumes and key in resumes)
+        if linked and body.get("remove_from_ranking") is not True:
+            return self._send(409, {"error": "Confirm removing this resume from ranking as well."})
+        _, pdf_version = self.account.read("resume:" + key)
+        if not pdf_version:
+            return self._send(404, {"error": "That uploaded PDF was not found."})
+        if body.get("version", pdf_version) != pdf_version:
+            return self._send(409, {"error": "The upload changed. Reload Profile and try again."})
+        if linked:
+            return self._edit_resume_profile({"key": key, "action": "delete", "mtime": version,
+                                              "pdf_version": pdf_version})
+        if not self.account.remove("resume:" + key, expected=pdf_version):
+            return self._send(409, {"error": "The upload changed. Reload Profile and try again."})
+        return self._send(200, {"ok": True})
+
+    def _send(self, code, body, ctype="application/json; charset=utf-8", headers=(), frameable=False):
         data = body if isinstance(body, bytes) else (json.dumps(body, default=str) if ctype.startswith("application/json")
                                                     else body).encode()
         self.send_response(code)
@@ -367,7 +479,9 @@ class Handler(BaseHTTPRequestHandler):
         for name, value in headers:
             self.send_header(name, value)
         self.send_header("Content-Security-Policy",
-                         "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
+                         "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+                         + ("frame-ancestors 'self'; script-src 'none'; " if frameable else "frame-ancestors 'none'; ")
+                         + "base-uri 'none'")
         self.end_headers()
         self.wfile.write(data)
 
@@ -395,14 +509,32 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/style.css":
                 return self._static(url.path)
             return self._send(401, {"error": "Sign in to Jobbot."})
+        if self.account and url.path.startswith("/resume-file/"):
+            key = url.path.removeprefix("/resume-file/")
+            if not profile_mod.valid_resume_key(key):
+                return self._send(404, {"error": "Resume not found."})
+            data, _ = self.account.read("resume:" + key)
+            if data is None:
+                return self._send(404, {"error": "Resume not found."})
+            mode = "attachment" if url.query == "download=1" else "inline"
+            return self._send(200, data, "application/pdf",
+                              [("Content-Disposition", f'{mode}; filename="{key}.pdf"')], frameable=True)
         if not url.path.startswith("/api/"):
             return self._static(url.path)
         if not self._authorized():
             return self._send(403, {"error": "missing or wrong token"})
         params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
         parts = url.path.strip("/").split("/")[1:]
+        if self.account and len(parts) == 4 and parts[:3] == ["account", "resume", "pdf"]:
+            key = parts[3]
+            if not profile_mod.valid_resume_key(key):
+                return self._send(404, {"error": "Resume not found."})
+            data, _ = self.account.read("resume:" + key)
+            if data is None:
+                return self._send(404, {"error": "Resume not found."})
+            return self._send(200, data, "application/pdf", [("Content-Disposition", f'inline; filename="{key}.pdf"')])
         if self.account and parts == ["account", "resumes"]:
-            return self._send(200, {"keys": self.account.resume_keys()})
+            return self._send(200, {"keys": self.account.resume_keys(), "resumes": self.account.resume_entries()})
         if self.account and parts == ["profile"]:
             raw, version = self.account.read("profile")
             if raw is None:

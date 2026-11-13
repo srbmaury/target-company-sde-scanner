@@ -177,3 +177,58 @@ dialog ol.history { padding-left: 18px; color: var(--muted); max-height: 220px; 
 #jobs-count { margin-left: auto; }
 .sel-top { display: inline-flex; gap: 4px; align-items: center; }
 .sel-top input { width: 64px; }
+
+/* Hosted resume library. Profile YAML remains available below the library. */
+.resume-library { padding: 14px 14px 6px; }
+.resume-heading, .resume-panel-head, .resume-preview header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.resume-heading { margin-bottom: 20px; }
+.resume-heading h1 { font-size: clamp(23px, 3vw, 32px); letter-spacing: -.035em; line-height: 1.16; margin: 4px 0; }
+.resume-heading p, .resume-dialog header p, .resume-preview p { margin: 4px 0 0; color: var(--muted); }
+.resume-eyebrow { font-size: 11px; font-weight: 650; letter-spacing: .12em; color: var(--accent); }
+.resume-panel { border: 1px solid var(--border); border-radius: 11px; }
+.resume-panel-head { padding: 12px 14px; }
+.resume-list { list-style: none; padding: 0; margin: 0; }
+.resume-row { display: grid; grid-template-columns: minmax(155px, 1fr) minmax(120px, .5fr) auto; gap: 10px;
+  align-items: center; padding: 12px 14px; border-top: 1px solid var(--border); }
+.resume-identity, .resume-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.resume-identity strong, .resume-identity code { display: block; overflow-wrap: anywhere; }
+.resume-identity code { color: var(--muted); font-size: 11px; }
+.resume-file-icon { display: grid; place-items: center; width: 35px; height: 40px; flex: none; border-radius: 7px;
+  background: var(--row-hover); color: var(--accent); font-size: 10px; font-weight: 700; }
+.resume-badge { width: max-content; max-width: 100%; background: var(--chip); color: var(--muted); border-radius: 99px; padding: 3px 9px; font-size: 12px; }
+.resume-badge.active { color: var(--good); background: color-mix(in srgb, var(--good) 12%, var(--surface)); }
+.resume-badge.missing { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); }
+.resume-actions { flex-wrap: wrap; justify-content: flex-end; }
+.resume-more { position: relative; }
+.resume-more summary { list-style: none; border: 1px solid var(--border); border-radius: 7px; background: var(--chip);
+  padding: 6px 10px; cursor: pointer; }
+.resume-more summary::-webkit-details-marker { display: none; }
+.resume-menu { position: absolute; z-index: 3; top: calc(100% + 4px); right: 0; min-width: 174px;
+  display: grid; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--text) 15%, transparent); }
+.resume-menu button { text-align: left; border-color: transparent; background: none; }
+.resume-menu button:hover { background: var(--row-hover); }
+.resume-empty { display: grid; gap: 4px; padding: 24px 14px; border-top: 1px solid var(--border); }
+.resume-empty span, .resume-dialog small { color: var(--muted); }
+#resume-list-msg { color: var(--good); margin: 10px 0 0; }
+#resume-list-msg.resume-error, #resume-dialog-error, .resume-danger { color: var(--bad); }
+.profile-advanced { margin: 12px 14px; }
+.profile-advanced summary { color: var(--muted); cursor: pointer; padding: 8px 0; }
+.resume-dialog { width: min(460px, calc(100% - 24px)); }
+.resume-dialog label:not(.resume-check) { display: grid; gap: 4px; margin: 12px 0; }
+.resume-dialog input[type="file"] { max-width: 100%; }
+.resume-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.resume-check { display: flex; align-items: baseline; gap: 6px; margin-top: 12px; }
+.resume-dialog .danger { background: var(--bad); color: var(--surface); }
+.resume-preview { width: min(920px, calc(100% - 24px)); padding: 16px; }
+.resume-preview iframe { width: 100%; height: min(68vh, 720px); margin-top: 12px; border: 1px solid var(--border); border-radius: 6px; }
+.resume-preview a { color: var(--accent); }
+@media (max-width: 690px) {
+  .resume-library { padding: 8px 0; }
+  .resume-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .resume-row .resume-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .profile-advanced { margin-inline: 0; }
+}
+@media (pointer: coarse) {
+  .resume-library button, .resume-dialog button, .resume-more summary, .resume-preview button { min-height: 44px; }
+}

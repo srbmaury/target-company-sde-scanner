@@ -141,25 +141,44 @@
     </section>
 
     <section class="panel" id="tab-profile" hidden>
-      <div class="toolbar"><span class="muted" id="profile-path"></span>
-        <button class="primary" id="profile-save">Save</button><span id="profile-msg"></span></div>
-      <textarea id="profile-text" spellcheck="false"></textarea>
-      <p class="hint" id="local-profile-hint">Your profile is git-ignored and never committed. Saving keeps a backup next to it (<code>profile.yaml.bak</code>).</p>
-      <div class="card" id="account-resume" hidden>
-        <h3>Account resumes</h3>
-        <p>Jobbot ranks with uploaded PDFs that are listed under <code>resumes:</code> in your profile.</p>
-        <ul id="resume-list"></ul>
-        <p id="resume-list-msg" role="status"></p>
-        <form id="resume-upload">
-          <label>Resume key <input id="resume-key" required maxlength="48" pattern="[A-Za-z0-9_\-]{1,48}" placeholder="backend"></label>
-          <label>PDF <input id="resume-file" type="file" accept=".pdf,application/pdf" required></label>
-          <button class="primary">Upload PDF</button>
-          <span id="resume-msg" role="status"></span>
-        </form>
-      </div>
+      <section id="account-resume" class="resume-library" hidden aria-labelledby="resume-heading">
+        <header class="resume-heading">
+          <div><span class="resume-eyebrow">PROFILE</span><h1 id="resume-heading">Resume library</h1>
+          <p>Manage the PDFs Jobbot uses to rank jobs.</p></div>
+          <button type="button" class="primary" id="resume-upload-open">＋ Upload PDF</button>
+        </header>
+        <div class="resume-panel">
+          <div class="resume-panel-head"><strong>Your resumes</strong><span id="resume-count" class="muted"></span></div>
+          <ul id="resume-list" class="resume-list"></ul>
+        </div>
+        <p id="resume-list-msg" role="status" hidden></p>
+      </section>
+      <details id="profile-advanced" class="profile-advanced" open>
+        <summary id="profile-editor-heading">Profile YAML</summary>
+        <div class="toolbar"><span class="muted" id="profile-path"></span>
+          <button class="primary" id="profile-save">Save</button><span id="profile-msg" role="status"></span></div>
+        <label for="profile-text" class="sr-only">Profile YAML</label>
+        <textarea id="profile-text" spellcheck="false"></textarea>
+        <p class="hint" id="local-profile-hint">Your profile is git-ignored and never committed. Saving keeps a backup next to it (<code>profile.yaml.bak</code>).</p>
+      </details>
     </section>
   </main>
 
+  <dialog id="resume-dialog" class="resume-dialog" aria-labelledby="resume-dialog-title">
+    <form id="resume-form">
+      <header><h2 id="resume-dialog-title"></h2><p class="muted" id="resume-dialog-description"></p></header>
+      <div id="resume-dialog-fields"></div>
+      <p id="resume-dialog-error" role="alert" hidden></p>
+      <footer><button id="resume-dialog-close" type="button">Cancel</button>
+        <button class="primary" id="resume-dialog-submit" type="submit">Save</button></footer>
+    </form>
+  </dialog>
+  <dialog id="resume-preview" class="resume-preview" aria-labelledby="resume-preview-title">
+    <header><div><h2 id="resume-preview-title"></h2><p class="muted">PDF preview</p></div>
+      <div class="resume-actions"><a id="resume-download" download>Download PDF</a><button id="resume-preview-close" type="button">Close</button></div></header>
+    <iframe id="resume-preview-frame" title="Resume PDF"></iframe>
+    <p class="muted">If the preview is blank, use Download PDF to open the original.</p>
+  </dialog>
   <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
   <script src="app.js"></script>
 </body>
