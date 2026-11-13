@@ -22,7 +22,7 @@ class DashboardUITests(unittest.TestCase):
         self.addCleanup(self.browser.close)
         self.page = self.browser.new_page(viewport={"width": 1100, "height": 800})
         self.errors = []
-        self.page.on("pageerror", self.errors.append)
+        self.page.on("pageerror", lambda error: self.errors.append(error))
         self.hosted, self.dry_run, self.active = True, False, False
         self.answers = []
         self.browser_actions = []
