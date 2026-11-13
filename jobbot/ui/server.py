@@ -545,14 +545,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"path": "MongoDB account profile", "text": raw.decode(), "mtime": version,
                                     "resume_keys": [key for key in resumes if profile_mod.valid_resume_key(key)]
                                     if isinstance(resumes, dict) else []})
-        if self.account and parts == ["apply"]:
-            return self._send(200, {"status": "idle"})
-        if self.account and parts == ["runs"]:
-            return self._send(200, [])
         if self.account and parts == ["logs"]:
             return self._send(200, {"dates": [], "date": "", "lines": []})
-        if self.account and parts[:1] == ["runs"]:
-            return self._send(404, {"error": "Local browser runs are not stored in the hosted account."})
         conn = tracker.connect()
         try:
             if parts == ["summary"]:
@@ -587,15 +581,15 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["tasks"]:
                 return self._send(200, sorted(TASKS.values(), key=lambda t: t["started"], reverse=True)[:20])
             if parts == ["apply"]:
-                run = bridge.current()
+                run = bridge.current(self.account)
                 if run:
                     return self._send(200, run.snapshot())
-                last = bridge.history()
-                return self._send(200, {**bridge.saved_run(last[0]["id"]), "history": True} if last else {"status": "idle"})
+                last = bridge.history(self.account)
+                return self._send(200, {**bridge.saved_run(last[0]["id"], self.account), "history": True} if last else {"status": "idle"})
             if parts == ["runs"]:
-                return self._send(200, bridge.history())
+                return self._send(200, bridge.history(self.account))
             if len(parts) == 2 and parts[0] == "runs":
-                saved = bridge.saved_run(parts[1])
+                saved = bridge.saved_run(parts[1], self.account)
                 return self._send(200, {**saved, "history": True}) if saved else self._send(404, {"error": "no such run"})
             if len(parts) == 2 and parts[0] == "tasks":
                 task = TASKS.get(parts[1])
@@ -622,8 +616,8 @@ class Handler(BaseHTTPRequestHandler):
         parts = urllib.parse.urlparse(self.path).path.strip("/").split("/")[1:]
         if self.account and parts[:1] == ["account"]:
             return self._account_post(parts, self._json_body(7_000_000 if parts == ["account", "resume"] else 2_000_000))
-        if self.account and (parts[:1] == ["apply"] or parts == ["tasks", "gmail-login"]):
-            return self._send(400, {"error": "Use the hosted Connect Gmail button or run browser applications locally."})
+        if self.account and parts == ["tasks", "gmail-login"]:
+            return self._send(400, {"error": "Connect Gmail from the Actions tab."})
         conn = tracker.connect()
         try:
             body = self._json_body()
@@ -696,16 +690,17 @@ class Handler(BaseHTTPRequestHandler):
                 run = bridge.start(keys, dry_run=bool(body.get("dry_run")), auto_next=body.get("auto_next", True),
                                    resume=body.get("resume") or None, use_llm=body.get("llm", True) is not False,
                                    force=bool(body.get("force")), unattended=bool(body.get("unattended")),
-                                   validation=bool(body.get("validation")), auto_submit=bool(body.get("auto_submit")))
+                                   validation=bool(body.get("validation")), auto_submit=bool(body.get("auto_submit")),
+                                   account=self.account)
                 return self._send(200, run.snapshot())
             if parts == ["apply", "answer"]:
-                run = bridge.current()
+                run = bridge.current(self.account)
                 if not run:
                     return self._send(400, {"error": "No apply run."})
                 run.answer(body.get("prompt_id"), body.get("value"))
                 return self._send(200, {"ok": True})
             if parts == ["apply", "stop"]:
-                run = bridge.current()
+                run = bridge.current(self.account)
                 if run:
                     run.stop()
                 return self._send(200, {"ok": True})

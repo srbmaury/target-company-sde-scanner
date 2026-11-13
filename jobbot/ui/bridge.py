@@ -13,9 +13,13 @@ import pathlib
 import secrets
 import threading
 import time
+import tempfile
 import traceback
+from threading import Thread
 
-from .. import llm as llm_mod
+from pymongo.errors import PyMongoError
+
+from .. import accounts, llm as llm_mod
 from .. import paths
 from .. import profile as profile_mod
 from .. import tracker
@@ -40,7 +44,8 @@ def _clip(text, n):
 
 
 class ApplyRun:
-    def __init__(self):
+    def __init__(self, account=None):
+        self.account = account
         self.id = secrets.token_hex(4)
         self.status = "starting"      # starting | running | waiting | done | stopped | failed
         self.started = dt.datetime.now().isoformat(timespec="seconds")
@@ -85,21 +90,33 @@ class ApplyRun:
 
     def _save(self):
         try:
-            runs = [r for r in _load_runs() if r.get("id") != self.id]
+            stored = _load_runs(self.account) if self.account else _load_runs()
+            runs = [r for r in stored if r.get("id") != self.id]
             # the live screenshot is for watching a run, not for history: it was 6 MB of a 7 MB file rewritten per result
             snap = {**self.snapshot(), "events": self.events[-150:], "prompt": None, "preview": None}
             runs.append(snap)
+            if self.account:
+                # Keep job outcomes, not form answers, screenshots or raw browser logs, in MongoDB.
+                snap.update(events=[], audits=[])
+                self.account.write("browser-runs", json.dumps((runs + [snap])[-20:]).encode())
+                return
             paths.ensure_home()
             RUNS_FILE().write_text(json.dumps(runs[-20:]), encoding="utf-8")
+        except (accounts.AccountError, PyMongoError):
+            self.log("warn", "Could not save the hosted run history.")
         except OSError:
             pass
-
 
     # --- answering prompts from the page -------------------------------------------
     def answer(self, prompt_id, value):
         with self._lock:
             if not self.prompt or self.prompt["id"] != prompt_id:
                 raise ValueError("That question is no longer waiting for an answer.")
+            if self.stop_requested or self._event.is_set():
+                raise ValueError("That question is no longer waiting for an answer.")
+            if value in ("submit", "done") and self.prompt["kind"] == "action" and (
+                    self.dry_run or value not in self.prompt["choices"]):
+                raise ValueError("Submission is not available for this step.")
             self._answer = value
             self._event.set()
 
@@ -113,22 +130,24 @@ def RUNS_FILE():
     return paths.HOME / "runs.json"
 
 
-def _load_runs():
+def _load_runs(account=None):
     try:
-        runs = json.loads(RUNS_FILE().read_text(encoding="utf-8"))
+        raw = account.read("browser-runs")[0] if account else RUNS_FILE().read_text(encoding="utf-8")
+        runs = json.loads(raw) if raw else []
     except (OSError, ValueError):
         return []
-    live = CURRENT["run"].id if CURRENT["run"] else None
+    run = current(account)
+    live = run.id if run else None
     for r in runs:
         if r.get("status") in ("starting", "running", "waiting") and r.get("id") != live:
             r["status"] = "interrupted"   # the dashboard stopped while it ran
     return runs
 
 
-def history():
+def history(account=None):
     """Earlier runs, newest first: when, how it ended, and how many roles ended which way."""
     out = []
-    for r in reversed(_load_runs()):
+    for r in reversed(_load_runs(account)):
         counts = {}
         for res in (r.get("results") or {}).values():
             counts[res.get("status") or "?"] = counts.get(res.get("status") or "?", 0) + 1
@@ -138,8 +157,8 @@ def history():
     return out
 
 
-def saved_run(run_id):
-    return next((r for r in _load_runs() if r.get("id") == run_id), None)
+def saved_run(run_id, account=None):
+    return next((r for r in _load_runs(account) if r.get("id") == run_id), None)
 
 
 class WebUI:
@@ -157,12 +176,14 @@ class WebUI:
             run._answer = None
             run.prompt = {"id": secrets.token_hex(4), "kind": kind, **data}
             run.status = "waiting"
-        while not run._event.wait(0.5):
-            pass
+        answered = run._event.wait(900 if run.account else None)
         with run._lock:
             value = default if run.stop_requested else run._answer
             run.prompt = None
             run.status = "running"
+        if not answered:
+            from ..apply.engine import NeedsYou
+            raise NeedsYou("Review timed out. Retry this role when you are ready.")
         return value
 
     # informational
@@ -210,15 +231,21 @@ class WebUI:
         return value is True
 
     def wait_for_user(self, msg):
+        if self.run.account:
+            from ..apply.engine import NeedsYou
+            raise NeedsYou(msg.split(", then")[0] + " Open the employer site to complete this step manually.")
         value = self._wait("wait", None, question=msg.replace("press Enter here", "click Done, continue"))
         if value == "skip":
             from ..apply.engine import NeedsYou
             raise NeedsYou(msg)
 
     def next_action(self, can_submit, can_next, dry_run, check_ok=True, final_page=False):
-        choices = (["submit"] if can_submit else []) + (["next"] if can_next else []) + ["refill", "done", "quit"]
+        choices = (["submit"] if can_submit and not dry_run else []) + (["next"] if can_next else []) + ["refill"]
+        if not (dry_run or self.run.account):
+            choices.append("done")
+        choices.append("quit")
         value = self._wait("action", "quit", choices=choices, check_ok=check_ok, dry_run=dry_run,
-                           final=(can_submit or (dry_run and final_page)) and check_ok)
+                           final=can_submit or (dry_run and final_page))
         if isinstance(value, dict) and value.get("action") == "correct":
             return value
         return value if value in choices else "quit"
@@ -228,30 +255,35 @@ CURRENT = {"run": None}
 START_LOCK = threading.Lock()
 
 
-def current():
-    return CURRENT["run"]
+def current(account=None):
+    return CURRENT.get(account.owner if account else "run")
 
 
-def start(keys, dry_run=False, auto_next=True, resume=None, use_llm=True, force=False, unattended=False, validation=False, auto_submit=False):
+def start(keys, dry_run=False, auto_next=True, resume=None, use_llm=True, force=False, unattended=False, validation=False, auto_submit=False, account=None):
     """Start an apply run in a background thread. Raises ValueError if one is active."""
     if code_changed():
         raise ValueError("jobbot was updated after the dashboard started. Restart it (Ctrl+C, then ./jobbot.sh ui) before applying.")
+    if account:
+        if auto_submit:
+            raise ValueError("Hosted applications require manual submission approval.")
+        unattended = force = False
+        validation = bool(dry_run)
     if validation:
-        dry_run, auto_next = True, bool(unattended)
+        dry_run, auto_next = True, bool(account or unattended)
     if auto_submit:
         dry_run, auto_next, unattended, validation = False, True, True, True
         if not use_llm:
             raise ValueError("Automatic submission requires configured LLM review.")
     with START_LOCK:
-        run = CURRENT["run"]
+        run = current(account)
         if run and run.status in ("starting", "running", "waiting"):
             raise ValueError("An apply run is already in progress. Stop it first.")
-        run = ApplyRun()
+        run = ApplyRun(account)
         run.validation = validation
         run.auto_submit = auto_submit
         run.dry_run, run.unattended = dry_run, unattended
-        CURRENT["run"] = run
-    threading.Thread(target=_work, args=(run, keys, dry_run, auto_next, resume, use_llm, force, unattended, validation, auto_submit),
+        CURRENT[account.owner if account else "run"] = run
+    Thread(target=_work, args=(run, keys, dry_run, auto_next, resume, use_llm, force, unattended, validation, auto_submit),
                      daemon=True).start()
     return run
 
@@ -344,6 +376,11 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
     try:
         conn = tracker.connect()     # SQLite connections belong to the thread that made them
         prof = profile_mod.load()
+        if not prof.resumes():
+            raise ValueError("Upload a resume and enable it for ranking in Profile." if run.account
+                             else "No resume files found. Check your Profile YAML.")
+        if run.account:
+            prof.data.setdefault("automation", {}).update(sign_in=False, create_accounts=False)
         model = llm_mod.LLM(enabled=use_llm)
         if use_llm and model.enabled and not model.has_model():
             model.enabled = False
@@ -364,8 +401,9 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
             run.status = "done"
             return
         run.status = "running"
-        run.log("info", f"Starting {len(targets)} application(s){' (dry run)' if dry_run else ''}. "
-                        "Chrome opens in a separate window; keep an eye on it for sign-ins and CAPTCHAs.")
+        message = ("Chromium is running on the host. Review questions and filled fields in Runs." if run.account
+                   else "Chrome opens in a separate window; keep an eye on it for sign-ins and CAPTCHAs.")
+        run.log("info", f"Starting {len(targets)} application(s){' (dry run)' if dry_run else ''}. " + message)
 
         def on_job(n, total, job):
             run.current = n - 1
@@ -382,7 +420,11 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
         if workers > 1:
             _parallel(run, prof, model, ui, targets, workers, resume, on_result)
         else:
-            with Session(prof, model, ui, dry_run=dry_run, upload=True, auto_next=auto_next, unattended=unattended) as session:
+            from contextlib import ExitStack
+            with ExitStack() as stack:
+                browser_dir = pathlib.Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="jobbot-browser-"))) if run.account else None
+                session = stack.enter_context(Session(prof, model, ui, dry_run=dry_run, upload=True, auto_next=auto_next,
+                                                      unattended=unattended, browser_dir=browser_dir, hosted=bool(run.account)))
                 session.validation = validation
                 session.auto_submit = auto_submit
                 results = run_jobs(session, conn, prof, targets, session.ui, resume=resume, dry_run=dry_run,
@@ -404,7 +446,10 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
         run.log("warn", str(e))
         run.status = "failed"
     except Exception as e:
-        run.log("warn", f"{type(e).__name__}: {e}", trace=traceback.format_exc()[-2000:])
+        if run.account and ("Executable doesn't exist" in str(e) or "Host system is missing dependencies" in str(e)):
+            run.log("warn", "Install Chromium on the host with: .venv/bin/python -m playwright install --with-deps chromium")
+        else:
+            run.log("warn", f"{type(e).__name__}: {e}", **({} if run.account else {"trace": traceback.format_exc()[-2000:]}))
         run.status = "failed"
     finally:
         if 'conn' in locals():

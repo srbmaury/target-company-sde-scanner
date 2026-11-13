@@ -32,6 +32,9 @@ class DashboardUITests(unittest.TestCase):
         if not path.startswith("/api/"):
             route.fulfill(path=str(STATIC / (path.lstrip("/") or "index.html")))
             return
+        if path == "/api/apply" and route.request.method == "POST":
+            self.dry_run = route.request.post_data_json["dry_run"]
+            self.active = True
         if path == "/api/apply/answer":
             self.answers.append(route.request.post_data_json)
             self.active = False
@@ -66,12 +69,12 @@ class DashboardUITests(unittest.TestCase):
     def test_hosted_pages_and_keyboard_navigation(self):
         self.open()
         self.page.locator("[data-select]").check()
-        expect(self.page.locator("#apply-selected")).to_be_disabled()
-        expect(self.page.locator("#dry-selected")).to_be_disabled()
+        expect(self.page.get_by_role("button", name="Fill for review")).to_be_enabled()
+        expect(self.page.locator("#dry-selected")).to_be_enabled()
         expect(self.page.locator("#hosted-apply-note")).to_be_visible()
         self.page.locator("#nav-jobs").press("ArrowDown")
         expect(self.page.locator("#nav-apply")).to_be_focused()
-        expect(self.page.get_by_text("Browser runs are local")).to_be_visible()
+        expect(self.page.get_by_text("No hosted run yet")).to_be_visible()
         for tab, title in (("applications", "Application history"), ("actions", "Workspace actions"),
                            ("logs", "Activity logs"), ("profile", "Resume library"), ("docs", "Jobbot guide")):
             self.page.locator("#nav-" + tab).click()
@@ -101,9 +104,10 @@ class DashboardUITests(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
     def test_dry_run_never_shows_submit(self):
-        self.hosted, self.active, self.dry_run = False, True, True
         self.open()
-        self.page.locator("#nav-apply").click()
+        self.page.locator("[data-select]").check()
+        self.page.get_by_role("button", name="Dry run", exact=True).click()
+        self.page.get_by_role("button", name="Start dry run").click()
         expect(self.page.get_by_text("Dry run: submitting is disabled.")).to_be_visible()
         expect(self.page.locator("[data-submit-review], [data-answer=submit]")).to_have_count(0)
         self.assertEqual(self.errors, [])

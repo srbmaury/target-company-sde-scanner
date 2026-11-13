@@ -93,6 +93,7 @@ async function loadSummary() {
   $("#workspace-mode").textContent = s.account ? "Hosted account" : "Local workspace";
   $("#workspace-mode").hidden = false;
   $("#hosted-apply-note").hidden = !s.account;
+  $("#apply-selected").textContent = s.account ? "Fill for review" : "Apply to selected";
   $("#local-run-options").hidden = Boolean(s.account);
   $("#local-run-hint").hidden = Boolean(s.account);
   setAccountProfile(Boolean(s.account));
@@ -200,7 +201,7 @@ function selectable() {
 function setRunAvailability() {
   const hosted = Boolean(state.summary?.account);
   for (const button of [$("#apply-selected"), $("#dry-selected")]) {
-    button.disabled = !state.summary || hosted || !state.selected.size;
+    button.disabled = !state.summary || !state.selected.size;
     if (hosted) button.setAttribute("aria-describedby", "hosted-apply-note");
     else button.removeAttribute("aria-describedby");
   }
@@ -241,21 +242,23 @@ function selectAll(on) {
 
 function startRun(dry) {
   const jobs = Array.from(state.selected);
-  if (!jobs.length || !state.summary || state.summary.account) return;
-  dry = dry || ($("#validate-steps").checked && !$("#auto-submit").checked);
-  state.pendingRun = { jobs, dry_run: dry || $("#validate-steps").checked, unattended: $("#unattended").checked, validation: $("#validate-steps").checked, auto_next: $("#unattended").checked || !$("#validate-steps").checked };
-  if (!dry && $("#auto-submit").checked) {
+  if (!jobs.length || !state.summary) return;
+  const hosted = Boolean(state.summary.account);
+  if (!hosted) dry = dry || ($("#validate-steps").checked && !$("#auto-submit").checked);
+  state.pendingRun = hosted ? {jobs, dry_run: dry} : { jobs, dry_run: dry || $("#validate-steps").checked, unattended: $("#unattended").checked, validation: $("#validate-steps").checked, auto_next: $("#unattended").checked || !$("#validate-steps").checked };
+  if (!hosted && !dry && $("#auto-submit").checked) {
     state.pendingRun = {jobs, dry_run: false, unattended: true, validation: true, auto_next: true, auto_submit: true};
   }
   const box = $("#run-confirmation");
   const roles = jobs.map((key) => state.jobCatalog.get(key)).filter(Boolean);
   box.hidden = false;
   box.innerHTML = `<h4>${dry ? "Confirm dry run" : "Confirm application run"}</h4>
-    <p>${dry ? "Dry-run" : "Apply to"} ${jobs.length} role${jobs.length === 1 ? "" : "s"}? Chrome will open in its own window.
+    <p>${dry ? "Dry-run" : hosted ? "Fill" : "Apply to"} ${jobs.length} role${jobs.length === 1 ? "" : "s"}?
+    ${hosted ? "Chromium runs on the host. Follow progress in Runs." : "Chrome will open in its own window."}
     ${dry ? "Forms may be filled and resumes uploaded; nothing will be submitted." : state.pendingRun.auto_submit ? "Completed applications will be submitted automatically after every check passes." : state.pendingRun.unattended ? "jobbot works through every role without stopping. Finished applications wait for your Submit, and roles that need you are listed at the end." : "You’ll confirm each Submit here."}</p>
     <details><summary>Review selected roles</summary><ul>${roles.map((j) => `<li>${esc(j.company)} — ${esc(j.title)}</li>`).join("")}</ul></details>
     <p id="run-confirm-error" role="alert"></p>
-    <div class="actions"><button class="primary" id="run-confirm-start">${dry ? "Start dry run" : "Start applications"}</button>
+    <div class="actions"><button class="primary" id="run-confirm-start">${dry ? "Start dry run" : hosted ? "Start filling" : "Start applications"}</button>
     <button id="run-confirm-cancel">Cancel</button></div>`;
   $("#run-confirm-start").addEventListener("click", confirmRun);
   $("#run-confirm-cancel").addEventListener("click", cancelRun);
@@ -326,7 +329,7 @@ function renderRun(run) {
     $("#run-title").textContent = "No runs yet";
     $("#run-status").textContent = ""; $("#run-progress").textContent = "";
     $("#prompt").innerHTML = state.summary?.account
-      ? '<div class="workspace-notice"><div><strong>Browser runs are local</strong><p>The hosted dashboard does not launch Chrome or display local run history.</p></div><button type="button" data-go="docs">View setup guide</button></div>'
+      ? '<div class="workspace-notice"><div><strong>No hosted run yet</strong><p>Select roles in Jobs, then choose Fill for review or Dry run.</p></div><button type="button" data-go="jobs">Go to Jobs</button></div>'
       : `<div class="empty"><p><b>To start a run:</b> tick roles in the Jobs tab, then <b>Apply to selected</b>
       (or <b>Dry run</b> to fill and check without submitting).</p><p>Tick <b>Don't stop for me</b> to run the whole batch unattended:
       jobs that need you are listed here, and finished applications wait for your Submit.</p></div>`;
@@ -388,7 +391,9 @@ function renderNeeds(run, active) {
   }
   const groups = new Map();
   for (const j of needs) {
-    const [name, , hint] = needGroup(results[j.url].note);
+    const [name, , localHint] = needGroup(results[j.url].note);
+    const hint = state.summary?.account && ["Sign-in or account", "CAPTCHA"].includes(name)
+      ? "Open the employer site and finish manually. The hosted browser session cannot be taken over." : localHint;
     if (!groups.has(name)) groups.set(name, { hint, jobs: [] });
     groups.get(name).jobs.push(j);
   }
@@ -446,10 +451,11 @@ function currentAudit() {
 
 function renderPrompt(p) {
   const box = $("#prompt");
+  const hosted = Boolean(state.summary?.account);
   if (!p) {
     const run = state.run;
     box.innerHTML = run && ["starting", "running"].includes(run.status)
-      ? `<div class="empty">Working… jobbot is filling and checking the page in Chrome.</div>` : "";
+      ? `<div class="empty">Working… Jobbot is filling and checking the page in ${hosted ? "hosted Chromium" : "Chrome"}.</div>` : "";
     box.dataset.pid = "";
     return;
   }
@@ -468,7 +474,10 @@ function renderPrompt(p) {
     const fields = (audit?.fields || []).filter((f) => f.label && !/password|verification code|one.time code/i.test(f.label) && f.kind !== "password");
     const review = fields.length ? `<details class="field-review"><summary>Review filled fields (${fields.length})</summary>
       <dl>${fields.map((f) => `<div><dt>${esc(f.label)}</dt><dd>${esc(f.actual || "Blank")}${f.answer_source ? ` <span class="pill">${esc(f.answer_source)}</span>` : ""}</dd></div>`).join("")}</dl></details>` : "";
-    const hint = p.final && p.check_ok
+    const hint = hosted
+      ? (p.dry_run ? "Review the filled fields and page preview. Nothing will be submitted."
+                   : "Review the filled fields and page preview before continuing.")
+      : p.final && p.check_ok
       ? (p.dry_run ? "Dry run: this is the last page and nothing will be submitted. Look it over in Chrome, then quit." : "Look over the application in jobbot's Chrome window, then submit.")
       : problems.length ? "Fix these in jobbot's Chrome window, or correct a field below, then re-check:" : "Look over the page in jobbot's Chrome window, then choose:";
     html = `<div class="prompt ${p.final && p.check_ok ? "final" : ""}"><h4>${esc(head)}</h4>
@@ -682,7 +691,7 @@ function renderLogs() {
     const cls = l.includes(" ! ") || /\s!\s/.test(l) ? "warn" : l.includes("===") ? "head" : "";
     return `<span class="${cls}">${esc(l)}</span>`;
   }).join("\n") || (q ? "No log lines match this filter." : state.summary?.account
-    ? "Browser logs are available in the local dashboard. Check Actions for hosted task output."
+    ? "Open Runs for hosted browser activity, or Actions for background task output."
     : "No log lines yet. Application runs write here as they fill applications.");
 }
 

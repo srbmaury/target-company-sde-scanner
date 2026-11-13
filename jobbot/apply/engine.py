@@ -79,8 +79,9 @@ def _trim(value, limit):
 
 
 class Session:
-    def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True, unattended=False, browser_dir=None):
+    def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True, unattended=False, browser_dir=None, hosted=False):
         self.profile = profile
+        self.hosted = hosted
         self.browser_dir = browser_dir or paths.BROWSER_PROFILE   # parallel workers each get their own copy
         self.llm = llm
         self.unattended = unattended
@@ -95,12 +96,12 @@ class Session:
         self._consent_declined = set()
         from ..memory import Memory
 
-        self.memory = Memory.for_profile(profile)
+        self.memory = Memory.for_profile(profile, persist=not hosted)
         self._pw = None
         self.ctx = None
 
     def __enter__(self):
-        self._pw, self.ctx = browser.launch(self.browser_dir)
+        self._pw, self.ctx = browser.launch(self.browser_dir, headless=True) if self.hosted else browser.launch(self.browser_dir)
         return self
 
     def __exit__(self, *exc):
@@ -160,7 +161,7 @@ class Session:
     def _check_deadline(self):
         """Unattended: never spend more than MAX_APPLY_SECONDS on one application, even within a page
         (each model call can take minutes; four browsers share one local model)."""
-        if getattr(self, "unattended", False) and time.time() - getattr(self, "_started", time.time()) > MAX_APPLY_SECONDS:
+        if (getattr(self, "unattended", False) or getattr(self, "hosted", False)) and time.time() - getattr(self, "_started", time.time()) > MAX_APPLY_SECONDS:
             raise NeedsYou(f"Gave up after {MAX_APPLY_SECONDS // 60} minutes on this application (still filling a page).")
 
     def _apply(self, job, resume_key):
@@ -216,7 +217,7 @@ class Session:
         step = 1
         visits, began, check = {}, time.time(), None
         while step <= MAX_PAGES:
-            if self.unattended:
+            if self.unattended or getattr(self, "hosted", False):
                 # Never get stuck on one application: the same page 3 times (Next not moving, Submit
                 # rejected, a re-check changing nothing) or MAX_APPLY_SECONDS in all, and it moves on.
                 try:   # the fields on the page tell steps apart where the URL stays the same
@@ -237,7 +238,10 @@ class Session:
             if sites.maintenance(page):   # e.g. Workday went down between the posting and its form
                 raise NeedsYou(f"{ats.title()} is down for maintenance; retry this role later.")
             self._decline_cookies(page)
-            signed_in = self._ensure_signed_in(page) if self._needs_account(page) else True
+            needs_account = self._needs_account(page)
+            if getattr(self, "hosted", False) and needs_account:
+                raise NeedsYou("The employer site requires sign-in. Open the employer site to finish manually.")
+            signed_in = self._ensure_signed_in(page) if needs_account else True
             report, check, rounds = self.review_page(page, resolver, step) if signed_in else \
                 ({"filled": [], "skipped": [], "records": []}, self.verify(page, {}), 0)
             self.ui.report(report, check, step)
@@ -250,10 +254,14 @@ class Session:
                 self.ui.warn(f"Posting unavailable: {reason}. Skipping this role.")
                 return None, f"posting unavailable: {reason}"
 
+            if getattr(self, "hosted", False) and check.captcha:
+                raise NeedsYou("CAPTCHA requires your action. Open the employer site to finish manually.")
             submit_re = WORKDAY_SUBMIT_RE if ats == "workday" else SUBMIT_RE
             can_next = bool(self._buttons(page, NEXT_RE))
             # A page with Next / Save and Continue is never the final step, whatever else it shows.
             can_submit = not can_next and bool(self._buttons(page, submit_re))
+            if getattr(self, "hosted", False) and can_submit and not self._had_form:
+                raise NeedsYou("Could not verify that this is an application form. Open the posting and finish manually.")
             if getattr(self, "auto_submit", False) and not self.dry_run and check.ok and can_submit:
                 choice = "submit"
             elif self.auto_next and check.ok and can_next:
@@ -301,7 +309,7 @@ class Session:
                 self._manual_records.clear()
                 step += 1
                 continue
-            if choice == "submit":
+            if choice == "submit" and not self.dry_run:
                 self._click(page, submit_re)
                 # Slow sites (Workday, careers pages) confirm several seconds later: keep looking, never resubmit.
                 confirmed = None
@@ -323,6 +331,9 @@ class Session:
                     # resubmit". The next round reads the code from Gmail, enters it and submits again.
                     self.ui.info("The site emailed a security code; entering it and submitting again.")
                     continue
+                if getattr(self, "hosted", False):
+                    # A click may have succeeded even without a recognizable receipt. Never retry it blindly.
+                    return "applied", "Submit clicked; no confirmation text seen (check your email)"
                 if getattr(self, "auto_submit", False):
                     if not getattr(self, "_had_form", False):
                         # "Apply"/"Finish" on a page with no application fields (a posting page) is not a submission:
@@ -456,6 +467,8 @@ class Session:
         return out
 
     def _log(self, *lines):
+        if getattr(self, "hosted", False):
+            return  # Account runs expose progress through Runs, not the local plaintext log.
         try:
             import datetime as _dt
 

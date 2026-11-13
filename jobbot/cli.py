@@ -184,7 +184,7 @@ def cmd_rank(args):
 def cmd_apply(args):
     from .accounts import enabled
     if enabled():
-        sys.exit("Browser applications run in local mode. Unset JOBBOT_MONGODB_URI to use your local setup.")
+        sys.exit("Start hosted browser runs from Jobs in the account dashboard. Unset JOBBOT_MONGODB_URI to apply using the local CLI.")
 
     from .apply.engine import Session
     from .apply.runner import review_ready, run_jobs, select_targets

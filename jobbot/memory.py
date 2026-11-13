@@ -46,13 +46,14 @@ _SAVE_LOCK = threading.Lock()
 
 
 class Memory:
-    def __init__(self, profile_path=None, items=None):
+    def __init__(self, profile_path=None, items=None, *, persist=True):
         self.path = profile_path or paths.PROFILE
         self.items = list(items or [])
+        self.persist = persist
 
     @classmethod
-    def for_profile(cls, profile):
-        return cls(profile.path, profile.get("learned_answers") or [])
+    def for_profile(cls, profile, *, persist=True):
+        return cls(profile.path, profile.get("learned_answers") or [], persist=persist)
 
     def lookup(self, question, options=None):
         """Best stored answer for this question, or None. For choices the option must still exist."""
@@ -82,7 +83,8 @@ class Memory:
         key = _tokens(question)
         self.items = [i for i in self.items if _tokens(i.get("question")) != key]
         self.items.append({"question": re.sub(r"\s+", " ", question).strip()[:400], "answer": str(answer)})
-        self._save()
+        if self.persist:
+            self._save()
         return True
 
     def _save(self):

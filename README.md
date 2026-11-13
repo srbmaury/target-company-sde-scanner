@@ -15,7 +15,7 @@ or the [AI-assistant skill](docs/skill.md).
 | --- | --- | --- |
 | **Local** | Scanning, ranking, tracking, and filling applications in Chrome | Profile, resumes, tracker, and browser sessions on your machine |
 | **GitHub Codespaces** | Running scans, ranking, and using the dashboard without installing Jobbot on your Mac | Inside that Codespace. Opening it from another device preserves the same files, but a new Codespace starts fresh |
-| **Hosted private account** | Signing in from any device with persistent profile, resumes, Gmail, and history | Encrypted account data in MongoDB. Browser-based application filling stays local |
+| **Hosted private account** | Signing in from any device with persistent profile, resumes, Gmail, and history | Encrypted account data in MongoDB. Chromium runs on the host for manual review |
 
 ## Quick start
 
@@ -117,9 +117,9 @@ See [privacy and safety](docs/privacy.md).
 **Local filling** means Jobbot runs Playwright and opens Chrome on the computer running
 `./jobbot.sh apply` (or the local dashboard). For example, run it on your Mac to watch it open
 employer forms, fill fields, and attach the selected PDF. You don't have to type every answer
-yourself. The hosted MongoDB dashboard can scan, rank, sync Gmail, and track applications, but
-it doesn't start a browser on your Mac or fill forms remotely. Local browser sessions and the
-hosted tracker are separate.
+yourself. In the hosted account dashboard, **Fill for review** runs Chromium on the host and
+shows the filled fields in **Runs**. **Dry run** never submits. Local and hosted trackers
+remain separate.
 
 ```bash
 ./jobbot.sh scan
@@ -179,7 +179,7 @@ See [Gmail tracking](docs/tracking.md).
 ## Set up the hosted MongoDB account
 
 Hosted mode is optional and supports **one configured owner per deployment**. It can scan,
-rank, track, and import Gmail. It does not host the browser used to fill applications.
+rank, track, import Gmail, and fill applications with a headless browser running on the host.
 
 1. Provision MongoDB and run Jobbot on a Render Web Service or in GitHub Codespaces. Jobbot
    detects the dashboard URL from the platform. Configure a TLS-enabled database connection
@@ -215,7 +215,16 @@ rank, track, and import Gmail. It does not host the browser used to fill applica
 The sign-in page appears at the detected HTTPS URL. If you only see the local dashboard,
 check that the process was started with the hosted environment variables.
 See the [hosted account guide](docs/accounts.md) for storage limits and configuration details.
-Local browser runs and the local tracker remain separate.
+To enable browser filling on the host, install Playwright Chromium in the same environment as Jobbot:
+
+```bash
+.venv/bin/python -m playwright install --with-deps chromium
+./jobbot.sh ui --no-open
+```
+
+In **Jobs**, select a role and start with **Dry run**. **Fill for review** requires your explicit
+approval before submitting. Sites that require employer sign-in or CAPTCHA must be completed
+manually on the employer site. There is no remote browser takeover.
 
 ## Documentation
 

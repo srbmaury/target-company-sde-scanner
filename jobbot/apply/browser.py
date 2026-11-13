@@ -6,7 +6,7 @@ import re
 from .. import paths
 
 
-def launch(profile_dir=None):
+def launch(profile_dir=None, *, headless=None):
     """Start Chrome with jobbot's profile (or a parallel worker's copy). Returns (playwright, context)."""
     from playwright.sync_api import sync_playwright
 
@@ -21,14 +21,22 @@ def launch(profile_dir=None):
     # Sign-in pages (Microsoft, Google) refuse browsers that announce automation, which blocks signing in
     # or creating an account in this window. Launch it like a normal Chrome instead.
     # JOBBOT_HEADLESS=1 runs without a window (tests and CI); you normally watch the window.
-    opts = dict(user_data_dir=str(profile_dir), headless=os.environ.get("JOBBOT_HEADLESS") == "1",
+    opts = dict(user_data_dir=str(profile_dir), headless=(os.environ.get("JOBBOT_HEADLESS") == "1") if headless is None else headless,
                 viewport=None,
                 args=["--start-maximized", "--disable-blink-features=AutomationControlled"],
                 ignore_default_args=["--enable-automation"])
     try:
-        ctx = pw.chromium.launch_persistent_context(channel="chrome", **opts)
+        if headless is True:
+            # Hosted sessions do not try to disguise automation or bypass a site's sign-in gate.
+            ctx = pw.chromium.launch_persistent_context(user_data_dir=str(profile_dir), headless=True)
+        else:
+            try:
+                ctx = pw.chromium.launch_persistent_context(channel="chrome", **opts)
+            except Exception:
+                ctx = pw.chromium.launch_persistent_context(**opts)
     except Exception:
-        ctx = pw.chromium.launch_persistent_context(**opts)  # needs `playwright install chromium`
+        pw.stop()
+        raise
     # A field that is hidden or covered (e.g. a follow-up shown only after "Yes") would otherwise make each
     # click or fill wait Playwright's default 30 s, in every review round.
     ctx.set_default_timeout(10000)

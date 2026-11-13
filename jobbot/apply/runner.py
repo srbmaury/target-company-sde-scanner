@@ -65,6 +65,16 @@ def select_targets(conn, keys=(), all_=False, top=None, min_fit=None, force=Fals
     return unique
 
 
+def _daily_count(conn):
+    if not getattr(conn, "account", None):
+        return tracker.submitted_today(conn)
+    fresh = tracker.connect()
+    try:
+        return tracker.submitted_today(fresh)
+    finally:
+        fresh.close()
+
+
 def run_jobs(session, conn, profile, targets, ui, resume=None, dry_run=False, confirm_possible=True,
              should_stop=lambda: False, on_job=None, on_result=None):
     """Apply to each target in turn. Returns a list of (job, status, note, application id).
@@ -86,7 +96,7 @@ def run_jobs(session, conn, profile, targets, ui, resume=None, dry_run=False, co
             break
         from . import hot
         hot.refresh(session, log=ui.info)   # fixed form-filling code applies from the next application on
-        if cap and not dry_run and tracker.submitted_today(conn) >= cap:
+        if cap and not dry_run and _daily_count(conn) >= cap:
             ui.warn(f"Daily limit reached ({cap} applications today, automation.max_applications_per_day); "
                     "stopping. Many job sites discourage high-volume applying.")
             break
@@ -119,8 +129,14 @@ def run_jobs(session, conn, profile, targets, ui, resume=None, dry_run=False, co
             ui.warn(f"{type(e).__name__}: {e}")
             status, note = None, f"error: {type(e).__name__}"
         app_id = None
-        if (note or "").startswith("posting unavailable") and job.get("url") and tracker.dismiss_job(conn, job["url"]):
-            ui.info("Dismissed: the posting is gone, so it leaves your New list.")
+        if (note or "").startswith("posting unavailable") and job.get("url"):
+            fresh = tracker.connect() if getattr(conn, "account", None) else conn
+            try:
+                if tracker.dismiss_job(fresh, job["url"]):
+                    ui.info("Dismissed: the posting is gone, so it leaves your New list.")
+            finally:
+                if fresh is not conn:
+                    fresh.close()
         if status in ("needs you", "ready"):
             if status == "ready":
                 ui.info("Filled and checked; held open for your Submit at the end.")
@@ -129,7 +145,16 @@ def run_jobs(session, conn, profile, targets, ui, resume=None, dry_run=False, co
                 on_result(job, status, note, None)
             continue
         if status and not dry_run:
-            app_id = record(conn, job, status, note, resume_key)["id"]
+            # A hosted form may sit at review while another request updates the Mongo tracker.
+            # Use a fresh tracker snapshot so the earlier read cannot overwrite it.
+            if getattr(conn, "account", None):
+                fresh = tracker.connect()
+                try:
+                    app_id = record(fresh, job, status, note, resume_key)["id"]
+                finally:
+                    fresh.close()
+            else:
+                app_id = record(conn, job, status, note, resume_key)["id"]
             ui.info(f"✓ Tracked as application #{app_id} ({status}).")
         elif dry_run:
             ui.info("Dry run: nothing recorded.")

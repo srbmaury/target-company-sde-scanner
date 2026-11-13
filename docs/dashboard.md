@@ -63,5 +63,6 @@ These manual controls do not change the local automatic-submission option.
 
 See [Private Jobbot account with MongoDB](accounts.md) for a hosted dashboard with Google sign-in,
 persistent profile and resumes, application tracking, and Gmail OAuth without a local OAuth
-callback. The hosted dashboard does not launch the application browser. Jobs and Runs show that
-limitation explicitly. Use the local dashboard to fill or dry-run applications.
+callback. Hosted **Fill for review** and **Dry run** launch Chromium on the host after it is
+installed. Review the results in **Runs**. Hosted mode does not offer automatic submission or
+remote browser control for employer sign-in and CAPTCHA.

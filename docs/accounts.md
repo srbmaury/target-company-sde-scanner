@@ -68,10 +68,23 @@ ranking if necessary, without changing past applications. YAML remains under **A
 
 ## What's local and what's hosted
 
-Hosted Jobbot can scan, rank, import Gmail, and track applications. Browser-based application
-filling, local Chrome profiles and sign-ins, and browser run history are not hosted. Use your local
-Jobbot setup for those. Local and hosted trackers are separate. If you start the CLI with the hosted environment
-variables, scan, rank, and track use the hosted profile and tracker.
+Hosted Jobbot can scan, rank, import Gmail, track applications, and fill forms using the
+account's profile and uploaded resumes. Install the browser in the Codespace or deployment:
+
+```bash
+.venv/bin/python -m playwright install --with-deps chromium
+./jobbot.sh ui --no-open
+```
+
+Select a role in **Jobs** and choose **Dry run** or **Fill for review**. Follow the page preview,
+filled answers, and prompts in **Runs**. Dry runs never submit. Live runs require manual approval
+for each submission. If a site requires employer sign-in or CAPTCHA, Jobbot marks the role
+as needing you and links to the employer site. The hosted browser session cannot be taken over.
+
+Browser sessions are temporary. MongoDB keeps run outcomes, but not screenshots or field audit
+history. Learned answers from hosted runs are not saved back to the profile. The **Logs** tab is
+for local browser logs. Use **Runs** for hosted browser progress and **Actions** for task output.
+The local tracker remains separate, and hosted browser runs start from the dashboard.
 
 MongoDB stores encrypted account data and refresh tokens. The app keeps the key outside MongoDB.
 Session IDs are stored as hashes and expire after seven days. Signing out ends that browser session.
