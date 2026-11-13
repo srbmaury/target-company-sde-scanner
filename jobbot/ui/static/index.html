@@ -51,7 +51,7 @@
         <div class="toolbar run-options">
           <label class="check" title="Never stop: jobs that need you are listed at the end, and each finished application waits for your Submit"><input type="checkbox" id="unattended"> Don't stop for me</label>
           <label class="check" title="Fill and check every page, but never submit"><input type="checkbox" id="validate-steps"> Validate every step (no submission)</label>
-          <label class="check" title="Runs without prompts and submits only after Ollama approves every field"><input type="checkbox" id="auto-submit" checked> Submit verified applications</label>
+          <label class="check" title="Runs without prompts and submits only after the configured LLM approves every field"><input type="checkbox" id="auto-submit" checked> Submit verified applications</label>
         </div>
       </div>
       <div id="run-confirmation" class="prompt" role="region" aria-label="Confirm application run" hidden></div>
@@ -63,7 +63,7 @@
         </tr></thead>
         <tbody></tbody>
       </table></div>
-      <p class="hint">Applications open in jobbot's own Chrome window. Automatic submission requires Ollama approval of every page. Jobs needing your action are listed while the batch continues.</p>
+      <p class="hint">Applications open in jobbot's own Chrome window. Automatic submission requires the configured LLM to approve every page. Jobs needing your action are listed while the batch continues.</p>
     </section>
 
     <!-- Apply (live run) -->
@@ -114,7 +114,7 @@
       <div class="cards">
         <div class="card"><h3>Scan</h3><p>Sweep 220+ company job boards for new roles (about 2 minutes).</p>
           <button class="primary" data-task="scan">Run scan</button></div>
-        <div class="card"><h3>Rank</h3><p>Score new roles against your resumes with the local model.</p>
+        <div class="card"><h3>Rank</h3><p>Score new roles against your resumes with the configured LLM.</p>
           <button class="primary" data-task="rank">Run rank</button></div>
         <div class="card"><h3>Resumes</h3><p>Read every resume and list the skills each shows. Questions about tools none of them name are answered 0 / No.</p>
           <button class="primary" data-task="resumes">Parse resumes</button></div>
