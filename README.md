@@ -2,171 +2,233 @@
 
 [![tests](https://github.com/srbmaury/target-company-sde-scanner/actions/workflows/tests.yml/badge.svg)](https://github.com/srbmaury/target-company-sde-scanner/actions/workflows/tests.yml)
 
-**Find, rank, apply to, and track software-engineering roles, locally by default with optional OpenAI inference.**
+**Find, rank, and track software-engineering jobs across 300+ target companies. Fill applications in your own browser when you're ready.**
 
-Built for candidates with roughly 1–3 years of experience. It reads open roles from 300+ target
-companies, ranks them against each of your resumes, fills applications in Chrome while you watch,
-and keeps every application in one tracker. Automatic applications require approval from the configured LLM (local Ollama or OpenAI) before each Next and Submit; manual mode is available.
+Jobbot scans company job boards and career sites, filters roles using your profile, and ranks them
+against your resume variants. It's tuned for candidates with roughly 1–3 years of experience, but
+locations, experience limits, and company exclusions are configurable. Use the CLI, the dashboard,
+or the [AI-assistant skill](docs/skill.md).
 
-It comes in two forms:
+## Choose how to run it
 
-- **jobbot**, a command-line tool. It scans company job boards, ranks roles against your resumes
-  with the configured LLM, fills applications in Chrome while you watch, and tracks every application.
-- **An AI-assistant skill** (`SKILL.md`) for Codex or Claude Code. It runs the same search
-  conversationally and can tailor a resume to each role.
-
-```text
-$ ./jobbot.sh jobs --why
-   # fit  company              role                                         location             exp            resume
-   2  85  Abnormal Security    Software Engineer 2 - Abnormal Data Platform Hybrid - Bangalore   3+ yrs stated  backend_cloud
-          Strong backend and cloud experience aligns well with the role, but lacks data-pipeline work.
-   5  75  Anyscale             Software Engineer, Ray Core                  Bengaluru, Karnataka 2+ yrs stated  backend_platform
-```
-
-| | What jobbot does |
-| --- | --- |
-| **Find** | Reads open roles from 300+ companies' job boards and careers sites, filtered to your locations and experience |
-| **Rank** | Scores each role 0–100 against every resume variant with Ollama (default) or the OpenAI API, and picks the resume to send |
-| **Apply** | Fills forms in its own Chrome window, re-checks every value, moves through multi-page forms, and requires configured LLM approval before every Next and Submit; runs without prompts and skips blocked applications |
-| **Learn** | Remembers your answers to new questions and reuses them at other companies |
-| **Track** | Records every application, imports the rest from Gmail, and never reopens a role you applied to |
-| **Dashboard** | Does all of the above from a local web page: `./jobbot.sh ui` |
-
----
-
----
+| Mode | Best for | Where data lives |
+| --- | --- | --- |
+| **Local** | Scanning, ranking, tracking, and filling applications in Chrome | Profile, resumes, tracker, and browser sessions on your machine |
+| **GitHub Codespaces** | Running scans, ranking, and using the dashboard without installing Jobbot on your Mac | Inside that Codespace. Opening it from another device preserves the same files, but a new Codespace starts fresh |
+| **Hosted private account** | Signing in from any device with persistent profile, resumes, Gmail, and history | Encrypted account data in MongoDB. Browser-based application filling stays local |
 
 ## Quick start
 
-**You need:** Python 3.10+ and Google Chrome. Local inference needs [Ollama](https://ollama.com);
-it is optional, and setup commands below assume macOS with Homebrew.
+Use **Python 3.11+** and Git. For browser-based application filling, install Google Chrome or
+Playwright Chromium. Neither Gmail nor an LLM is needed to scan jobs or use the tracker.
 
 ```bash
 git clone https://github.com/srbmaury/target-company-sde-scanner.git
 cd target-company-sde-scanner
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-
-# Optional: local model for ranking and drafting answers (about 5 GB download)
-brew install ollama && brew services start ollama && ollama pull qwen2.5:7b
-
-./jobbot.sh init       # creates profile.yaml (git-ignored) from the template
-# edit profile.yaml: your details, resume paths, preferences
-./jobbot.sh doctor     # checks profile, resumes, browser, and configured LLM
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+./jobbot.sh init
 ```
 
-`doctor` should end with every line ticked:
+Edit the generated, Git-ignored `profile.yaml`. Set your real contact details, preferences, and
+resume paths. Give each resume a short key and a description of the roles it fits:
 
-```text
-✓ profile: /Users/you/target-company-sde-scanner/profile.yaml
-✓ resumes found: backend_platform, fullstack_product, ai_engineer
-✓ playwright installed
-✓ ollama running; model qwen2.5:7b: ready
-✓ tracker: /Users/you/.jobbot/applications.db (0 applications)
+```yaml
+resumes:
+  backend:
+    path: /absolute/path/to/backend.pdf
+    focus: Java, Spring Boot, distributed systems
+  fullstack:
+    path: /absolute/path/to/fullstack.pdf
+    focus: React, TypeScript, product engineering
 ```
 
-### Optional private hosted account
+Use paths that exist **on the machine running Jobbot**. If your PDFs are in Google Drive, download
+or upload them to that machine first. A Drive share link isn't a local PDF path. In a Codespace,
+`output/resumes/` is already Git-ignored and can hold private copies of your PDFs.
 
-Use the [MongoDB account setup](docs/accounts.md) to keep one dashboard, profile, resume library,
-Gmail connection, and tracker across devices. Local mode remains the default.
+```bash
+./jobbot.sh doctor
+./jobbot.sh ui
+```
 
-### Optional OpenAI API instead of Ollama
+The local dashboard defaults to `http://127.0.0.1:8765/`. In Codespaces, run
+`./jobbot.sh ui --no-open`, then forward the printed port privately through VS Code Desktop
+or run `gh codespace ports forward 8765:8765 -c CODESPACE_NAME` on your computer. Open the
+local forwarded address in your browser. The local dashboard expects a localhost Host header.
+If Chrome is not installed and you need to run the browser suite or fill applications, install
+the fallback browser with `.venv/bin/python -m playwright install chromium`. On supported Linux
+systems, add `--with-deps` if system libraries are missing.
 
-Ollama is still the default; there is **no automatic switch to a paid provider**. To use OpenAI without downloading a local model, configure the following environment variables for the terminal or deployment process:
+## Configure the model
+
+| Choice | Setup | Notes |
+| --- | --- | --- |
+| **Ollama** | Start Ollama and run `ollama pull qwen2.5:7b` | Default. Runs inference locally. Set `JOBBOT_MODEL` to change the model or `OLLAMA_HOST` to use another Ollama server |
+| **OpenAI** | Set `JOBBOT_LLM_PROVIDER=openai` and `OPENAI_API_KEY` | Defaults to `gpt-4.1-mini`. Set `OPENAI_MODEL` to override. No Ollama installation or model download required |
+| **No model** | Use `./jobbot.sh rank --llm none` | Keyword ranking. Automatic application submission requires a working configured model |
+
+On macOS with Homebrew, the Ollama setup is:
+
+```bash
+brew install ollama
+brew services start ollama
+ollama pull qwen2.5:7b
+```
+
+For OpenAI, create an [API key](https://platform.openai.com/api-keys) and configure API billing
+separately from your ChatGPT subscription. In Codespaces, use a Codespaces secret named
+`OPENAI_API_KEY` and restart the Codespace after adding it. On a host, use its secret settings.
+Then run:
 
 ```bash
 export JOBBOT_LLM_PROVIDER=openai
-export OPENAI_API_KEY="your-secret-key"
-export OPENAI_MODEL=gpt-4.1-mini    # optional; default
+# export OPENAI_MODEL=gpt-4.1-mini  # Optional. This is the default.
 ./jobbot.sh doctor
+```
+
+If you prefer a local `.env` file, exclude it from Git **before** saving the key
+(`printf '/.env\n' >> .git/info/exclude`). Put the variable assignments there, run
+`chmod 600 .env`, then load your trusted file with `set -a; source ./.env; set +a`.
+Jobbot does not load it automatically. Start `./jobbot.sh ui` from that same shell so its
+background workers inherit the settings.
+
+`doctor` checks whether the OpenAI key is configured, not whether it can make a successful
+request. After scanning and adding a resume, try `./jobbot.sh rank --limit 1` on an unranked job.
+The CLI also accepts `--llm openai`, `--llm ollama`, and `--model` on model-enabled commands.
+Jobbot doesn't automatically switch from Ollama to OpenAI. Ranking can fall back to keyword
+matching, but a failed required model review blocks automatic submission. OpenAI mode sends
+candidate facts, resume text, and relevant application questions or review values to the API.
+See [privacy and safety](docs/privacy.md).
+
+## Scan, rank, apply, and track
+
+```bash
+./jobbot.sh scan
 ./jobbot.sh rank
-./jobbot.sh apply --top 5 --dry-run
+./jobbot.sh jobs --why
+./jobbot.sh apply --top 1 --no-auto-submit --dry-run
+./jobbot.sh track
 ```
 
-Or override only one CLI command with `./jobbot.sh rank --llm openai` or `./jobbot.sh apply --llm openai --top 5 --dry-run`. Set `--model` to choose a different model supported by OpenAI Chat Completions and JSON mode. The dashboard's background ranking and application workers use `JOBBOT_LLM_PROVIDER` and `OPENAI_MODEL` from the environment that started `./jobbot.sh ui`; restart after changing them.
+Start with a **dry run**. It can fill forms and upload a resume but does not submit the
+application. Add `--no-upload` to skip the attachment. When you're ready to submit with manual
+approval, remove `--dry-run` but keep `--no-auto-submit`. Without that flag, `apply` defaults
+to automatic submission after the required checks and model review. Use `--no-auto-next` if
+you want to stop at each page.
 
-**Privacy and cost:** OpenAI inference sends candidate profile facts, resume text, application questions, and form-review values to the OpenAI API. API usage is billed separately from ChatGPT subscriptions. Put the API key in your shell environment or your deployment's secret environment variables, **not** in `profile.yaml` or committed files. If the key is missing or the API fails, automated submissions stay blocked; ranking falls back to keyword matching. See [Privacy](docs/privacy.md).
+Pass job IDs from `jobs` (for example `apply 12 15` or `apply 12-20`), a posting URL,
+`--top N`, or `--all --min-fit 80`. `--resume KEY` overrides the ranked resume, and
+`--exclude "Company A,Company B"` adds to the profile's company exclusions for that run.
 
-To switch back to local Ollama, run `unset JOBBOT_LLM_PROVIDER OPENAI_API_KEY` (or set `JOBBOT_LLM_PROVIDER=ollama`). `./jobbot.sh rank --llm none` uses keyword ranking without either model.
+Jobbot reads the live form's labels, options, and relevant help text. It fills what it can using
+profile facts, rules, or the configured model, then reads the values back. It leaves unclear
+questions for review, checks what a dropdown actually retained, and uses the form controls
+rather than page text to identify the final Submit step. Empty intermediate steps can
+continue without a model field review. Required approval still applies at Submit in automatic
+mode. Jobbot doesn't send raw page HTML to the model.
 
-To run `jobbot` from any folder:
+In **Runs**, expand a page revision to see the extracted question, answer source, and what the
+browser read back. The **Applications** table and detail view show which resume was recorded.
+If a record has no resume, the dashboard says **Not recorded**. See [the application workflow
+and supported sites](docs/apply.md).
+
+## Connect Gmail
+
+**Local or Codespaces.** Enable the Gmail API in a Google Cloud project, configure the OAuth
+consent screen, and create a **Desktop app** OAuth client. Add your Gmail address as a test
+user if the project is External and in Testing. Keep the downloaded client JSON outside Git.
 
 ```bash
-ln -s "$PWD/jobbot.sh" /opt/homebrew/bin/jobbot
+./jobbot.sh gmail login --client "$HOME/.jobbot/gmail_client.json"
+./jobbot.sh gmail status
+./jobbot.sh track sync-gmail
 ```
 
----
+You can also use **Actions → Connect Gmail** after saving the JSON at
+`~/.jobbot/gmail_client.json`. In Codespaces this uses the same loopback callback as the CLI.
+Keep the sign-in command running, then privately forward the port from the **current** Google
+link to the same port on your computer before approving. Use VS Code Desktop or run
+`gh codespace ports forward PORT:PORT -c CODESPACE_NAME` on the computer running your browser,
+not inside the Codespace. Get the exact name with `echo "$CODESPACE_NAME"` inside the Codespace.
+If the local port is already in use, check whether VS Code is already forwarding it.
 
-## Daily workflow
+The desktop flow requests full mailbox access, even if an older CLI message says “read-only.”
+It can label and mark used verification emails as read. The hosted flow below requests
+read-only Gmail access. `./jobbot.sh gmail logout` disconnects the CLI connection.
+See [Gmail tracking](docs/tracking.md).
 
-```bash
-./jobbot.sh scan          # 1. sweep 300+ companies' job boards and careers sites (a few minutes)
-./jobbot.sh rank          # 2. score new roles against each of your resumes
-./jobbot.sh jobs --why    # 3. best fits first, with the reason and the resume to use
-./jobbot.sh apply --top 5 # 4. apply to the 5 best-ranked roles, one after another
-./jobbot.sh track         # 5. see every application and its status
-```
+## Set up the hosted MongoDB account
 
-Prefer clicking? `./jobbot.sh ui` does all of this from a browser page, including applying (see
-[Dashboard](docs/dashboard.md)).
+Hosted mode is optional and supports **one configured owner per deployment**. It can scan,
+rank, track, and import Gmail. It does not host the browser used to fill applications.
 
-Other ways to choose which roles `apply` works through:
+1. Provision MongoDB and choose a stable HTTPS dashboard URL. Configure a TLS-enabled database
+   connection with access restricted to your deployment.
+2. Create a Google **Web application** OAuth client with the exact redirect URI
+   `https://YOUR-DASHBOARD-HOST/auth/google/callback`. The Desktop app JSON is for the local flow.
+3. Set these variables in the hosting environment:
 
-```bash
-./jobbot.sh apply 12 15              # specific roles by number
-./jobbot.sh apply 12-20              # a range of numbers (also 12..20 or 12,15,18)
-./jobbot.sh apply --top 10           # the 10 best-ranked roles
-./jobbot.sh apply --all --min-fit 80 # every role you haven't applied to, with fit 80 or higher
-./jobbot.sh apply --all              # every role you haven't applied to, best fit first
-./jobbot.sh apply --top 10 --exclude "Amazon,Google"   # the 10 best roles at other companies
-```
+   | Variable | Value |
+   | --- | --- |
+   | `JOBBOT_MONGODB_URI` | MongoDB connection string |
+   | `JOBBOT_MONGODB_DB` | Optional database name, default `jobbot` |
+   | `JOBBOT_DATA_KEY` | Fernet encryption key. Generate once and back it up securely |
+   | `JOBBOT_ACCOUNT_EMAIL` | Google email allowed to sign in and connect Gmail |
+   | `JOBBOT_PUBLIC_URL` | The dashboard's HTTPS origin, no subpath |
+   | `JOBBOT_GOOGLE_CLIENT_ID` | Web application OAuth client ID |
+   | `JOBBOT_GOOGLE_CLIENT_SECRET` | Web application OAuth client secret |
+   | `JOBBOT_BIND` | `0.0.0.0` behind the host's HTTPS proxy |
+   | `PORT` | Hosting port if provided, otherwise Jobbot defaults to `8765` |
 
-`apply` always skips companies in `preferences.exclude_companies`; `--exclude` adds more for one run.
+   After installing dependencies, generate the key with
+   `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`.
+   Keep the database URI, data key, and OAuth secret in the host's secret settings. Keep the
+   **same owner email and data key** when redeploying. The proxy must preserve the public Host
+   header. Start the dashboard with `./jobbot.sh ui --no-open`.
 
-More: [finding and ranking jobs](docs/finding-jobs.md) · [how `apply` works](docs/apply.md) ·
-[unattended mode](docs/apply.md#unattended-mode) · [dashboard](docs/dashboard.md)
+4. Open the HTTPS dashboard and choose **Continue with Google**. Then select
+   **Actions → Connect Gmail** to grant read-only access separately. This flow needs no local
+   port forward. External Google OAuth apps in Testing issue Gmail refresh tokens that expire after
+   seven days, so you'll need to reconnect.
+5. Save your resume keys under **Profile**, then upload a PDF for each key. Hosted mode uses the
+   uploaded files and ignores your local resume paths. To migrate an existing setup, run
+   `./jobbot.sh account-import` from the machine holding your local data with the hosted variables
+   temporarily loaded. It seeds empty records only and does not copy Gmail tokens, browser
+   sessions, or passwords.
 
----
+See the [hosted account guide](docs/accounts.md) for limits, migration details, and what
+persists. Local and hosted trackers don't continuously sync.
 
 ## Documentation
 
-| | |
+| Guide | Covers |
 | --- | --- |
 | [Finding and ranking jobs](docs/finding-jobs.md) | Sources, filters, ranking, choosing roles |
-| [How `apply` works](docs/apply.md) | Filling, checks, final step, unattended mode, dry run |
-| [Dashboard](docs/dashboard.md) | Every tab and applying from the browser |
-| [Your profile](docs/profile.md) | `profile.yaml` reference, learned answers, rules |
-| [Tracking applications](docs/tracking.md) | Tracker, duplicates, Gmail sync setup |
-| [Command reference](docs/commands.md) | Every command and option |
-| [Privacy and safety](docs/privacy.md) | What stays local, what jobbot never does |
-| [Troubleshooting](docs/troubleshooting.md) | Common problems and fixes |
-| [AI-assistant skill](docs/skill.md) | Using the repo as a Codex / Claude Code skill |
-
----
-
-## Repository layout
-
-| Path | Purpose |
-| --- | --- |
-| `jobbot/` | The command-line tool: `cli.py`, `scan.py`, `rank.py`, `llm.py` (Ollama / OpenAI), `answers.py` and `memory.py` (answering questions, learned answers), `tracker.py`, `gmail.py` and `mailimport.py` |
-| `jobbot/apply/` | Browser filling: `engine.py` (pages, review rounds, Workday), `fields.py`, `verify.py` (readback and checks), `runner.py` (choosing and working through roles) |
-| `jobbot/ui/` | The dashboard: `server.py` (local API), `bridge.py` (runs `apply` for the page), `static/` |
-| `jobbot.sh` | Launcher that uses the project virtualenv |
-| `profile.example.yaml` | Template for your private profile |
-| `references/ats-registry.json` | Where each of 300+ companies' jobs are read from (job-board IDs, feeds, careers pages) |
-| `target-companies.md` | Tiered company list and official career-site entry points |
-| `references/job-platforms.md` | Supplemental job boards and how to treat each |
-| `scripts/ats_scan.py` | Standalone scanner command |
-| `SKILL.md` | Instructions for AI assistants |
-| `docs/` | Documentation pages |
-| `tests/` | Unit tests: `python3 -m unittest discover -s tests` |
-
----
+| [Applying](docs/apply.md) | Form filling, review checks, dry runs, supported sites |
+| [Dashboard](docs/dashboard.md) | Jobs, Runs, Applications, Actions, Profile |
+| [Hosted accounts](docs/accounts.md) | MongoDB, Google sign-in, deployment, migration |
+| [Candidate profile](docs/profile.md) | Resume variants, rules, preferences, learned answers |
+| [Tracking and Gmail](docs/tracking.md) | Status history, duplicates, email imports |
+| [Command reference](docs/commands.md) | CLI commands and options |
+| [Privacy and safety](docs/privacy.md) | Local storage, model data, browser behavior |
+| [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
+| [AI-assistant skill](docs/skill.md) | Using the repository with Codex or Claude Code |
 
 ## Contributing
 
-Contributions are welcome, especially registry fixes for companies whose job boards moved. Read
-[CONTRIBUTING.md](CONTRIBUTING.md) first. It covers verifying registry entries, testing form
-changes with `--dry-run`, and keeping jobbot's safety rules intact.
+The CLI and tracker live in `jobbot/`, browser automation in `jobbot/apply/`, and the dashboard
+in `jobbot/ui/`. See `references/ats-registry.json` and `target-companies.md` for job sources.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing the registry or form-filling code.
+
+```bash
+.venv/bin/python -m pip install pyflakes mongomock
+.venv/bin/python -m playwright install chromium
+.venv/bin/python -m pyflakes jobbot tests
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+The browser tests use fixture forms. The account tests use mocked Google and MongoDB.
 
 ## License
 
