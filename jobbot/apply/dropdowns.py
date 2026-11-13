@@ -8,25 +8,23 @@ def matching_option(options, typed, guess=""):
     word of the full answer; never just any option that contains the text somewhere."""
     words = lambda t: set(re.findall(r"[a-z0-9]+", (t or "").lower()))
     want = words(guess or typed) - {"of", "the", "and", "in"}
-    for i, o in enumerate(options or []):   # every word of the full answer: "(BHU), Varanasi", "Telangana"
-        if want and want <= words(o):
-            return i
-    for i, o in enumerate(options or []):   # an option that is a shorter form of the answer: "Hyderabad, India"
-        ow = words(o) - {"of", "the", "and", "in"}
-        if ow and ow <= want and words(typed) <= ow:
-            return i
-    t = (typed or "").strip().lower()
-    if t and words(t) >= want:   # we typed the whole answer: "India" -> "India +91", not "British Indian Ocean..."
-        for i, o in enumerate(options or []):
-            if re.match(re.escape(t) + r"(?![a-z0-9])", o.strip().lower()):
-                return i
-    return None
+    options = options or []
+    exact = [i for i, o in enumerate(options) if o.strip().casefold() == (guess or typed or "").strip().casefold()]
+    if exact:
+        return exact[0] if len(exact) == 1 else None
+    full = [i for i, o in enumerate(options) if want and want <= words(o)]
+    if full:
+        return full[0] if len(full) == 1 else None
+    shorter = [i for i, o in enumerate(options)
+               if (ow := words(o) - {"of", "the", "and", "in"}) and ow <= want and words(typed) <= ow]
+    return shorter[0] if len(shorter) == 1 else None
 
 
 def fill_dropdown(self, page, f, resolver, note):
     """React-select comboboxes, autocomplete boxes, Workday listbox buttons and Workday's
     searchable, nested "prompt" lists (category -> sub-option)."""
-    label = f["label"]
+    label, context = f["label"], f.get("context")
+    self._typed = self._guess = ""
     loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
     self._open_dropdown(loc)
     page.wait_for_timeout(700)
@@ -35,16 +33,16 @@ def fill_dropdown(self, page, f, resolver, note):
         loc.press("ArrowDown")  # some menus open only on a key press
         page.wait_for_timeout(600)
         options = self._visible_options(page)
-    typed, path, ans = False, [], None
+    typed, chosen_answer = False, None
     for _ in range(3):  # Workday nests up to a couple of levels
         if not options and f["kind"] == "combo" and not typed:
-            options, typed = self._search_options(page, loc, resolver, label), True
+            options, typed = self._search_options(page, loc, resolver, label, context=context), True
         if not options:
             break
-        ans = resolver.resolve(label, "choice", options=options, required=f["required"], quick=True)
+        ans = resolver.resolve(label, "choice", options=options, required=f["required"], quick=True, context=context)
         if ans is None and f["kind"] == "combo" and not typed:
             # The answer may just not be visible yet (long lists): search for it first.
-            found = self._search_options(page, loc, resolver, label)
+            found = self._search_options(page, loc, resolver, label, context=context)
             typed = True
             options = found or self._reopen(page, loc) or options
         if ans is None and typed and getattr(self, "_typed", ""):
@@ -75,12 +73,13 @@ def fill_dropdown(self, page, f, resolver, note):
                 from ..answers import Answer
                 ans = Answer(hit, "rule", options[hit])
         if ans is None:
-            ans = resolver.resolve(label, "choice", options=options, required=f["required"])
+            ans = resolver.resolve(label, "choice", options=options, required=f["required"], context=context)
         if ans is None:
             break
-        chosen = options[ans.value]
-        self._click_option(page, chosen, ans.value)
-        path.append(chosen)
+        chosen = ans.display
+        # Never use a resolver index: placeholder filtering changes those indices.
+        if options.count(chosen) != 1 or not self._click_option(page, chosen):
+            break
         page.wait_for_timeout(900)
         if f["kind"] == "combo" and typed and not _took(loc, chosen):
             # Some autocompletes (SmartRecruiters' City) ignore a mouse pick: retype, then choose by keyboard.
@@ -89,34 +88,36 @@ def fill_dropdown(self, page, f, resolver, note):
                 loc.press_sequentially(getattr(self, "_typed", "") or chosen.split(",")[0], delay=60)
                 page.wait_for_timeout(1500)
                 again = self._visible_options(page)
-                i = again.index(chosen) if chosen in again else 0
-                for _ in range(i + 1):
-                    loc.press("ArrowDown")
-                loc.press("Enter")
-                page.wait_for_timeout(900)
+                if again.count(chosen) == 1:
+                    for _ in range(again.index(chosen) + 1):
+                        loc.press("ArrowDown")
+                    loc.press("Enter")
+                    page.wait_for_timeout(900)
             except Exception:
                 pass
         after = self._visible_options(page)
         if not after or after == options or chosen in after:
+            chosen_answer = ans
             break  # a leaf was selected (the list closed or stayed the same)
         options = after  # a category opened a sub-list; choose again inside it
     if self._visible_options(page):
         page.keyboard.press("Escape")
-    if not path:
+    if chosen_answer is None:
+        if typed:
+            loc.fill("")
+            page.keyboard.press("Escape")
         return False
-    note(f, label, ans if len(path) == 1 and ans is not None else " › ".join(path), expected=path[-1])
+    note(f, label, chosen_answer, expected=chosen_answer.display)
     return True
 
 def _took(loc, chosen):
-    """Does the box (or the widget around it) now show the chosen option?"""
+    """Check the current value, not arbitrary nearby text."""
+    from .fields import COMBO_VALUE_JS
+    from .verify import choice_matches
     try:
-        shown = loc.evaluate("""el => { let n = el, t = el.value || '';
-            for (let i = 0; i < 3 && n && !t.trim(); i++) { n = n.parentElement; t = n ? n.innerText : ''; }
-            return t || ''; }""")
+        return choice_matches(chosen, loc.evaluate(COMBO_VALUE_JS))
     except Exception:
-        return True
-    first = re.findall(r"[a-z]+", chosen.lower())[:1]
-    return bool(first) and first[0] in (shown or "").lower()
+        return False
 
 
 def open_dropdown(loc):
@@ -131,14 +132,16 @@ def open_dropdown(loc):
             continue
     raise RuntimeError("could not open this dropdown")
 
-def search_options(self, page, loc, resolver, label, term=None):
+def search_options(self, page, loc, resolver, label, term=None, context=None):
     """Type the answer we would give (or `term`) into the box and return the matching options."""
     if term is None:
-        guess = resolver.resolve(label, "text", required=False)
+        guess = resolver.resolve(label, "text", required=False, context=context)
         if not guess:
             return []
         self._guess = str(guess.value)
         term = self._guess.split(",")[0].split("(")[0].strip()
+    else:
+        self._guess = term
     self._typed = term
     loc.fill(self._typed)
     if self._ats == "workday":
@@ -158,11 +161,18 @@ def reopen(self, page, loc):
         return []
     return self._visible_options(page)
 
-def click_option(page, text, index):
-    try:
-        page.get_by_role("option", name=text, exact=True).first.click(timeout=4000)
-    except Exception:
-        page.locator('[role="option"]:visible').nth(index).click(timeout=4000)
+def click_option(page, text):
+    options = page.locator('[role="option"]:visible')
+    labels = [" ".join(option.split()) for option in options.all_inner_texts()]
+    if labels.count(text) != 1:
+        return False
+    # Re-check the text via the locator at click time, not its previous array position.
+    matching = options.filter(has_text=re.compile(r"^\s*" + r"\s+".join(map(re.escape, text.split())) + r"\s*$"))
+    if matching.count() != 1:
+        return False
+    matching.click(timeout=4000)
+    return True
+
 
 def visible_options(page):
-    return [t.strip() for t in page.locator('[role="option"]:visible').all_inner_texts()]
+    return [" ".join(t.split()) for t in page.locator('[role="option"]:visible').all_inner_texts()]

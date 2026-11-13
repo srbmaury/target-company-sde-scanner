@@ -55,6 +55,25 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(captured["payload"]["messages"][1]["content"], "private resume data")
         self.assertEqual(result["reviewed_field_ids"], ["f1"])
 
+    def test_same_field_context_reaches_both_providers(self):
+        context = {"instructions": "Describe the most recent gap.",
+                   "parent": {"question": "Did you have an employment gap?", "answer": "Yes"}}
+        response = json.dumps({"basis": "fact", "answer": "I took time off to study."})
+        for provider in ("ollama", "openai"):
+            with self.subTest(provider=provider), patch.dict(os.environ, {"OPENAI_API_KEY": "placeholder"}):
+                payload = {}
+                def respond(req, timeout):
+                    payload.update(json.loads(req.data))
+                    body = {"choices": [{"message": {"content": response}}]} if provider == "openai" else {
+                        "message": {"content": response}}
+                    return Response(json.dumps(body).encode())
+                with patch.object(llm.LLM, "available", return_value=True), patch.object(
+                        llm.urllib.request, "urlopen", side_effect=respond):
+                    result = llm.LLM(provider=provider).answer(
+                        "If yes, please explain", "textarea", [], {}, "", context=context)
+                self.assertEqual(result["answer"], "I took time off to study.")
+                self.assertIn(json.dumps(context), payload["messages"][1]["content"])
+
     def test_openai_text_response(self):
         def fake_urlopen(req, timeout):
             return Response(json.dumps({"choices": [{"message": {"content": "  A grounded answer  "}}]}).encode())

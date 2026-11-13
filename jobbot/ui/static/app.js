@@ -385,7 +385,11 @@ async function retry(keys) {
 function renderEvent(e) {
   if (e.kind === "audit") {
     return `<details class="ev"><summary>${esc(e.t)} Page ${e.step}, revision ${e.round} — ${e.ok ? "verified" : "needs revision"} (${e.fields.length} fields)</summary>
-      <table class="grid"><thead><tr><th>Field</th><th>Expected</th><th>Page value</th><th>Result</th></tr></thead><tbody>${e.fields.map((f) => `<tr><td>${esc(f.label)}${f.required ? " *" : ""}</td><td>${esc(f.expected ?? "Not set by jobbot")}</td><td>${esc(f.actual)}</td><td>${esc(f.status)}</td></tr>`).join("")}</tbody></table>
+      <table class="grid"><thead><tr><th>Extracted question</th><th>Expected answer</th><th>Page value</th><th>Result</th></tr></thead><tbody>${e.fields.map((f) => `<tr><td>${esc(f.label || "(unidentified)")}${f.required ? " *" : ""}
+        ${[f.label_source, f.context?.group, f.context?.instructions,
+            f.context?.parent && `Follow-up to “${f.context.parent.question}” — ${f.context.parent.answer}`]
+          .filter(Boolean).map((t) => `<div class="muted">${esc(t)}</div>`).join("")}</td>
+        <td>${esc(f.expected ?? "Not set by jobbot")}${f.answer_source ? `<div class="muted">${esc(f.answer_source)}</div>` : ""}</td><td>${esc(f.actual)}</td><td>${esc(f.status)}</td></tr>`).join("")}</tbody></table>
       <ul>${(e.problems || []).map((p) => `<li>${esc(p)}</li>`).join("")}</ul></details>`;
   }
   if (e.kind === "report") {

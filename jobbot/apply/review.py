@@ -72,7 +72,7 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
             if expected is not None and str(expected.value) != f.get("actual"):
                 check.mismatches.append((f["label"], str(expected.value), f.get("actual", "")))
             else:
-                check.errors.append(f"Ollama: {f['label']}: {issue.get('reason', 'needs review')}")
+                check.errors.append(f"{provider}: {f['label']}: {issue.get('reason', 'needs review')}")
         self.ui.warn(f"LLM blocked page {step}: " + "; ".join(check.lines()[-4:]))
     except Exception as exc:
         check.errors.append(f"Required LLM review failed ({type(exc).__name__}); step is blocked.")

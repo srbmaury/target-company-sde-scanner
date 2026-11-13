@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..answers import real_options
+from .fields import COMBO_VALUE_JS
 
 READBACK_JS = r"""
 (records) => {
@@ -33,21 +34,11 @@ READBACK_JS = r"""
     else if (el.type === 'checkbox' || el.type === 'radio') value = el.checked ? 'checked' : '';
     else if (tag === 'button' && r.kind === 'yesno') value = (el.getAttribute('aria-pressed') === 'true' || /selected|active|checked/i.test(el.className)) ? 'checked' : '';
     else if (tag === 'button') value = clean(el.innerText);
-    else if (r.kind === 'combo') {
-      // react-select and friends show the chosen value next to the input, not in it
-      // (an open option list must not count: it contains the expected text whether or not it was chosen)
-      const textOf = n => { const c = n.cloneNode(true); c.querySelectorAll('[role="listbox"], [role="option"]').forEach(x => x.remove()); return c.textContent; };
-      let node = el, text = el.value || '';
-      for (let i = 0; i < 4 && node && !clean(text); i++) { node = node.parentElement; text = node ? textOf(node) : ''; }
-      if (node && !(text || '').toLowerCase().includes((r.expected || '').toLowerCase().slice(0, 12))) {
-        for (let i = 0; i < 3 && node; i++) { node = node.parentElement; if (node && textOf(node).toLowerCase().includes((r.expected || '').toLowerCase().slice(0, 12))) { text = textOf(node); break; } }
-      }
-      value = clean(text);
-    } else value = clean(el.value);
+    else if (r.kind === 'combo') value = (COMBO_VALUE)(el); else value = clean(el.value);
     return { id: r.id, found: true, value };
   });
 }
-"""
+""".replace("COMBO_VALUE", COMBO_VALUE_JS)
 
 PAGE_PROBLEMS_JS = r"""
 () => {
@@ -136,6 +127,20 @@ def matches(expected, actual, kind):
     return bool(re.search(r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])", shown))
 
 
+def choice_matches(expected, actual):
+    """Read-back must be the selected option, not a phrase within another choice."""
+    norm = lambda text: " ".join(text.split()).casefold()
+    code = re.fullmatch(r"\+\d{1,4}", actual.strip())
+    return norm(expected) == norm(actual) or bool(
+        code and re.search(r"(?<!\d)" + re.escape(code[0]) + r"(?!\d)", expected))
+
+
+def record_matches(record, actual):
+    kind = record["kind"]
+    compare = choice_matches if kind in ("combo", "listbutton") else lambda e, a: matches(e, a, kind)
+    return any(compare(expected, actual) for expected in [record["expected"], *record.get("alternatives", [])])
+
+
 def check_page(page, records, unresolved, fields_now):
     """records: dicts with id, kind, label, expected (what jobbot set)."""
     result = Check()
@@ -144,20 +149,25 @@ def check_page(page, records, unresolved, fields_now):
         for r in records:
             got = actual.get(r["id"], {})
             if not got.get("found"):
-                replacement = next((f for f in fields_now if f["label"] == r["label"]), None)
+                candidates = [f for f in fields_now if f["label"] == r["label"] and f["kind"] == r["kind"]]
+                replacement = candidates[0] if len(candidates) == 1 else None
+                if len(candidates) > 1:
+                    result.mismatches.append((r["label"], r["expected"], "(could not identify the changed field)"))
+                    continue
                 if replacement:
                     replacement_id = replacement["id"]
                     if replacement["kind"] in ("radio", "yesno", "checkgroup"):
                         options = replacement.get("options", [])
-                        index = options.index(r["expected"]) if r["expected"] in options else 0
+                        if options.count(r["expected"]) != 1:
+                            result.mismatches.append((r["label"], r["expected"], "(option missing or ambiguous)"))
+                            continue
+                        index = options.index(r["expected"])
                         replacement_id = replacement_id.split(",")[index]
                     updated = {**r, "id": replacement_id}
                     got = next(iter(page.evaluate(READBACK_JS, [updated])), {})
                 else:
                     continue  # conditional fields may have disappeared legitimately
-            alternatives = r.get("alternatives") or []   # e.g. your school's other names, which a site may swap in
-            if not matches(r["expected"], got.get("value", ""), r["kind"]) and \
-                    not any(matches(alt, got.get("value", ""), r["kind"]) for alt in alternatives):
+            if not record_matches(r, got.get("value", "")):
                 result.mismatches.append((r["label"], r["expected"], got.get("value", "")))
     result.missing.extend(unresolved)
     # A "how did you hear about us" group marks every option required but needs only one ticked.
@@ -175,8 +185,10 @@ def check_page(page, records, unresolved, fields_now):
                 (kind == "checkbox" and not (value and value[0])) or \
                 (kind == "listbutton" and not real_options([value])) or \
                 (kind == "combo" and not real_options([value or f.get("shown") or ""]))
-        if empty and f["label"] and f["label"] not in result.missing:
-            result.missing.append(f["label"])
+        if empty:
+            label = f["label"] or "(unlabelled field)"
+            if not any(m == label or m.startswith(label + " (") for m in result.missing):
+                result.missing.append(label)
     problems = page.evaluate(PAGE_PROBLEMS_JS)
     result.errors = problems["errors"]
     if problems.get("invalid") and not result.errors:

@@ -1,14 +1,14 @@
 # How `apply` works
 
 Automatic applications are the default. `./jobbot.sh apply --top 20` runs without user
-prompts, requires Ollama approval covering every field before each Next and Submit, and
+prompts, requires approval from the configured model covering every field before each Next and Submit, and
 records confirmed submissions. Jobs blocked by missing facts, sign-in, CAPTCHA, rejected
 review, or unavailable verification codes are listed with a reason; the batch moves on.
 A Submit click with no recognised confirmation is reported for checking and is never
-blindly repeated. Ollama must be running with the selected model installed.
+blindly repeated. For the default Ollama provider, run Ollama with the selected model installed. For OpenAI, set `JOBBOT_LLM_PROVIDER=openai` and `OPENAI_API_KEY`.
 
 The dashboard runs `automation.parallel_workers` independent application browsers (default 1,
-limited to the selected batch size). All browsers and review batches share at most two concurrent Ollama calls. An optional daily application cap also applies to parallel batches. CLI applications are
+limited to the selected batch size). All browsers and review batches share at most two concurrent model calls. An optional daily application cap also applies to parallel batches. CLI applications are
 sequential. To use the interactive workflow below, pass `--no-auto-submit`.
 
 For each job in the interactive workflow:
@@ -19,12 +19,14 @@ For each job in the interactive workflow:
    and attaches the resume chosen by `rank`.
 3. **Fills every field it can** from your profile: name, contact details, links, current company
    and title, CTC, notice period, education, work authorization, sponsorship, EEO answers, and
-   your own fixed answers. With Ollama running, the local model reads **every** question in full
-   and decides the answer. Your fixed answers, remembered answers and jobbot's keyword rules only
-   suggest a value: the model keeps it (exactly as written in your profile) when it really answers
-   the question, and overrules it when the words match but the meaning doesn't. For example,
-   "please state the reason for each gap" is not the State field. That costs a few seconds per
-   field. Without Ollama (`--llm none`), the rules answer on their own.
+   your own fixed answers. The browser inspects the live DOM and reads each question's label,
+   control type, and available options. It also collects associated helper text, fieldset headings,
+   and a follow-up's parent question and answer when the page links the two explicitly. Jobbot
+   leaves fields with generic prompts or unidentifiable questions for review.
+   Recognized profile facts bypass the model. When jobbot consults the configured model for a field,
+   it sends that field's question, options and context, along with profile facts and a resume excerpt.
+   It does not send the page's HTML. Page-level model review can also include rendered page text.
+   Without a model (`--llm none`), only profile facts and rules are available.
 4. **Asks you only when it has to**, in the terminal or, when you apply from the dashboard, in its
    Runs tab:
    - questions matching your `always_ask` list, such as signatures and legal or sanctions questions
@@ -75,6 +77,11 @@ For each job in the interactive workflow:
 
 **What happened?** `./jobbot.sh logs` shows, page by page and round by round, what jobbot filled,
 what it corrected (with the old value), and what the check found. Logs are in `~/.jobbot/logs/`.
+In the dashboard Runs tab, expand a **Page …, revision …** event to see the extracted question,
+where it came from, any associated instructions, the source of the answer, and what the browser
+read back. If the question is wrong, the problem is in field extraction. If the question is right
+but the expected answer is wrong, check the answer source. If the expected answer and page value
+differ, check the site control.
 
 **Useful flags:** `--dry-run` (fill and check, but never submit or record), `--resume ai_engineer`
 (override the ranked resume), `--no-auto-submit --llm none` (interactive mode without Ollama), `--no-upload`, `--force` (reopen a role

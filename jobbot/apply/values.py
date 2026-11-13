@@ -7,6 +7,14 @@ def meaningful_label(label):
     return bool(re.search(r"[A-Za-z]{2}", label or "")) and label != "(unlabelled field)"
 
 
+def ambiguous_question(field):
+    """Do not use a generated name or a generic UI prompt as a question."""
+    label = (field.get("label") or "").strip(" *:….-")
+    return (not meaningful_label(label) or field.get("label_source") in ("input name", "unidentified")
+            or bool(re.fullmatch(r"(?:please )?(?:select|choose|pick)(?: (?:one|an? option|a value|from (?:the )?list))?"
+                                 r"|yes\s*/?\s*no|yes|no|your answer|answer|enter (?:text|(?:your|an) answer)", label, re.I)))
+
+
 def format_value(profile, field, label, value, has_dial_picker=False):
     text = str(value)
     if re.search(r"phone|mobile", label, re.I):

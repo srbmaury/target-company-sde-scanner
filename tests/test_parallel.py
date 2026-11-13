@@ -81,8 +81,8 @@ class ParallelRegressionTest(unittest.TestCase):
                         active -= 1
                     self.close()
             return Response(json.dumps({"message": {"content": "ok"}}).encode())
-        model = LLM.__new__(LLM)
-        model.enabled, model.model = True, "fixture"
+        with patch.object(LLM, "available", return_value=True):
+            model = LLM(model="fixture", provider="ollama")
         with patch("jobbot.llm.urllib.request.urlopen", side_effect=response), ThreadPoolExecutor(max_workers=4) as pool:
             self.assertEqual(list(pool.map(lambda _: model.chat("fixture", "fixture"), range(4))), ["ok"] * 4)
         self.assertEqual(peak, 2)
