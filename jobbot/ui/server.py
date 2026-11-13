@@ -12,6 +12,7 @@ page polls their output.
 import base64
 import binascii
 import datetime as dt
+import errno
 import json
 import mimetypes
 import os
@@ -22,7 +23,6 @@ import subprocess
 import sys
 import threading
 import urllib.parse
-import webbrowser
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -742,24 +742,22 @@ def make_server(port=0, account=None, bind="127.0.0.1"):
     return server
 
 
-def serve(port=8765, open_browser=True):
+def serve(port=8765):
+    if not accounts.enabled():
+        raise accounts.AccountError(
+            "The dashboard requires a hosted account. Set JOBBOT_MONGODB_URI and the account settings "
+            "in .env or the deployment environment. See docs/accounts.md.")
     paths.ensure_home()
-    account = accounts.current(port) if accounts.enabled() else None
-    if account:
-        account.initialize()
+    account = accounts.current(port)
+    account.initialize()
+    try:
         server = make_server(port, account, os.getenv("JOBBOT_BIND", "127.0.0.1"))
-        print(f"jobbot account dashboard: {account.origin} (Ctrl+C to stop)")
-        open_browser = False
-    else:
-        try:
-            server = make_server(port)
-        except OSError:
-            server = make_server(0)   # the preferred port is busy; take any free one
-    url = f"http://127.0.0.1:{server.server_port}/"
-    if not account:
-        print(f"jobbot dashboard: {url}  (Ctrl+C to stop)")
-    if open_browser:
-        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    except OSError as exc:
+        if exc.errno != errno.EADDRINUSE:
+            raise
+        raise accounts.AccountError(
+            f"Port {port} is already in use. Stop the existing dashboard and try again.") from exc
+    print(f"jobbot account dashboard: {account.origin} (Ctrl+C to stop)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -1,9 +1,9 @@
 # Private Jobbot account with MongoDB
 
-Hosted account mode is optional. It supports one configured owner per deployment. Open the same
+The dashboard requires a hosted account. It supports one configured owner per deployment. Open the same
 HTTPS dashboard from any browser and sign in with Google. Your profile, uploaded resume PDFs,
 Gmail authorization, job list, and application tracker survive host restarts and replacement.
-Normal local Jobbot mode is unchanged when `JOBBOT_MONGODB_URI` is unset.
+Local CLI commands are still available without hosted settings.
 
 ## Set up the hosted dashboard
 
@@ -34,9 +34,11 @@ Normal local Jobbot mode is unchanged when `JOBBOT_MONGODB_URI` is unset.
    ```bash
    python -m pip install -r requirements.txt
    python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
-   ./jobbot.sh ui --no-open
+   ./jobbot.sh ui
    ```
 
+   In a Codespace, `./jobbot.sh ui` can load the repository's Git-ignored `.env` when
+   `JOBBOT_MONGODB_URI` is not already exported. With an exported URI, it uses the deployment environment.
    Run with Python 3.11 or newer. The app listens on the host's `PORT` variable when set, or
    `8765` otherwise. Use an HTTPS reverse proxy that preserves the dashboard's public Host
    header. Don't expose the backend port directly. Redeploy with the **same data key and owner
@@ -73,7 +75,7 @@ account's profile and uploaded resumes. Install the browser in the Codespace or 
 
 ```bash
 .venv/bin/python -m playwright install --with-deps chromium
-./jobbot.sh ui --no-open
+./jobbot.sh ui
 ```
 
 Select a role in **Jobs** and choose **Dry run** or **Fill for review**. Follow the page preview,

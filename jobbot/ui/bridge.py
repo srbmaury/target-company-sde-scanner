@@ -252,8 +252,8 @@ class WebUI:
                     if not run.stop_requested:
                         run._event.clear()
                     finished.set()
-                if released and not run.dry_run:
-                    return value
+            if released and not run.dry_run:
+                return value
         if not answered:
             from ..apply.engine import NeedsYou
             raise NeedsYou("Review timed out. Retry this role when you are ready.")

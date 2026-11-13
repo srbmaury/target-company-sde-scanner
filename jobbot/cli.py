@@ -9,7 +9,7 @@
     jobbot apply --all [--min-fit N]  work through every tracked role, best fit first
     jobbot dismiss <n>              hide a role you are not interested in
     jobbot logs                     what apply filled, corrected and checked, page by page
-    jobbot ui                       open the local dashboard: jobs, applications, actions, logs, profile
+    jobbot ui                       start the hosted account dashboard
     jobbot track ...                list, add, update, export, and import applications (CSV or Gmail JSON)
     jobbot gmail login              connect Gmail read-only, then `jobbot track sync-gmail`
 """
@@ -184,7 +184,7 @@ def cmd_rank(args):
 def cmd_apply(args):
     from .accounts import enabled
     if enabled():
-        sys.exit("Start hosted browser runs from Jobs in the account dashboard. Unset JOBBOT_MONGODB_URI to apply using the local CLI.")
+        sys.exit("Start hosted browser runs from Jobs in the account dashboard. To apply with the local CLI, run it without JOBBOT_MONGODB_URI.")
 
     from .apply.engine import Session
     from .apply.runner import review_ready, run_jobs, select_targets
@@ -435,7 +435,7 @@ def cmd_password(args):
 def cmd_ui(args):
     from .ui.server import serve
 
-    serve(port=args.port or int(os.getenv("PORT", "8765")), open_browser=not args.no_open)
+    serve(port=args.port or int(os.getenv("PORT", "8765")))
 
 
 def cmd_logs(args):
@@ -523,9 +523,9 @@ def build_parser():
     sp.add_argument("--limit", type=int, default=30)
     sp.set_defaults(fn=cmd_answers)
 
-    sp = sub.add_parser("ui", help="open the local dashboard in your browser")
+    sp = sub.add_parser("ui", help="start the hosted account dashboard")
     sp.add_argument("--port", type=int, help="listen port (default: PORT or 8765)")
-    sp.add_argument("--no-open", action="store_true", help="do not open a browser tab")
+    sp.add_argument("--no-open", action="store_true", help=argparse.SUPPRESS)
     sp.set_defaults(fn=cmd_ui)
 
     sp = sub.add_parser("resumes", help="read every resume now and list the skills each one shows")

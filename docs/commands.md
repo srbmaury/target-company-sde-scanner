@@ -11,7 +11,7 @@
 | `dismiss <n>...` | Hide roles you are not interested in |
 | `logs [--date YYYY-MM-DD] [-n N]` | Show what `apply` filled, corrected and checked |
 | `answers [ok N \| fix N "text"] [--all]` | Review the local model's answers; mark them right or correct them |
-| `ui [--port N] [--no-open]` | Open the local dashboard |
+| `ui [--port N]` | Start the hosted account dashboard |
 | `track [list\|add\|update\|show\|stats\|export\|import\|import-gmail\|sync-gmail]` | Manage the application tracker |
 | `gmail login [--client FILE] \| logout \| status` | Connect Gmail (job-hunting mailbox) for `track sync-gmail`, codes and links |
 | `password [--delete]` | Store the password jobbot uses to sign in to, or sign up on, job sites (macOS Keychain; it prompts for it) |
