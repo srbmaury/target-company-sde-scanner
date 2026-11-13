@@ -35,14 +35,14 @@ The quickest fix for an application listed as "(role not stated in email)" is to
 
 Tick roles in **Jobs**, then click **Apply to selected**. **Submit verified applications**
 is selected by default: the batch starts directly, runs without questions, and submits each
-application only after deterministic checks pass and Ollama explicitly approves every field
+application only after deterministic checks pass and the configured LLM explicitly approves every field
 on every step. Unknown answers, sign-in/CAPTCHA gates and rejected reviews skip that role
 with a reason and continue the batch. No confirmation after a Submit click is listed for
 checking; jobbot does not repeat that click blindly.
 
 Set `automation.parallel_workers` in your profile for the number of concurrent application
 browsers (default 1, capped by the number of selected jobs). Each browser uses its own profile.
-There is no daily cap by default; an optional positive cap limits the batch before workers start. Ollama must be
+There is no daily cap by default; an optional positive cap limits the batch before workers start. The configured LLM must be
 available. **Dry run** never submits. Uncheck automatic submission to use the interactive
 review and Submit controls. Only one batch runs at a time.
 
