@@ -703,7 +703,10 @@ function renderResumeKeys() {
       : '<button type="button" data-action="add">Add to profile</button>';
     return `<li data-key="${esc(key)}"><code>${esc(key)}</code>
       <span class="muted">${saved ? (exists ? "In profile" : "No PDF uploaded") : "Uploaded only"}</span>
-      ${button}${exists ? ' <button type="button" data-action="copy">Copy to new key</button>' : ""}</li>`;
+      ${button}${exists ? ' <button type="button" data-action="view">View PDF</button>' +
+      ' <button type="button" data-action="rename">Rename key</button>' +
+      ' <button type="button" data-action="copy">Copy to new key</button>' +
+      (saved ? '' : ' <button type="button" data-action="delete">Delete PDF</button>') : ""}</li>`;
   }).join("") : '<li class="muted">No resumes uploaded or configured yet.</li>';
 }
 
@@ -712,6 +715,25 @@ async function changeResume(event) {
   if (!button) return;
   const key = button.closest("[data-key]").dataset.key;
   const action = button.dataset.action, msg = $("#resume-list-msg"), editor = $("#profile-text");
+  if (action === "view") {
+    const tab = window.open("about:blank", "_blank");
+    if (!tab) { msg.textContent = "Allow pop-ups to view this PDF."; return; }
+    tab.opener = null;
+    try {
+      const res = await fetch("/api/account/resume/pdf/" + encodeURIComponent(key), {
+        headers: { "X-Jobbot-Token": TOKEN }
+      });
+      if (!res.ok) throw new Error("Could not open this PDF. Reload Profile and try again.");
+      const url = URL.createObjectURL(await res.blob());
+      tab.location.replace(url);
+      // Allow time for the browser's PDF viewer to read the object.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      tab.close();
+      msg.textContent = e.message;
+    }
+    return;
+  }
   if (action !== "copy" && editor.value !== state.savedProfile) {
     msg.textContent = "Save your YAML edits before changing resume keys.";
     return;
@@ -726,20 +748,34 @@ async function changeResume(event) {
       msg.textContent = "PDF copied. Choose Add to profile next to the new key.";
       return;
     }
+    if (action === "delete") {
+      if (!confirm(`Delete the uploaded PDF for “${key}” from your account?`)) return;
+      await api("account/resume/delete", { key, mtime: state.profileMtime, confirm: true });
+      await loadResumeKeys();
+      msg.textContent = "Uploaded PDF deleted.";
+      return;
+    }
+    const target = action === "rename" ? prompt("New resume key:", key)?.trim() : undefined;
+    if (action === "rename" && (!target || target === key)) return;
     const before = editor.value;
-    const r = await api("account/resume/profile", { action, key, mtime: state.profileMtime });
+    const r = await api("account/resume/profile", { action, key, target, mtime: state.profileMtime });
     state.profileMtime = r.mtime;
     state.savedProfile = r.text;
     state.resumeKeys = r.resume_keys;
     if (editor.value === before) {
       editor.value = r.text;
-      msg.textContent = action === "add" ? "Added. You can edit its focus in the YAML." : "Removed from YAML. The PDF is still uploaded.";
+      msg.textContent = r.warning || {
+        add: "Added. You can edit its focus in the YAML.",
+        remove: "Removed from YAML. The PDF is still uploaded.",
+        rename: "Resume key renamed."
+      }[action];
     } else {
       msg.textContent = "Profile changed while you were editing. Copy your edits and reload Profile before saving.";
       // Keep the stale editor version so a later Save cannot overwrite the change.
       state.profileMtime = null;
     }
-    renderResumeKeys();
+    if (action === "rename") await loadResumeKeys();
+    else renderResumeKeys();
   } catch (e) {
     msg.textContent = e.message;
   } finally {

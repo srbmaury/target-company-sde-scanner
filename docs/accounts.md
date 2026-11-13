@@ -61,8 +61,11 @@ Normal local Jobbot mode is unchanged when `JOBBOT_MONGODB_URI` is unset.
 
 In **Profile → Account resumes**, choose **Add to profile** to list an uploaded PDF under
 `resumes:`. **Remove from profile** removes the key from YAML but keeps the uploaded PDF.
-If you uploaded a PDF with the wrong key, choose **Copy to new key**, then **Add to profile**
-next to the new key. Save any YAML edits before changing keys from the list.
+Choose **View PDF** to open a private preview in a new tab. Use **Rename key** to fix a wrong
+key without re-uploading the PDF. If the old key was in your profile, its entry and focus move
+with it. **Copy to new key** keeps both uploads. Neither operation overwrites an existing upload.
+To delete a PDF, first choose **Remove from profile** if needed, then **Delete PDF** and confirm.
+Previously recorded applications are not changed. Save any YAML edits before changing keys.
 
 ## What's local and what's hosted
 
