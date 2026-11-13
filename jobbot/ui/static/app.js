@@ -72,7 +72,7 @@ async function loadSummary() {
   $("#stats").innerHTML = cards.map(([l, v]) => `<div class="stat" title="${esc(tips[l] || "")}"><div class="label">${esc(l)}</div><div class="value">${esc(v)}</div></div>`).join("");
   const dot = (ok) => `<span class="dot" style="background:${ok ? "var(--good)" : "var(--border)"}"></span>`;
   $("#status").innerHTML = `<span>${dot(s.gmail)}Gmail ${s.gmail ? "connected" : "not connected"}</span>
-    <span>${dot(s.ollama)}Ollama ${s.ollama ? "running" : "off"}</span>`;
+    <span>${dot(s.llm_available)}${esc(s.llm_provider === "openai" ? "OpenAI API" : "Ollama")} ${s.llm_available ? (s.llm_provider === "openai" ? "key configured" : "running") : "unavailable"}</span>`;
   $("#gmail-text").textContent = s.gmail
     ? "Import application emails, and read verification codes and links for sign-ups."
     : "Connect Gmail (read-only) to import your applications. Needs the one-time OAuth client from the README.";
