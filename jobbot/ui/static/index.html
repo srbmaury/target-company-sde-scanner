@@ -38,7 +38,7 @@
         <div class="run-strip" id="run-strip" hidden></div>
         <div id="hosted-apply-note" class="workspace-notice" hidden>
           <div><strong>Hosted browser</strong>
-            <p>Jobbot fills in Chromium on the host. Review answers in Runs. Employer sign-in and CAPTCHA need manual completion on the employer site.</p></div>
+            <p>Jobbot fills in Chromium on the host. Review answers or take control of the browser in Runs. Dry runs are view-only.</p></div>
           <button type="button" data-go="docs">View setup guide</button>
         </div>
         <section class="stats" id="stats" aria-label="Application overview"></section>
@@ -95,6 +95,24 @@
           <div>
             <div id="prompt"></div>
             <div id="needs"></div>
+            <section id="live-preview" class="live-preview" aria-label="Hosted browser" hidden>
+              <div class="toolbar">
+                <button type="button" class="primary" id="live-open">Take control</button>
+                <button type="button" id="live-refresh" hidden>Refresh view</button>
+                <button type="button" id="live-release" hidden>Return control and recheck</button>
+                <span id="live-message" class="muted" role="status"></span>
+              </div>
+              <div id="live-viewport" hidden>
+                <p class="hint" id="live-help">Click the page to use it. Use Tab, arrow keys, or scroll to navigate. Use Return control when you're done.</p>
+                <img id="live-image" alt="Live employer browser viewport" tabindex="0" aria-describedby="live-help">
+                <p class="hint" id="live-direct">You are operating the employer page directly. Use Jobbot’s review flow to submit.</p>
+                <form id="live-text" class="toolbar">
+                  <label>Type into the selected field <input id="live-input" type="password" maxlength="4000" autocomplete="off"></label>
+                  <button type="submit">Type text</button>
+                  <button type="button" id="live-tab">Next field</button>
+                </form>
+              </div>
+            </section>
             <details id="page-preview" hidden><summary>Application page preview</summary><img id="page-preview-image" alt="Current application page" style="width:100%;height:auto"></details>
             <h3 class="section-title">Activity</h3>
             <div id="feed" class="feed"></div>

@@ -223,8 +223,10 @@ To enable browser filling on the host, install Playwright Chromium in the same e
 ```
 
 In **Jobs**, select a role and start with **Dry run**. **Fill for review** requires your explicit
-approval before submitting. Sites that require employer sign-in or CAPTCHA must be completed
-manually on the employer site. There is no remote browser takeover.
+approval before Jobbot submits. In **Runs**, choose **Take control** when a live run pauses.
+You can interact with the same Chromium page, including manual employer sign-in or CAPTCHA if
+the site accepts the hosted browser. Choose **Return control and recheck** to review the current
+page. Dry runs offer a read-only live view.
 
 ## Documentation
 

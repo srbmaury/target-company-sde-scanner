@@ -618,6 +618,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._account_post(parts, self._json_body(7_000_000 if parts == ["account", "resume"] else 2_000_000))
         if self.account and parts == ["tasks", "gmail-login"]:
             return self._send(400, {"error": "Connect Gmail from the Actions tab."})
+        if parts == ["apply", "preview"]:
+            run = bridge.current(self.account) if self.account else None
+            if not run:
+                return self._send(404, {"error": "No hosted browser run."})
+            return self._send(200, run.control(self._json_body(48_000)))
         conn = tracker.connect()
         try:
             body = self._json_body()

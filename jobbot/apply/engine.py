@@ -216,8 +216,9 @@ class Session:
         self._log(f"=== {job['company']} — {job['title']} [{ats}] {url} resume={resume_key}")
         step = 1
         visits, began, check = {}, time.time(), None
+        reread = False
         while step <= MAX_PAGES:
-            if self.unattended or getattr(self, "hosted", False):
+            if not reread and (self.unattended or getattr(self, "hosted", False)):
                 # Never get stuck on one application: the same page 3 times (Next not moving, Submit
                 # rejected, a re-check changing nothing) or MAX_APPLY_SECONDS in all, and it moves on.
                 try:   # the fields on the page tell steps apart where the URL stays the same
@@ -240,10 +241,19 @@ class Session:
             self._decline_cookies(page)
             needs_account = self._needs_account(page)
             if getattr(self, "hosted", False) and needs_account:
-                raise NeedsYou("The employer site requires sign-in. Open the employer site to finish manually.")
-            signed_in = self._ensure_signed_in(page) if needs_account else True
-            report, check, rounds = self.review_page(page, resolver, step) if signed_in else \
-                ({"filled": [], "skipped": [], "records": []}, self.verify(page, {}), 0)
+                self._wait_for_user(page, "The employer site requires sign-in. Take control to sign in.")
+                continue
+            if reread:
+                # Read the employer's current values without overwriting the owner's edits.
+                report, check, rounds = {"filled": [], "skipped": [], "records": []}, self.verify(page, {}), 0
+                self.ui.audit(step, 0, self.audit_fields(page, report), check)
+                self._preview_page(page)
+                if not self.dry_run and self._had_form and self._confirmation(page):
+                    return "applied", "Employer confirmation seen after manual browser control."
+            else:
+                signed_in = self._ensure_signed_in(page) if needs_account else True
+                report, check, rounds = self.review_page(page, resolver, step) if signed_in else \
+                    ({"filled": [], "skipped": [], "records": []}, self.verify(page, {}), 0)
             self.ui.report(report, check, step)
             if rounds:
                 self.ui.info(f"Reviewed page {step} in {rounds} round(s); "
@@ -255,7 +265,9 @@ class Session:
                 return None, f"posting unavailable: {reason}"
 
             if getattr(self, "hosted", False) and check.captcha:
-                raise NeedsYou("CAPTCHA requires your action. Open the employer site to finish manually.")
+                self._wait_for_user(page, "CAPTCHA requires your action. Take control to complete it.")
+                reread = True
+                continue
             submit_re = WORKDAY_SUBMIT_RE if ats == "workday" else SUBMIT_RE
             can_next = bool(self._buttons(page, NEXT_RE))
             # A page with Next / Save and Continue is never the final step, whatever else it shows.
@@ -264,12 +276,16 @@ class Session:
                 raise NeedsYou("Could not verify that this is an application form. Open the posting and finish manually.")
             if getattr(self, "auto_submit", False) and not self.dry_run and check.ok and can_submit:
                 choice = "submit"
-            elif self.auto_next and check.ok and can_next:
+            elif self.auto_next and not reread and check.ok and can_next:
                 self.ui.info("All checks passed; moving to the next step.")
                 choice = "next"
             else:
                 choice = self.ui.next_action(can_submit=can_submit and not self.dry_run, can_next=can_next and (check.ok or not getattr(self, "validation", False)),
-                                             dry_run=self.dry_run, check_ok=check.ok, final_page=can_submit)
+                                             dry_run=self.dry_run, check_ok=check.ok, final_page=can_submit,
+                                             **({"page": page} if getattr(self, "hosted", False) else {}))
+            reread = choice == "recheck"
+            if reread:
+                continue
             if choice == "submit" and not check.ok and not self.ui.confirm(
                     "The check still shows problems. Submit anyway?"):
                 continue
@@ -440,7 +456,10 @@ class Session:
 
     def _wait_for_user(self, page, message):
         self._preview_page(page)
-        self.ui.wait_for_user(message)
+        if getattr(self, "hosted", False):
+            self.ui.wait_for_user(message, page=page)
+        else:
+            self.ui.wait_for_user(message)
 
     def audit_fields(self, page, report):
         """Read every current field and expose expected/actual values for page revision."""

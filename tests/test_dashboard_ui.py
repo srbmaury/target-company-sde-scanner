@@ -25,6 +25,7 @@ class DashboardUITests(unittest.TestCase):
         self.page.on("pageerror", self.errors.append)
         self.hosted, self.dry_run, self.active = True, False, False
         self.answers = []
+        self.browser_actions = []
         self.page.route("http://jobbot.test/**", self.respond)
 
     def respond(self, route):
@@ -35,13 +36,23 @@ class DashboardUITests(unittest.TestCase):
         if path == "/api/apply" and route.request.method == "POST":
             self.dry_run = route.request.post_data_json["dry_run"]
             self.active = True
+        if path == "/api/apply/preview":
+            command = route.request.post_data_json
+            self.browser_actions.append(command["action"])
+            if command["action"] == "release":
+                self.active = False
+                route.fulfill(json={})
+            else:
+                route.fulfill(json={"control": "controller", "frame_id": "frame", "width": 1000, "height": 600,
+                                    "image": "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"})
+            return
         if path == "/api/apply/answer":
             self.answers.append(route.request.post_data_json)
             self.active = False
         summary = {"account": self.hosted, "applications": {}, "open_jobs": 1,
                    "total": 0, "response_rate": 0, "statuses": ["applied"], "gmail": True}
         prompt = {"kind": "action", "id": "example", "final": True, "check_ok": True,
-                  "dry_run": self.dry_run, "choices": ["submit", "quit"]}
+                  "dry_run": self.dry_run, "choices": ["submit", "quit"], "interactive": self.hosted}
         run = {"status": "waiting", "current": 0, "jobs": [JOB], "events": [], "results": {},
                "prompt": prompt, "dry_run": self.dry_run,
                "audits": [{"job": JOB, "step": 1, "fields": [{"label": "Work location", "actual": "Bengaluru",
@@ -110,4 +121,19 @@ class DashboardUITests(unittest.TestCase):
         self.page.get_by_role("button", name="Start dry run").click()
         expect(self.page.get_by_text("Dry run: submitting is disabled.")).to_be_visible()
         expect(self.page.locator("[data-submit-review], [data-answer=submit]")).to_have_count(0)
+        self.assertEqual(self.errors, [])
+
+    def test_hosted_takeover_controls_same_preview_until_released(self):
+        self.active = True
+        self.open()
+        self.page.locator("#nav-apply").click()
+        self.page.get_by_role("button", name="Take control").click()
+        expect(self.page.get_by_text("You have control. Jobbot is paused.")).to_be_visible()
+        self.page.locator("#live-image").click(position={"x": 15, "y": 15})
+        self.page.locator("#live-input").fill("Bengaluru")
+        self.page.get_by_role("button", name="Type text").click()
+        self.page.get_by_role("button", name="Return control and recheck").click()
+        expect(self.page.get_by_text("No hosted run yet")).to_be_visible()
+        self.assertEqual([a for a in self.browser_actions if a != "frame"], ["open", "click", "text", "release"])
+        self.assertEqual(self.answers, [])
         self.assertEqual(self.errors, [])

@@ -23,6 +23,7 @@ from .. import accounts, llm as llm_mod
 from .. import paths
 from .. import profile as profile_mod
 from .. import tracker
+from . import live_preview
 
 MAX_EVENTS = 1500
 SAVE_LOCK = threading.Lock()
@@ -65,6 +66,9 @@ class ApplyRun:
         self._answer = None
         self._event = threading.Event()
         self._lock = threading.Lock()
+        self._preview_request = None
+        self._controller = None
+        self._frame_id = None
 
     def log(self, kind, text, **extra):
         with self._lock:
@@ -98,7 +102,7 @@ class ApplyRun:
             if self.account:
                 # Keep job outcomes, not form answers, screenshots or raw browser logs, in MongoDB.
                 snap.update(events=[], audits=[])
-                self.account.write("browser-runs", json.dumps((runs + [snap])[-20:]).encode())
+                self.account.write("browser-runs", json.dumps(runs[-20:]).encode())
                 return
             paths.ensure_home()
             RUNS_FILE().write_text(json.dumps(runs[-20:]), encoding="utf-8")
@@ -114,11 +118,44 @@ class ApplyRun:
                 raise ValueError("That question is no longer waiting for an answer.")
             if self.stop_requested or self._event.is_set():
                 raise ValueError("That question is no longer waiting for an answer.")
+            if self._controller:
+                raise ValueError("Return control of the browser before answering.")
             if value in ("submit", "done") and self.prompt["kind"] == "action" and (
                     self.dry_run or value not in self.prompt["choices"]):
                 raise ValueError("Submission is not available for this step.")
             self._answer = value
             self._event.set()
+
+    def control(self, body):
+        command = live_preview.validate(body)
+        action = command["action"]
+        finished = threading.Event()
+        response = {}
+        with self._lock:
+            if (not self.account or not self.prompt or not self.prompt.get("interactive")
+                    or self.prompt["id"] != body.get("prompt_id") or self.stop_requested
+                    or self._answer is not None or self._event.is_set()):
+                raise ValueError("This browser is no longer paused for preview.")
+            if self._preview_request:
+                raise ValueError("Wait for the current browser action to finish.")
+            if action == "open":
+                if self._controller and body.get("control") != self._controller:
+                    raise ValueError("Another tab has control. Return to that tab or stop this run.")
+                self._controller = secrets.token_urlsafe(24)
+            elif not self._controller or body.get("control") != self._controller:
+                raise ValueError("Take control of the browser first.")
+            if self.dry_run and action not in ("open", "frame", "release"):
+                raise ValueError("The dry-run preview is read-only.")
+            if action not in ("open", "frame", "release") and body.get("frame_id") != self._frame_id:
+                raise ValueError("The browser view changed. Refresh it before interacting.")
+            response["control"] = self._controller
+            self._preview_request = command, response, finished
+            self._event.set()
+        if not finished.wait(9):
+            raise ValueError("The browser did not respond. Refresh or stop the run.")
+        if "error" in response:
+            raise ValueError(response["error"])
+        return response
 
     def stop(self):
         self.stop_requested = True
@@ -167,20 +204,56 @@ class WebUI:
     def __init__(self, run):
         self.run = run
 
-    def _wait(self, kind, default, **data):
+    def _wait(self, kind, default, *, page=None, **data):
         run = self.run
-        if run.stop_requested:
-            return default
+        viewport = live_preview.Viewport(page) if page is not None and run.account else None
+        deadline = time.monotonic() + 900 if run.account else None
         with run._lock:
+            if run.stop_requested:
+                return default
             run._event.clear()
             run._answer = None
             run.prompt = {"id": secrets.token_hex(4), "kind": kind, **data}
+            if viewport:
+                run.prompt["interactive"] = True
             run.status = "waiting"
-        answered = run._event.wait(900 if run.account else None)
-        with run._lock:
-            value = default if run.stop_requested else run._answer
-            run.prompt = None
-            run.status = "running"
+        while True:
+            answered = run._event.wait(max(0, deadline - time.monotonic()) if deadline else None)
+            with run._lock:
+                request = run._preview_request
+                if not answered or not request or run.stop_requested:
+                    value = default if run.stop_requested else run._answer
+                    run.prompt = None
+                    run.status = "running"
+                    run._controller = run._frame_id = run._preview_request = None
+                    if request:
+                        request[1]["error"] = "The browser is no longer paused."
+                        request[2].set()
+                    break
+            command, response, finished = request
+            try:
+                if command["action"] != "release":
+                    response.update(viewport.perform(command))
+            except Exception:
+                response["error"] = "Could not update the browser view. Refresh it or stop the run."
+            finally:
+                with run._lock:
+                    action = command["action"]
+                    released = action == "release"
+                    if released or (action == "open" and "error" in response):
+                        run._controller = None
+                    run._frame_id = response.get("frame_id")
+                    run._preview_request = None
+                    if released and not run.dry_run:
+                        # Never reuse the pre-takeover Submit/Next prompt.
+                        run.prompt = None
+                        run.status = "running"
+                        value = default if run.stop_requested else "recheck"
+                    if not run.stop_requested:
+                        run._event.clear()
+                    finished.set()
+                if released and not run.dry_run:
+                    return value
         if not answered:
             from ..apply.engine import NeedsYou
             raise NeedsYou("Review timed out. Retry this role when you are ready.")
@@ -230,25 +303,28 @@ class WebUI:
             raise NeedsYou(msg)
         return value is True
 
-    def wait_for_user(self, msg):
+    def wait_for_user(self, msg, *, page=None):
         if self.run.account:
             from ..apply.engine import NeedsYou
-            raise NeedsYou(msg.split(", then")[0] + " Open the employer site to complete this step manually.")
-        value = self._wait("wait", None, question=msg.replace("press Enter here", "click Done, continue"))
+            if self.run.dry_run or page is None:
+                raise NeedsYou(msg.split(", then")[0] + " Open the employer site to complete this step manually.")
+            value = self._wait("wait", "skip", page=page, question=msg, choices=["skip"])
+        else:
+            value = self._wait("wait", None, question=msg.replace("press Enter here", "click Done, continue"))
         if value == "skip":
             from ..apply.engine import NeedsYou
             raise NeedsYou(msg)
 
-    def next_action(self, can_submit, can_next, dry_run, check_ok=True, final_page=False):
+    def next_action(self, can_submit, can_next, dry_run, check_ok=True, final_page=False, *, page=None):
         choices = (["submit"] if can_submit and not dry_run else []) + (["next"] if can_next else []) + ["refill"]
         if not (dry_run or self.run.account):
             choices.append("done")
         choices.append("quit")
-        value = self._wait("action", "quit", choices=choices, check_ok=check_ok, dry_run=dry_run,
+        value = self._wait("action", "quit", page=page, choices=choices, check_ok=check_ok, dry_run=dry_run,
                            final=can_submit or (dry_run and final_page))
         if isinstance(value, dict) and value.get("action") == "correct":
             return value
-        return value if value in choices else "quit"
+        return value if value in choices or (value == "recheck" and page is not None) else "quit"
 
 
 CURRENT = {"run": None}

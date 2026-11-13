@@ -331,6 +331,9 @@ class AccountTests(unittest.TestCase):
 
         from jobbot.ui import bridge
         self.assertEqual(request("/api/apply", {"jobs": ["1"]})[0], 401)
+        self.assertEqual(request("/api/apply/preview", {"action": "open"})[0], 401)
+        self.assertEqual(request("/api/apply/preview", {"action": "open"}, cookie=session,
+                                 origin="https://wrong.example.com")[0], 403)
         self.assertEqual(request("/api/apply", {"jobs": ["1"]}, cookie=session,
                                  origin="https://wrong.example.com")[0], 403)
         self.assertEqual(request("/api/apply", {"jobs": ["1"], "auto_submit": True}, cookie=session)[0], 400)

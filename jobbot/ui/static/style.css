@@ -275,3 +275,8 @@ dialog ol.history { padding-left: 18px; color: var(--muted); max-height: 220px; 
 .submit-review { margin: 12px 0 0; }
 .submit-review .actions { margin: 0; }
 @media (max-width: 480px) { .field-review dl > div { grid-template-columns: 1fr; } }
+
+.live-preview { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.live-preview .toolbar { margin-bottom: 0; }
+#live-image { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; margin: 8px 0; }
+#live-input { max-width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px; }

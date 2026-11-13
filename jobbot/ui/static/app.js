@@ -324,7 +324,121 @@ async function loadHistory() {
     : `<li class="muted">None yet.</li>`;
 }
 
+const live = { prompt: null, control: null, frame: null, busy: false, timer: null, inputs: [] };
+
+function resetLivePreview() {
+  clearTimeout(live.timer);
+  live.prompt = live.control = live.frame = null;
+  live.inputs.length = 0;
+  $("#live-image").removeAttribute("src");
+  $("#live-input").value = "";
+  $("#live-message").textContent = "";
+}
+
+function renderLivePreview(run) {
+  const prompt = !run.history && run.status === "waiting" && run.prompt?.interactive ? run.prompt.id : null;
+  if (live.prompt !== prompt) {
+    resetLivePreview();
+    live.prompt = prompt;
+  }
+  $("#live-preview").hidden = !prompt;
+  $("#live-open").hidden = Boolean(live.control);
+  $("#live-open").textContent = run.dry_run ? "Open live view" : "Take control";
+  $("#live-release").textContent = run.dry_run ? "Close live view" : "Return control and recheck";
+  $("#live-viewport").hidden = !live.control;
+  $("#live-help").textContent = run.dry_run
+    ? "Dry-run view is read-only. Use the dashboard prompts to continue."
+    : "Click or scroll the page. Use the keyboard or the text box below to enter answers. Use Next field to send Tab. Return control to recheck the page.";
+  $("#live-text").hidden = $("#live-direct").hidden = Boolean(run.dry_run);
+  $("#live-refresh").hidden = $("#live-release").hidden = !live.control;
+  $("#prompt").inert = Boolean(live.control);
+}
+
+async function browserCommand(action, extra = {}) {
+  if (!live.prompt) return;
+  if (live.busy) {
+    if (!["frame", "open"].includes(action) && live.inputs.length < 40) live.inputs.push([action, extra]);
+    return;
+  }
+  clearTimeout(live.timer);
+  const prompt = live.prompt;
+  live.busy = true;
+  if (action === "open") $("#live-message").textContent = "Opening the browser view…";
+  try {
+    const reply = await api("apply/preview", {
+      prompt_id: prompt, control: live.control, frame_id: live.frame, action, ...extra,
+    });
+    if (live.prompt !== prompt) return;
+    if (action === "release") {
+      resetLivePreview();
+      renderLivePreview(state.run);
+      await loadRun();
+      return;
+    }
+    live.control = reply.control;
+    live.frame = reply.frame_id;
+    $("#live-image").src = "data:image/jpeg;base64," + reply.image;
+    $("#live-image").width = reply.width;
+    $("#live-image").height = reply.height;
+    $("#live-message").textContent = state.run.dry_run ? "Live view · read-only" : "You have control. Jobbot is paused.";
+    renderLivePreview(state.run);
+    if (action === "open") $("#live-image").focus();
+  } catch (error) {
+    if (live.prompt === prompt) $("#live-message").textContent = error.message;
+  } finally {
+    live.busy = false;
+    if (live.control && live.prompt === prompt) {
+      if (live.inputs.length) browserCommand(...live.inputs.shift());
+      else if (state.tab === "apply") live.timer = setTimeout(() => browserCommand("frame"), 1500);
+    }
+  }
+}
+
+function wireLivePreview() {
+  $("#live-open").addEventListener("click", () => browserCommand("open"));
+  $("#live-release").addEventListener("click", () => browserCommand("release"));
+  $("#live-refresh").addEventListener("click", () => browserCommand("frame"));
+  $("#live-tab").addEventListener("click", () => browserCommand("key", {key: "Tab"}));
+  const frame = $("#live-image");
+  const coords = (event) => {
+    const rect = frame.getBoundingClientRect();
+    return { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height };
+  };
+  frame.addEventListener("click", (event) => {
+    if (!state.run?.dry_run) {
+      frame.focus();
+      browserCommand("click", coords(event));
+    }
+  });
+  frame.addEventListener("wheel", (event) => {
+    if (state.run?.dry_run) return;
+    event.preventDefault();
+    const unit = event.deltaMode === 1 ? 24 : event.deltaMode === 2 ? frame.clientHeight : 1;
+    browserCommand("scroll", { ...coords(event), delta: Math.max(-1600, Math.min(1600, event.deltaY * unit)) });
+  }, {passive: false});
+  frame.addEventListener("keydown", (event) => {
+    if (state.run?.dry_run || event.ctrlKey || event.altKey || event.metaKey) return;
+    // Leave Tab and Escape to the dashboard so keyboard users can leave the viewport.
+    if (!["Enter", "Backspace", "Delete", "Home", "End", "ArrowLeft", "ArrowRight", "ArrowUp",
+      "ArrowDown", "PageUp", "PageDown"].includes(event.key) && event.key.length !== 1) return;
+    event.preventDefault();
+    if (event.key.length === 1) browserCommand("text", { text: event.key });
+    else browserCommand("key", { key: event.key });
+  });
+  $("#live-text").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = $("#live-input");
+    if (input.value) {
+      const text = input.value;
+      input.value = "";
+      browserCommand("text", {text});
+      frame.focus();
+    }
+  });
+}
+
 function renderRun(run) {
+  renderLivePreview(run);
   if (run.status === "idle") {
     $("#run-title").textContent = "No runs yet";
     $("#run-status").textContent = ""; $("#run-progress").textContent = "";
@@ -393,7 +507,7 @@ function renderNeeds(run, active) {
   for (const j of needs) {
     const [name, , localHint] = needGroup(results[j.url].note);
     const hint = state.summary?.account && ["Sign-in or account", "CAPTCHA"].includes(name)
-      ? "Open the employer site and finish manually. The hosted browser session cannot be taken over." : localHint;
+      ? "For live runs, use Take control when prompted. If that does not work, finish on the employer site." : localHint;
     if (!groups.has(name)) groups.set(name, { hint, jobs: [] });
     groups.get(name).jobs.push(j);
   }
@@ -494,6 +608,8 @@ function renderPrompt(p) {
       ${p.dry_run ? `<p class="reason">Dry run: submitting is disabled.</p>` : ""}</div>`;
   } else if (p.kind === "confirm") {
     html = `<div class="prompt"><h4>Confirm</h4>${q}<div class="actions"><button class="primary" data-answer="true">Yes</button><button data-answer="false">No</button><button data-answer="skip">Skip this role</button></div></div>`;
+  } else if (p.kind === "wait" && p.interactive) {
+    html = `<div class="prompt"><h4>Browser needs your input</h4>${q}<p>Use Take control below, then return control to Jobbot.</p><div class="actions"><button data-answer="skip">Skip this role</button></div></div>`;
   } else if (p.kind === "wait") {
     html = `<div class="prompt"><h4>Your turn in Chrome</h4>${q}<div class="actions"><button class="primary" data-answer="null">Done, continue</button><button data-answer="skip">Skip this role</button></div></div>`;
   } else if (p.kind === "code") {
@@ -1018,6 +1134,7 @@ async function loadDocs(name = state.doc || "README", anchor = "") {
 
 // ---------- wiring ----------
 document.addEventListener("DOMContentLoaded", async () => {
+  wireLivePreview();
   $("#account-signout").addEventListener("click", async () => {
     try { await api("account/logout", {}); location.replace("/"); }
     catch (e) { alertInline($("#status"), e.message); }

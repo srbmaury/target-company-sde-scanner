@@ -78,8 +78,13 @@ account's profile and uploaded resumes. Install the browser in the Codespace or 
 
 Select a role in **Jobs** and choose **Dry run** or **Fill for review**. Follow the page preview,
 filled answers, and prompts in **Runs**. Dry runs never submit. Live runs require manual approval
-for each submission. If a site requires employer sign-in or CAPTCHA, Jobbot marks the role
-as needing you and links to the employer site. The hosted browser session cannot be taken over.
+before Jobbot submits. In a live run, **Take control** opens the current Chromium page when
+Jobbot pauses for review, sign-in, or CAPTCHA. Click, scroll, or type in the view. **Return control
+and recheck** reads the current page without overwriting manual edits. During takeover you are
+operating the employer page directly, so actions you take there can send data to the employer.
+Dry runs provide a read-only live view and cannot send clicks or keystrokes to the employer page.
+If the employer blocks the hosted browser or requires an unsupported interaction, finish on the
+employer site.
 
 Browser sessions are temporary. MongoDB keeps run outcomes, but not screenshots or field audit
 history. Learned answers from hosted runs are not saved back to the profile. The **Logs** tab is
