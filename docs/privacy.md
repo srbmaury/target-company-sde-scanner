@@ -2,11 +2,10 @@
 
 - **Everything runs on your machine.** Your profile (`profile.yaml`, git-ignored) lives in the
   repository folder. The tracker database (`applications.db`) and browser profile live in
-  `~/.jobbot/`. The only network traffic is to the job boards themselves, to Google's Gmail API if
-  you connect Gmail, and to Ollama on localhost.
+  `~/.jobbot/`. With the default Ollama provider, model requests stay local; network traffic also goes to job boards and to Google's Gmail API if enabled. If you opt into OpenAI (`JOBBOT_LLM_PROVIDER=openai`), application questions, profile facts, resume text, job descriptions, and reviewed form values are sent to the OpenAI API for model inference. Do not use the OpenAI provider if this disclosure is unacceptable.
 - **Your data folder is private.** `~/.jobbot` (tracker, logs with the values filled into forms, Gmail token,
   browser profile) is readable by your user account only.
-- **Reviewed automatic submits.** Automatic mode requires explicit Ollama approval before every Next and Submit. Use `--no-auto-submit` or uncheck automatic submission in the dashboard for manual review.
+- **Reviewed automatic submits.** Automatic mode requires explicit configured-LLM approval before every Next and Submit. Use `--no-auto-submit` or uncheck automatic submission in the dashboard for manual review.
 - **One job-site password, in your Keychain.** If you store one with `jobbot password` and set
   `automation.create_accounts: true`, jobbot signs in to job sites with it, and when a site has no account
   for you it signs up with it, then verifies by email. The password goes from the macOS Keychain straight
