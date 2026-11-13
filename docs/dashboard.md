@@ -11,7 +11,7 @@ profile and logs as the commands.
 | --- | --- |
 | **Jobs** | Ranked roles with fit scores and reasons, a text filter and minimum fit, and views: **New** (roles you can apply to), **Possibly applied**, **Applied**, **Dismissed**, **Excluded** (companies in `preferences.exclude_companies`, which `apply` skips), **All**, each with its count. Tick roles (or **Select top** *N*, the best *N* in the current view and order, or **Select all shown**) and click **Apply to selected** (or **Dry run**). Applied and dismissed roles can't be ticked |
 | **Runs** | The running batch (live activity, queue, questions for you, the final Submit) and earlier runs. After a run: what needs you, with the reason, **Open posting** and **Retry** / **Retry all**. History survives restarts |
-| **Applications** | Every application with status pills and history; click one to change its status, notes, company, role or posting link; add applications made elsewhere |
+| **Applications** | Every application with status pills, the recorded **Resume used**, and history; click one to see the resume key and change its status, notes, company, role or posting link; add applications made elsewhere. Applications imported without resume information show **Not recorded** |
 | **Actions** | Run Scan, Rank, and Gmail sync in the background and watch their output; connect Gmail |
 | **Logs** | What `apply` filled, corrected and checked, page by page, with a filter |
 | **Profile** | Edit `profile.yaml`, including learned answers. Invalid YAML is refused, and a backup is kept |
