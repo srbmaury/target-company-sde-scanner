@@ -89,9 +89,13 @@ SCAN_JS = r"""
     let node = el;
     for (let i = 0; i < 6 && node; i++) {
       node = parentOf(node);
-      if (!node || !node.querySelector) break;
+      if (!node || !node.querySelector || ['FORM', 'BODY', 'HTML'].includes(node.tagName)) break;
+      // A broad wrapper may contain a different field's heading. Never borrow
+      // a label explicitly associated with another control.
+      if (node.querySelectorAll('input:not([type="hidden"]), select, textarea, button[aria-haspopup="listbox"]').length > 1) break;
       const cand = node.querySelector(':scope > label, :scope > legend, :scope > [class*="label" i], :scope > [class*="question" i], :scope > [class*="title" i]');
-      if (cand && !cand.contains(el) && meaningful(textOf(cand))) return caption(textOf(cand), 'nearby heading');
+      if (cand && !cand.contains(el) && (!cand.control || cand.control === el) && meaningful(textOf(cand)))
+        return caption(textOf(cand), 'nearby heading');
     }
     const placeholder = clean(el.getAttribute('placeholder'));
     const name = clean(el.name);
