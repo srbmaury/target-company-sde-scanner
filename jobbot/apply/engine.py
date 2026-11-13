@@ -91,6 +91,8 @@ class Session:
         self.auto_next = auto_next
         self._ats = None
         self._consent_approved = False   # one yes covers every consent box in the current application
+        self._consent_allowed = set()
+        self._consent_declined = set()
         from ..memory import Memory
 
         self.memory = Memory.for_profile(profile)
@@ -842,8 +844,8 @@ class Session:
                 except Exception:
                     pass
 
-        consents = [c for c in consents if c["label"] not in getattr(self, "_consent_declined", set())]
-        if self._dry_validation() and any(c["label"] not in getattr(self, "_consent_allowed", set()) for c in consents):
+        consents = [c for c in consents if c["label"] not in self._consent_declined]
+        if self._dry_validation() and any(c["label"] not in self._consent_allowed for c in consents):
             self._consent_approved = False
         if consents and not self._consent_approved:
             self._preview_page(page)
@@ -851,8 +853,6 @@ class Session:
                 "Approve these consent choices?\n  - "
                 + "\n  - ".join(c["label"][:160] for c in consents))
             if self._consent_approved:
-                if not hasattr(self, "_consent_allowed"):
-                    self._consent_allowed = set()
                 self._consent_allowed.update(c["label"] for c in consents)
             else:
                 self._consent_declined.update(c["label"] for c in consents)
