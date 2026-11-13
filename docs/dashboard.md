@@ -14,7 +14,8 @@ profile and logs as the commands.
 | **Applications** | Every application with status pills, the recorded **Resume used**, and history; click one to see the resume key and change its status, notes, company, role or posting link; add applications made elsewhere. Applications imported without resume information show **Not recorded** |
 | **Actions** | Run Scan, Rank, and Gmail sync in the background and watch their output; connect Gmail |
 | **Logs** | What `apply` filled, corrected and checked, page by page, with a filter |
-| **Profile** | Edit `profile.yaml`, including learned answers. Invalid YAML is refused, and a backup is kept |
+| **Profile** | Edit candidate details and fixed answers. Hosted accounts also have a resume library with upload, preview, rename, and delete |
+| **Docs** | Read setup and troubleshooting guides without leaving the dashboard |
 
 **Refresh jobs** (top of the Jobs tab) syncs Gmail first (if connected, so roles you applied to elsewhere drop out), then runs `scan` and `rank`, shows progress beside the
 button, and reloads the list when it finishes.
@@ -50,7 +51,9 @@ The dashboard listens only on `127.0.0.1`, and each run generates a random acces
 embedded in the page, so other websites in your browser can't call it. Stop it with Ctrl+C.
 
 While a run is going, a strip at the top of the **Jobs** tab shows its progress ("Applying 3/10 · a question is waiting for you") with a **View run** link.
-The **Docs** tab shows these pages.
+In manual runs, open **Review filled fields** in Runs to see the page's captured values and their
+sources. **Review and submit** opens a separate confirmation. A dry run has no submission action.
+These manual controls do not change the local automatic-submission option.
 
 ---
 
@@ -59,4 +62,6 @@ The **Docs** tab shows these pages.
 ## Use the same account from multiple machines
 
 See [Private Jobbot account with MongoDB](accounts.md) for a hosted dashboard with Google sign-in,
-persistent profile and resumes, application tracking, and Gmail OAuth without port forwarding.
+persistent profile and resumes, application tracking, and Gmail OAuth without a local OAuth
+callback. The hosted dashboard does not launch the application browser. Jobs and Runs show that
+limitation explicitly. Use the local dashboard to fill or dry-run applications.

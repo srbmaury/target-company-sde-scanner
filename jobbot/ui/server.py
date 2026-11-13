@@ -263,8 +263,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 token = self.account.finish(get("state"), self._cookie(self.flow_cookie), get("code"), self._session())
             except (accounts.AccountError, gmail.GmailError, OSError, ValueError, KeyError):
-                return self._send(400, "Google sign-in or Gmail consent failed. Return to Jobbot and try again.",
-                                  "text/plain; charset=utf-8", [self._set_cookie(self.flow_cookie, "", 0)])
+                return self._static("/auth-error.html", status=400,
+                                    headers=[self._set_cookie(self.flow_cookie, "", 0)])
             headers = [self._set_cookie(self.flow_cookie, "", 0)]
             if token:
                 headers.append(self._set_cookie(self.session_cookie, token, 7 * 86400))
@@ -505,8 +505,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._auth_get(url)
         if self.account and not self.account.session(self._session()):
             if url.path in ("/", "/index.html"):
-                return self._static("/login.html")
-            if url.path == "/style.css":
+                expired = urllib.parse.parse_qs(url.query).get("session") == ["expired"]
+                return self._static("/login.html", expired=expired)
+            if url.path in ("/style.css", "/favicon.svg"):
                 return self._static(url.path)
             return self._send(401, {"error": "Sign in to Jobbot."})
         if self.account and url.path.startswith("/resume-file/"):
@@ -714,7 +715,7 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             conn.close()
 
-    def _static(self, path):
+    def _static(self, path, *, status=200, headers=(), expired=False):
         name = "index.html" if path in ("/", "") else path.lstrip("/")
         file = (STATIC / name).resolve()
         if STATIC not in file.parents or not file.is_file():
@@ -722,10 +723,14 @@ class Handler(BaseHTTPRequestHandler):
         body = file.read_bytes()
         if name == "index.html":
             body = body.replace(b"__JOBBOT_TOKEN__", self.token.encode())
+        if name == "login.html" and expired:
+            body = body.replace(b"Sign in to Jobbot", b"Sign in to Jobbot again").replace(
+                b"Use the Google account configured for this dashboard.",
+                b"Your Jobbot session expired. Sign in to return to the dashboard.")
         ctype = mimetypes.guess_type(str(file))[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype.endswith("javascript"):
             ctype += "; charset=utf-8"
-        return self._send(200, body, ctype)
+        return self._send(status, body, ctype, headers)
 
 
 def make_server(port=0, account=None, bind="127.0.0.1"):

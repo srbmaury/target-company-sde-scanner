@@ -21,7 +21,7 @@ async function api(path, body) {
   }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
-    location.replace("/");
+    location.replace("/?session=expired");
     throw new Error("Sign in to Jobbot.");
   }
   if (res.status === 403 && /token/.test(data.error || "")) {
@@ -53,8 +53,12 @@ function recall(key) { try { return localStorage.getItem("jobbot." + key); } cat
 function showTab(name) {
   state.tab = name;
   remember("tab", name);
-  $$(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
-  $$(".panel").forEach((p) => (p.hidden = p.id !== "tab-" + name));
+  $$(".tabs [role=tab]").forEach((button) => {
+    const active = button.dataset.tab === name;
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  });
+  $$("main > [role=tabpanel]").forEach((p) => (p.hidden = p.id !== "tab-" + name));
   ({ jobs: () => { loadJobs(); loadTasks(); }, apply: () => { state.viewing = false; loadRun(); }, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile, docs: () => loadDocs() }[name])();
 }
 
@@ -84,15 +88,19 @@ async function loadSummary() {
   $("#account-signout").hidden = !s.account;
   $("#gmail-disconnect").hidden = !(s.account && s.gmail);
   $("#gmail-login").hidden = !!(s.account && s.gmail);
-  setAccountProfile(s.account);
-  $("#local-profile-hint").hidden = !!s.account;
-  if (s.account) {
-    $("#apply-selected").title = $("#dry-selected").title = "Run browser applications from local Jobbot.";
-  }
-  $("#apply-selected").disabled = $("#dry-selected").disabled = !state.selected.size || !!s.account;
+  $("#gmail-state").textContent = s.gmail ? "Connected" : "Not connected";
+  $("#gmail-state").classList.toggle("applied", Boolean(s.gmail));
+  $("#workspace-mode").textContent = s.account ? "Hosted account" : "Local workspace";
+  $("#workspace-mode").hidden = false;
+  $("#hosted-apply-note").hidden = !s.account;
+  $("#local-run-options").hidden = Boolean(s.account);
+  $("#local-run-hint").hidden = Boolean(s.account);
+  setAccountProfile(Boolean(s.account));
+  setRunAvailability();
   $("#gmail-sync").disabled = !s.gmail;
   const sel = $("#apps-status");
   if (sel.options.length === 1) s.statuses.forEach((st) => sel.add(new Option(st, st)));
+  if (state.tab === "logs") renderLogs();
 }
 
 // ---------- jobs ----------
@@ -189,13 +197,22 @@ function selectable() {
 }
 
 // ---------- selection & apply runs ----------
+function setRunAvailability() {
+  const hosted = Boolean(state.summary?.account);
+  for (const button of [$("#apply-selected"), $("#dry-selected")]) {
+    button.disabled = !state.summary || hosted || !state.selected.size;
+    if (hosted) button.setAttribute("aria-describedby", "hosted-apply-note");
+    else button.removeAttribute("aria-describedby");
+  }
+}
+
 function updateSelection() {
   if (state.pendingRun && !state.runStarting) cancelRun();
   const n = state.selected.size;
   $("#notdup-selected").hidden = state.view !== "possible";
   $("#notdup-selected").disabled = !n;
   $("#sel-count").textContent = n ? `${n} selected` : "None selected";
-  $("#apply-selected").disabled = $("#dry-selected").disabled = !n || !!state.summary?.account;
+  setRunAvailability();
   $("#sel-clear").classList.toggle("invisible", !n);   // keeps its space: buttons never shift under the cursor
   const keys = selectable(), picked = keys.filter((k) => state.selected.has(k)).length;
   const all = keys.length > 0 && picked === keys.length;
@@ -224,7 +241,7 @@ function selectAll(on) {
 
 function startRun(dry) {
   const jobs = Array.from(state.selected);
-  if (!jobs.length) return;
+  if (!jobs.length || !state.summary || state.summary.account) return;
   dry = dry || ($("#validate-steps").checked && !$("#auto-submit").checked);
   state.pendingRun = { jobs, dry_run: dry || $("#validate-steps").checked, unattended: $("#unattended").checked, validation: $("#validate-steps").checked, auto_next: $("#unattended").checked || !$("#validate-steps").checked };
   if (!dry && $("#auto-submit").checked) {
@@ -308,7 +325,9 @@ function renderRun(run) {
   if (run.status === "idle") {
     $("#run-title").textContent = "No runs yet";
     $("#run-status").textContent = ""; $("#run-progress").textContent = "";
-    $("#prompt").innerHTML = `<div class="empty"><p><b>To start a run:</b> tick roles in the Jobs tab, then <b>Apply to selected</b>
+    $("#prompt").innerHTML = state.summary?.account
+      ? '<div class="workspace-notice"><div><strong>Browser runs are local</strong><p>The hosted dashboard does not launch Chrome or display local run history.</p></div><button type="button" data-go="docs">View setup guide</button></div>'
+      : `<div class="empty"><p><b>To start a run:</b> tick roles in the Jobs tab, then <b>Apply to selected</b>
       (or <b>Dry run</b> to fill and check without submitting).</p><p>Tick <b>Don't stop for me</b> to run the whole batch unattended:
       jobs that need you are listed here, and finished applications wait for your Submit.</p></div>`;
     $("#feed").innerHTML = ""; $("#queue").innerHTML = ""; $("#needs").innerHTML = ""; $("#run-stop").hidden = true;
@@ -318,7 +337,8 @@ function renderRun(run) {
   const when = (run.started || "").replace("T", " ").slice(0, 16);
   $("#run-title").textContent = (run.history ? (state.viewing ? "Run of " + when : "Last run · " + when) + " · " : "")
     + (run.dry_run ? "Dry run" : run.unattended ? "Unattended run" : "Applying");
-  $("#run-status").textContent = run.status;
+  $("#run-status").textContent = ({ starting: "Starting", running: "Filling", waiting: "Needs review",
+    done: "Finished", failed: "Failed", stopped: "Stopped" })[run.status] || run.status;
   $("#run-status").className = "pill " + ({ waiting: "maybe", running: "interview", done: "applied", failed: "rejected", stopped: "withdrawn" }[run.status] || "");
   const done = Object.keys(run.results).length;
   $("#run-progress").textContent = run.jobs.length ? `${done} of ${run.jobs.length} finished` : "";
@@ -438,12 +458,16 @@ function renderPrompt(p) {
   const q = `<div class="q">${esc(p.question || "")}</div>`;
   let html = "";
   if (p.kind === "action") {
-    const labels = { submit: p.check_ok ? "Submit application" : "Submit anyway", next: "Next step", refill: "Revise and re-check", done: "I submitted it myself", quit: "Quit without submitting" };
+    const labels = { submit: p.check_ok ? "Review and submit" : "Review unresolved issues", next: "Next step", refill: "Revise and re-check", done: "I submitted it myself", quit: "Quit without submitting" };
     // With problems open, re-checking is the safe default; Submit is only primary once every check passed.
     const primary = p.check_ok ? (p.final ? "submit" : "next") : "refill";
     const head = p.final && p.check_ok ? "Final step: every check passed" : p.check_ok ? "Review the page in Chrome" : "The check found problems";
     const job = currentJob();
-    const problems = p.check_ok ? [] : ((currentAudit() || {}).problems || []);
+    const audit = currentAudit();
+    const problems = p.check_ok ? [] : (audit?.problems || []);
+    const fields = (audit?.fields || []).filter((f) => f.label && !/password|verification code|one.time code/i.test(f.label) && f.kind !== "password");
+    const review = fields.length ? `<details class="field-review"><summary>Review filled fields (${fields.length})</summary>
+      <dl>${fields.map((f) => `<div><dt>${esc(f.label)}</dt><dd>${esc(f.actual || "Blank")}${f.answer_source ? ` <span class="pill">${esc(f.answer_source)}</span>` : ""}</dd></div>`).join("")}</dl></details>` : "";
     const hint = p.final && p.check_ok
       ? (p.dry_run ? "Dry run: this is the last page and nothing will be submitted. Look it over in Chrome, then quit." : "Look over the application in jobbot's Chrome window, then submit.")
       : problems.length ? "Fix these in jobbot's Chrome window, or correct a field below, then re-check:" : "Look over the page in jobbot's Chrome window, then choose:";
@@ -451,7 +475,13 @@ function renderPrompt(p) {
       ${job ? `<div class="prompt-job">${esc(job.company)} — ${esc(job.title)}</div>` : ""}
       <div class="q">${hint}</div>
       ${problems.length ? `<ul class="problems">${problems.slice(0, 8).map((l) => `<li>${esc(l.replace(/^page says: /, ""))}</li>`).join("")}</ul>` : ""}
-      <div class="actions">${p.choices.filter((c) => !(p.dry_run && c === "done")).map((c) => `<button data-answer="${c}" class="${c === primary ? "primary" : ""}">${esc(labels[c] || c)}</button>`).join("")}</div>
+      ${review}
+      <div class="actions">${p.choices.filter((c) => !(p.dry_run && ["done", "submit"].includes(c))).map((c) =>
+        `<button ${c === "submit" ? 'data-submit-review' : `data-answer="${esc(c)}"`} class="${c === primary ? "primary" : ""}">${esc(labels[c] || c)}</button>`).join("")}</div>
+      ${!p.dry_run && p.choices.includes("submit") ? `<div class="workspace-notice submit-review" data-submit-confirm hidden>
+        <div><strong>Submit this application?</strong><p>${p.check_ok ? "This sends one application to the employer." : "Some checks have not passed. Confirm only if you reviewed the employer page and want to send it."}</p></div>
+        <div class="actions"><button data-submit-back>Back to review</button><button class="primary" data-answer="submit">Confirm submission</button></div>
+      </div>` : ""}
       ${p.dry_run ? `<p class="reason">Dry run: submitting is disabled.</p>` : ""}</div>`;
   } else if (p.kind === "confirm") {
     html = `<div class="prompt"><h4>Confirm</h4>${q}<div class="actions"><button class="primary" data-answer="true">Yes</button><button data-answer="false">No</button><button data-answer="skip">Skip this role</button></div></div>`;
@@ -482,7 +512,7 @@ function renderPrompt(p) {
 
 async function answerPrompt(raw) {
   const p = state.run && state.run.prompt;
-  if (!p) return;
+  if (!p || (raw === "submit" && (p.dry_run || !p.choices?.includes("submit")))) return;
   let value = null;
   if (raw === "text") value = $("#p-text").value;
   else if (raw === "true") value = true;
@@ -651,12 +681,15 @@ function renderLogs() {
   $("#logs").innerHTML = lines.map((l) => {
     const cls = l.includes(" ! ") || /\s!\s/.test(l) ? "warn" : l.includes("===") ? "head" : "";
     return `<span class="${cls}">${esc(l)}</span>`;
-  }).join("\n") || "No log lines. `apply` writes here as it fills applications.";
+  }).join("\n") || (q ? "No log lines match this filter." : state.summary?.account
+    ? "Browser logs are available in the local dashboard. Check Actions for hosted task output."
+    : "No log lines yet. Application runs write here as they fill applications.");
 }
 
 // ---------- profile and resume library ----------
 function setAccountProfile(hosted) {
   $("#account-resume").hidden = !hosted;
+  $("#local-profile-heading").hidden = hosted;
   $("#local-profile-hint").hidden = hosted;
   $("#profile-editor-heading").textContent = hosted ? "Advanced settings · Profile YAML" : "Profile YAML";
   if (state.profileHosted !== hosted) $("#profile-advanced").open = !hosted;
@@ -971,7 +1004,7 @@ async function loadDocs(name = state.doc || "README", anchor = "") {
   state.doc = name;
   $("#docs-page").innerHTML = md(page.text);
   const target = anchor && document.getElementById(anchor);
-  (target || $("#docs-page")).scrollIntoView({ block: "start" });
+  if (target) target.scrollIntoView({ block: "start" });
 }
 
 // ---------- wiring ----------
@@ -1017,7 +1050,26 @@ document.addEventListener("DOMContentLoaded", async () => {
       $("#resume-dialog-submit").disabled = $("#resume-dialog-close").disabled = false;
     }
   });
-  $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  const tabs = $$(".tabs [role=tab]");
+  tabs.forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  $(".tabs").addEventListener("keydown", (event) => {
+    const current = tabs.indexOf(event.target);
+    if (current < 0) return;
+    const vertical = getComputedStyle($(".tabs")).flexDirection === "column";
+    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+      : event.key === (vertical ? "ArrowDown" : "ArrowRight") ? (current + 1) % tabs.length
+      : event.key === (vertical ? "ArrowUp" : "ArrowLeft") ? (current - 1 + tabs.length) % tabs.length : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    tabs[next].click();
+    tabs[next].focus();
+  });
+  $("main").addEventListener("click", (event) => {
+    const link = event.target.closest("button[data-go]");
+    if (!link) return;
+    showTab(link.dataset.go);
+    tabs.find((tab) => tab.dataset.tab === link.dataset.go)?.focus();
+  });
   const reloadJobs = debounce(loadJobs);
   ["#jobs-q", "#jobs-min"].forEach((s) => $(s).addEventListener("input", reloadJobs));
   $("#notdup-selected").addEventListener("click", markNotDuplicates);
@@ -1039,6 +1091,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#sel-top").addEventListener("click", () => selectTop(Math.max(1, parseInt($("#sel-top-n").value, 10) || 10)));
   $("#sel-all-box").addEventListener("change", (ev) => selectAll(ev.target.checked));
   $("#prompt").addEventListener("click", (ev) => {
+    const review = ev.target.closest("[data-submit-review], [data-submit-back]");
+    if (review) {
+      const confirm = $("[data-submit-confirm]", $("#prompt"));
+      confirm.hidden = review.hasAttribute("data-submit-back");
+      (confirm.hidden ? $("[data-submit-review]", $("#prompt")) : $("[data-submit-back]", confirm)).focus();
+      return;
+    }
     const b = ev.target.closest("button[data-answer]");
     if (b) answerPrompt(b.dataset.answer);
     const correction = ev.target.closest("button[data-correct]");
@@ -1096,7 +1155,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#logs-q").addEventListener("input", debounce(renderLogs, 150));
   $("#profile-save").addEventListener("click", saveProfile);
 
-  showTab(recall("tab") || "jobs");   // before any await, so a tab you click while it loads stays chosen
+  showTab(tabs.some((tab) => tab.dataset.tab === recall("tab")) ? recall("tab") : "jobs");   // before any await, so a tab you click while it loads stays chosen
   await loadSummary();
   loadRun();
   // Keeps the counts fresh and notices a restarted or stopped dashboard even when nothing else polls.

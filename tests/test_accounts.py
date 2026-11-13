@@ -174,6 +174,13 @@ class AccountTests(unittest.TestCase):
             return result
 
         self.assertIn(b"Continue with Google", request("/")[1])
+        self.assertIn(b"Your Jobbot session expired.", request("/?session=expired")[1])
+        self.assertEqual(request("/favicon.svg")[0], 200)
+        status, error_page, headers = request("/auth/google/callback?code=invalid")
+        self.assertEqual(status, 400)
+        self.assertIn(b"Google connection failed", error_page)
+        self.assertIn("text/html", headers["Content-Type"])
+        self.assertIn("Max-Age=0", headers["Set-Cookie"])
         self.assertEqual(request("/api/profile")[0], 401)
         self.assertEqual(request("/api/profile", cookie=session, host="wrong.example.com")[0], 403)
         self.assertEqual(request("/api/profile", {}, cookie=session, origin="https://wrong.example.com")[0], 403)
