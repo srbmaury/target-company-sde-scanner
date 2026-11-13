@@ -1078,7 +1078,7 @@ class ValidationPromptTest(unittest.TestCase):
         check = Check()
         session._ollama_review(Mock(inner_text=Mock(return_value="")), resolver, {}, check, 1)
         self.assertFalse(check.ok)
-        self.assertIn("Ollama did not approve this step.", check.errors)
+        self.assertIn("LLM did not approve this step.", check.errors)
         session.llm.review_application_step.return_value["issues"] = [{"field_id": "auth", "reason": "wrong", "expected": "No"}]
         check = Check()
         session._ollama_review(Mock(inner_text=Mock(return_value="")), resolver, {}, check, 1)
