@@ -124,7 +124,9 @@ def cmd_scan(args):
         print(f"Not in registry: {', '.join(missing)}")
     new = set(tracker.upsert_jobs(conn, results))
     errors = [k for k, v in coverage.items() if v.startswith("error")]
-    gone = tracker.mark_gone(conn, [r["url"] for r in results], [k for k in coverage if k not in errors])
+    # only boards read completely: a failed detail fetch or a capped search must not hide live roles
+    complete = [k for k in coverage if k not in errors and "incomplete" not in coverage[k]]
+    gone = tracker.mark_gone(conn, [r["url"] for r in results], complete)
     print(f"{len(results)} matching roles across {len(coverage)} companies; {len(new)} new"
           + (f"; {gone} no longer listed." if gone else "."))
     down = sorted(k for k in errors if coverage[k] == "error: SiteMaintenance")

@@ -13,7 +13,18 @@ import urllib.request
 
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 DEFAULT_MODEL = os.environ.get("JOBBOT_MODEL", "qwen2.5:7b")
-MODEL_SLOTS = threading.BoundedSemaphore(2)  # shared by application workers and review batches
+# Concurrent model calls: as many as Ollama serves at once (OLLAMA_NUM_PARALLEL, default 4), shared by
+# application workers and review batches. Waiting for a slot is bounded too (SLOT_WAIT): an application must
+# never hang in a queue behind other browsers.
+MODEL_SLOTS = threading.BoundedSemaphore(max(1, int(os.environ.get("OLLAMA_NUM_PARALLEL", "4") or 4)))
+SLOT_WAIT = 300
+# The whole resume goes to the model (skills usually come last); yours are under 4,000 characters. Calls that
+# carry it ask for an 8k-token window: Ollama's default 4k could cut the prompt.
+RESUME_CHARS = 6000
+# One context size for every call: Ollama reloads the model whenever num_ctx changes, and reviews (16k) mixed with
+# answers (the 4k default) made a run reload it again and again.
+CONTEXT_TOKENS = 16384
+ANSWER_CONTEXT = CONTEXT_TOKENS
 
 GROUNDING = (
     "You help a job candidate fill in applications. Use only facts from the candidate profile and "
@@ -74,13 +85,16 @@ class LLM:
             body["format"] = "json"
         if self.model.split(":")[0] in THINKING_MODELS:
             body["think"] = False   # reviews and answers want the result, not minutes of reasoning first
-        if context_tokens:
-            body["options"]["num_ctx"] = context_tokens
+        body["options"]["num_ctx"] = context_tokens or CONTEXT_TOKENS
         req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
-        with MODEL_SLOTS:
+        if not MODEL_SLOTS.acquire(timeout=SLOT_WAIT):
+            raise TimeoutError(f"the local model was busy for {SLOT_WAIT // 60} minutes")
+        try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 content = json.load(resp)["message"]["content"]
+        finally:
+            MODEL_SLOTS.release()
         if as_json:
             try:
                 return json.loads(content)
@@ -111,7 +125,7 @@ class LLM:
             "field_id, reason, expected; expected may be empty when unknown). Approve only when all "
             "fields are reviewed and correct and no required blocker remains."
         )
-        return self.chat(instructions, prompt, as_json=True, temperature=0, context_tokens=16384)
+        return self.chat(instructions, prompt, as_json=True, temperature=0, context_tokens=CONTEXT_TOKENS)
 
     def rank(self, job, resumes, profile_summary):
         """Score fit 0-100 and choose the best resume key."""
@@ -135,14 +149,14 @@ class LLM:
         locations), for the model to map onto the closest option."""
         listing = "\n".join(f"{i}: {o}" for i, o in enumerate(options))
         prompt = (
-            f"Candidate facts: {json.dumps(profile_summary)}\nResume:\n{resume_text[:2500]}\n\n"
+            f"Candidate facts: {json.dumps(profile_summary)}\nResume:\n{resume_text[:RESUME_CHARS]}\n\n"
             + (f"Job: {job.get('title')} at {job.get('company')}\n\n" if job else "")
             + f"Question: {question}\nOptions:\n{listing}\n\n"
             + (f"The candidate's own answer is: {hint}. Choose the option that means the same.\n\n" if hint else "")
             + INFERENCE + "\n\nReturn JSON {\"reasoning\": one or two sentences, \"basis\": \"fact\" or "
             "\"inference\" or \"unknown\", \"index\": the option number, or -1 when the basis is unknown}."
         )
-        out = self.chat(GROUNDING, prompt, as_json=True)
+        out = self.chat(GROUNDING, prompt, as_json=True, context_tokens=ANSWER_CONTEXT)
         idx = out.get("index", -1)
         if out.get("basis") == "unknown" or not isinstance(idx, int) or not 0 <= idx < len(options):
             return None
@@ -151,7 +165,7 @@ class LLM:
 
     def draft(self, question, job, profile_summary, resume_text, max_words=120):
         prompt = (
-            f"Candidate facts: {json.dumps(profile_summary)}\nResume:\n{resume_text[:3500]}\n\n"
+            f"Candidate facts: {json.dumps(profile_summary)}\nResume:\n{resume_text[:RESUME_CHARS]}\n\n"
             f"Job: {job.get('title')} at {job.get('company')}\n{(job.get('description') or '')[:2500]}\n\n"
             f"Application question: {question}\n\n"
             f"Write the candidate's answer in first person, at most {max_words} words, plain text, no "
@@ -159,7 +173,7 @@ class LLM:
             "resume does not mention is answered \"No\" (optionally naming the closest related experience). "
             + INFERENCE + " If the facts give no basis at all for an answer, reply with exactly UNKNOWN."
         )
-        out = self.chat(GROUNDING, prompt, temperature=0.4).strip()
+        out = self.chat(GROUNDING, prompt, temperature=0.4, context_tokens=ANSWER_CONTEXT).strip()
         # "UNKNOWN", or a refusal like "The provided facts don't say", is not an answer to put in a form
         if re.fullmatch(r"\W*unknown\W*", out, re.I) or re.search(
                 r"(facts|information|profile|resume) (provided |given )?(do(es)? not|don.t|doesn.t) "
@@ -180,7 +194,7 @@ class LLM:
         else:
             shape = "the text to type, as short as the field expects, profile values copied exactly"
         prompt = (
-            f"CANDIDATE PROFILE (true facts):\n{facts}\n\nRESUME:\n{(resume_text or '')[:2000]}\n\n"
+            f"CANDIDATE PROFILE (true facts):\n{facts}\n\nRESUME:\n{(resume_text or '')[:RESUME_CHARS]}\n\n"
             + (f"JOB: {job.get('title')} at {job.get('company')}, located in {job.get('location')}\n\n" if job else "")
             + f"FORM FIELD: {question}\n"
             + (f"OPTIONS:\n{listing}\n" if kind == "choice" else "")
@@ -199,6 +213,6 @@ class LLM:
             + ("\"suggestion_fits\": true or false, " if suggestion else "")
             + "\"basis\": \"fact\" or \"inference\" or \"unknown\", \"answer\": " + shape + "}."
         )
-        out = self.chat(GROUNDING, prompt, as_json=True, temperature=0)
+        out = self.chat(GROUNDING, prompt, as_json=True, temperature=0, context_tokens=ANSWER_CONTEXT)
         self.last_reasoning = str(out.get("reasoning", ""))[:300]
         return {"fits": out.get("suggestion_fits") is True, "basis": out.get("basis"), "answer": out.get("answer")}

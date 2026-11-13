@@ -25,6 +25,16 @@ def format_value(profile, field, label, value, has_dial_picker=False):
             return national  # a phone widget reserves its own prefix characters
         return full
     numeric = field.get("type") == "number" or field.get("inputmode") in ("numeric", "decimal")
+    wants_number = re.search(r"\blpa\b|lakhs?|in (inr|rupees|numbers?)|\(numbers? only\)|numeric", label, re.I)
+    if not numeric and wants_number and re.search(r"salary|compensation|\bctc\b|package", label, re.I):
+        # A text box that asks for the amount in LPA ("Current CTC in LPA"): the number, not the sentence
+        # ("INR 21.1 LPA fixed + ..."), which sites trim to "21.1" or reject.
+        key = "current" if re.search(r"current|present", label, re.I) else "expected"
+        lpa = profile.get(f"work.{key}_ctc_lpa")
+        if lpa is not None:
+            if re.search(r"\blpa\b|lakh", label, re.I):
+                return str(lpa)
+            return str(int(Decimal(str(lpa)) * 100000))
     if numeric and re.search(r"salary|compensation|\bctc\b", label, re.I):
         key = "current" if re.search(r"current|present", label, re.I) else "expected"
         lpa = profile.get(f"work.{key}_ctc_lpa")

@@ -77,6 +77,9 @@ def connect(path=None):
     if "gone" not in cols:   # added later: the last scan read the company's board and the role was not on it
         conn.execute("ALTER TABLE jobs ADD COLUMN gone INTEGER DEFAULT 0")
         conn.commit()
+    if "misses" not in cols:   # added later: consecutive complete scans that did not find the role
+        conn.execute("ALTER TABLE jobs ADD COLUMN misses INTEGER DEFAULT 0")
+        conn.commit()
     return conn
 
 
@@ -89,7 +92,7 @@ def upsert_jobs(conn, results):
         cur = conn.execute("SELECT 1 FROM jobs WHERE url = ?", (r["url"],))
         if cur.fetchone():
             conn.execute(
-                "UPDATE jobs SET last_seen=?, title=?, location=?, experience=?, evidence=?, description=?, gone=0 WHERE url=?",
+                "UPDATE jobs SET last_seen=?, title=?, location=?, experience=?, evidence=?, description=?, gone=0, misses=0 WHERE url=?",
                 (stamp, r["title"], r["location"], r["experience"], r["evidence"], r.get("description", ""), r["url"]),
             )
         else:
@@ -111,15 +114,21 @@ def get_job(conn, key):
     return conn.execute("SELECT rowid AS n, * FROM jobs WHERE url = ?", (key,)).fetchone()
 
 
+GONE_AFTER_MISSES = 2
+
+
 def mark_gone(conn, seen_urls, companies):
-    """After a scan: roles at `companies` (boards that were read without error) that the scan did not
-    return are no longer listed. A role that shows up again is un-marked by upsert_jobs."""
+    """After a scan: roles at `companies` (boards that were read completely and without error) that the scan
+    did not return count one miss; after GONE_AFTER_MISSES consecutive misses they are no longer listed. One
+    flaky scan never hides a live role. A role that shows up again is un-marked by upsert_jobs."""
     seen, companies = set(seen_urls), set(companies)
-    gone = [r["url"] for r in conn.execute("SELECT url, company FROM jobs WHERE gone = 0")
-            if r["company"] in companies and r["url"] not in seen]
-    conn.executemany("UPDATE jobs SET gone = 1 WHERE url = ?", [(u,) for u in gone])
+    missed = [r["url"] for r in conn.execute("SELECT url, company FROM jobs WHERE gone = 0")
+              if r["company"] in companies and r["url"] not in seen]
+    conn.executemany("UPDATE jobs SET misses = misses + 1 WHERE url = ?", [(u,) for u in missed])
+    conn.execute("UPDATE jobs SET gone = 1 WHERE gone = 0 AND misses >= ?", (GONE_AFTER_MISSES,))
     conn.commit()
-    return len(gone)
+    return conn.execute("SELECT COUNT(*) FROM jobs WHERE gone = 1 AND url IN (%s)" % ",".join("?" * len(missed)),
+                        missed).fetchone()[0] if missed else 0
 
 
 def list_jobs(conn, unranked=False, include_applied=False, include_dismissed=False, limit=None, include_gone=False):
@@ -194,7 +203,8 @@ def title_tokens(title):
     t = (title or "").lower()
     t = re.sub(r"\((?:[^)]*\d{4,}[^)]*|job number[^)]*)\)", " ", t)      # (200047960), (Job number: ...)
     t = re.sub(r"\b(r-?\d{4,}|jr\d+|\d{5,})\b", " ", t)                   # requisition ids
-    t = t.replace("sde", "software development engineer").replace("swe", "software engineer")
+    t = re.sub(r"\bsde(?=\b|[-\s]?\d)", "software development engineer", t)   # "SDE 2", "SDE-2", never "insider"
+    t = re.sub(r"\bswe(?=\b|[-\s]?\d)", "software engineer", t)
     words = re.findall(r"[a-z0-9+#]+", t)
     words = [_ROMAN.get(w, w) for w in words]
     return {w for w in words if w not in _TITLE_NOISE}
@@ -231,15 +241,16 @@ def applied_match(conn, url=None, company=None, title=None, _apps=None, first_se
     key = norm_company(company)
     if not key:
         return None, None
-    same_company = [a for a in apps if norm_company(a["company"]) == key]
-    for a in same_company:
+    # "Cisco Systems" is Cisco, "PHONEPE LIMITED" is PhonePe: the same test as everywhere else
+    at_company = [a for a in apps if norm_company(a["company"]) == key or same_company(a["company"], company)]
+    for a in at_company:
         if titles_match(a["title"], title):
             if a["url"] and url and a["url"] != url:
                 continue  # we know the exact posting applied to, and this is a different one
             if _reposted(a, posted, first_seen):
                 return "possible", a  # big employers reuse titles; this looks like a newer opening
             return "likely", a
-    for a in same_company:
+    for a in at_company:
         if a["title"].startswith("(role not stated"):
             return "possible", a
     return None, None
@@ -300,6 +311,8 @@ def add_application(conn, company, title, url=None, location=None, status="appli
     stamp = now()
     existing = find_application(conn, url) if url else None
     if existing:
+        if status in ("applied", "shortlisted") and existing["status"] not in ("applied", "shortlisted"):
+            return existing   # already further along (assessment, interview, offer, rejected...): keep it
         return update_status(conn, existing["id"], status, notes)
     cur = conn.execute(
         "INSERT INTO applications (url, company, title, location, status, resume, source, applied_on, updated_on, notes)"

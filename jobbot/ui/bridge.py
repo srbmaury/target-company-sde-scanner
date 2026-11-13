@@ -86,7 +86,8 @@ class ApplyRun:
     def _save(self):
         try:
             runs = [r for r in _load_runs() if r.get("id") != self.id]
-            snap = {**self.snapshot(), "events": self.events[-150:], "prompt": None}
+            # the live screenshot is for watching a run, not for history: it was 6 MB of a 7 MB file rewritten per result
+            snap = {**self.snapshot(), "events": self.events[-150:], "prompt": None, "preview": None}
             runs.append(snap)
             paths.ensure_home()
             RUNS_FILE().write_text(json.dumps(runs[-20:]), encoding="utf-8")

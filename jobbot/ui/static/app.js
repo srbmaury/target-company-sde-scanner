@@ -229,10 +229,7 @@ function startRun(dry) {
   $("#run-confirm-start").addEventListener("click", confirmRun);
   $("#run-confirm-cancel").addEventListener("click", cancelRun);
   $("#run-confirm-start").focus();
-  if (state.pendingRun.auto_submit) {
-    box.hidden = true;
-    confirmRun();
-  }
+  // Auto-submit runs send applications without asking again, so they are confirmed like every other run.
 }
 
 function cancelRun() {

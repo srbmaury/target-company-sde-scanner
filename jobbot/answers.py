@@ -79,7 +79,10 @@ def pick(answer, options):
 HEAR_RE = re.compile(r"how did you (hear|learn|find|come across)|where did you (hear|find|learn)|source of (application|referral)|"
                      r"how (did you|were you) (referred|introduced)", re.I)
 HEAR_PREFERENCES = ["company website", "career site", "careers site", "careers website", "careers page", "company career", "careers", "carrers", "career",
-                    "corporate website", "website", "linkedin", "job board", "online job", "internet", "other"]
+                    "corporate website", "website", "job board", "online job", "internet", "other"]   # never LinkedIn: jobbot finds roles on company boards
+# Bare words that are only a match as the whole option ("Carrers", "Careers"), never inside "Career Fair".
+HEAR_WHOLE_ONLY = {"careers", "carrers", "career", "website", "other"}
+HEAR_EVENT = re.compile(r"\b(fair|event|expo|conference|meetup|webinar|hackathon|campus)\b", re.I)
 EMPLOYMENT_RE = re.compile(r"employee id|employee number|(company|corporate|work) email|email address|worked|work(ing)? (for|at)|"
                            r"employed|employee|intern|contractor|contingent|consultant|vendor|alumni|former|previous(ly)?|rehire",
                            re.I)
@@ -214,7 +217,11 @@ class Resolver:
             from . import tracker
             try:
                 conn = tracker.connect()
-                return yes_no(any(tracker.same_company(company, r["company"]) for r in conn.execute("SELECT company FROM applications")))
+                try:
+                    rows = conn.execute("SELECT company FROM applications").fetchall()
+                finally:
+                    conn.close()   # asked on many applications in a long run: never leak a connection per question
+                return yes_no(any(tracker.same_company(company, r["company"]) for r in rows))
             except Exception:
                 return None
 
@@ -499,10 +506,15 @@ class Resolver:
         it really answers the question. quick=True never asks you.
         """
         question = re.sub(r"\s+", " ", question or "").strip(" *:")
+        self._q = question   # _fit reads it (a Yes against "Bengaluru"/"Others"): never the previous question's
         if not required and re.match(r"\s*if (yes|so|applicable|you (answered|selected|chose))\b", question, re.I):
             return None   # an optional follow-up to another answer ("If you answered Other, please specify"): blank
+        employer = self.job.get("company") or ""
+        past = list(self.p.get("work.past_employers") or []) + [self.p.get("work.current_company") or ""]
+        worked_here = bool(employer) and same_employer(employer, [e for e in past if e])
         if kind in ("text", "textarea") and re.match(r"\s*if (yes|so)\b", question, re.I) and \
-                re.search(r"visa|sponsor|relative|related to|family|worked (for|at)|employed by|government|convict|referr", question, re.I):
+                re.search(r"visa|sponsor|relative|related to|family|government|convict|referr" +
+                          ("" if worked_here else r"|worked (for|at)|employed by"), question, re.I):
             # the parent question ("Are you on a visa?", "Do you have relatives here?") is a No from your profile
             return Answer("Not applicable", "rule")
         none = self._none_option(question, options)
@@ -753,8 +765,12 @@ class Resolver:
             return Answer(preferred or "Company website", "rule")
         for wanted in [preferred] + HEAR_PREFERENCES:
             idx = pick(wanted, options) if wanted else None
-            if idx is None and wanted:
-                idx = next((i for i, o in enumerate(options) if wanted.lower() in o.lower()), None)
+            if idx is None and wanted and wanted.lower() not in HEAR_WHOLE_ONLY:
+                # "company website" inside "Company Website / Careers Page"; never an event ("Career Fair")
+                idx = next((i for i, o in enumerate(options) if wanted.lower() in o.lower()
+                            and not HEAR_EVENT.search(o)), None)
+            if idx is not None and HEAR_EVENT.search(options[idx]):
+                idx = None
             if idx is not None:
                 return Answer(idx, "rule", options[idx])
         if self.llm and self.llm.enabled:

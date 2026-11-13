@@ -62,7 +62,7 @@ class ParallelRegressionTest(unittest.TestCase):
         for conn in connections:
             conn.close.assert_called_once()
 
-    def test_model_requests_share_two_slots(self):
+    def test_model_requests_never_exceed_the_slots(self):
         from jobbot.llm import LLM
         lock = threading.Lock()
         active = peak = 0
@@ -83,9 +83,11 @@ class ParallelRegressionTest(unittest.TestCase):
             return Response(json.dumps({"message": {"content": "ok"}}).encode())
         model = LLM.__new__(LLM)
         model.enabled, model.model = True, "fixture"
-        with patch("jobbot.llm.urllib.request.urlopen", side_effect=response), ThreadPoolExecutor(max_workers=4) as pool:
-            self.assertEqual(list(pool.map(lambda _: model.chat("fixture", "fixture"), range(4))), ["ok"] * 4)
-        self.assertEqual(peak, 2)
+        # as many at once as Ollama serves (OLLAMA_NUM_PARALLEL), never more: here 3 slots, 6 callers
+        with patch("jobbot.llm.MODEL_SLOTS", threading.BoundedSemaphore(3)), \
+                patch("jobbot.llm.urllib.request.urlopen", side_effect=response), ThreadPoolExecutor(max_workers=6) as pool:
+            self.assertEqual(list(pool.map(lambda _: model.chat("fixture", "fixture"), range(6))), ["ok"] * 6)
+        self.assertEqual(peak, 3)
 
     def test_snapshot_results_are_detached(self):
         from jobbot.ui.bridge import ApplyRun

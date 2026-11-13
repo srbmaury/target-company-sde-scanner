@@ -300,6 +300,8 @@ class Handler(BaseHTTPRequestHandler):
                 conn.commit()
                 return self._send(200, {"ok": True})
             if parts == ["applications"]:
+                if not (body.get("company") or "").strip() or not (body.get("title") or "").strip():
+                    return self._send(400, {"error": "Enter both the company and the role title."})
                 app = tracker.add_application(conn, body["company"].strip(), body["title"].strip(),
                                               url=(body.get("url") or "").strip() or None,
                                               location=body.get("location") or None,

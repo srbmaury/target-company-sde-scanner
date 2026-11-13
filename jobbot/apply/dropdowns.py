@@ -28,6 +28,8 @@ def fill_dropdown(self, page, f, resolver, note):
     searchable, nested "prompt" lists (category -> sub-option)."""
     label = f["label"]
     loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
+    # What we typed and meant are per field: left over from an earlier field they would pick that field's answer here.
+    self._typed, self._guess = "", ""
     self._open_dropdown(loc)
     page.wait_for_timeout(700)
     options = self._visible_options(page)
@@ -89,11 +91,13 @@ def fill_dropdown(self, page, f, resolver, note):
                 loc.press_sequentially(getattr(self, "_typed", "") or chosen.split(",")[0], delay=60)
                 page.wait_for_timeout(1500)
                 again = self._visible_options(page)
-                i = again.index(chosen) if chosen in again else 0
-                for _ in range(i + 1):
-                    loc.press("ArrowDown")
-                loc.press("Enter")
-                page.wait_for_timeout(900)
+                if chosen in again:   # never Enter on whatever happens to be first
+                    for _ in range(again.index(chosen) + 1):
+                        loc.press("ArrowDown")
+                    loc.press("Enter")
+                    page.wait_for_timeout(900)
+                else:
+                    page.keyboard.press("Escape")
             except Exception:
                 pass
         after = self._visible_options(page)

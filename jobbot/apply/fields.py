@@ -196,16 +196,20 @@ BUTTONS_JS = r"""
   const re = new RegExp(pattern, 'i');
   const hits = [];
   const sel = 'button, input[type=submit], a[role=button], [role=button]' + (links ? ', a[href]' : '');
-  const walk = root => root.querySelectorAll(sel).forEach(el => {
-    const text = (el.innerText || el.value || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
-    if (re.test(text) && el.getClientRects().length && !el.disabled) {
-      const id = 'b' + Math.random().toString(36).slice(2, 9);
-      el.setAttribute('data-jobbot-btn', id);
-      hits.push({ id, text });
-    }
-  });
+  // Every open shadow root, however deeply nested (SmartRecruiters draws its whole form in web components),
+  // as the field scanner does: otherwise Next/Submit inside a nested component are never found.
+  const walk = root => {
+    root.querySelectorAll(sel).forEach(el => {
+      const text = (el.innerText || el.value || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+      if (re.test(text) && el.getClientRects().length && !el.disabled) {
+        const id = 'b' + Math.random().toString(36).slice(2, 9);
+        el.setAttribute('data-jobbot-btn', id);
+        hits.push({ id, text });
+      }
+    });
+    root.querySelectorAll('*').forEach(el => { if (el.shadowRoot) walk(el.shadowRoot); });
+  };
   walk(document);
-  document.querySelectorAll('*').forEach(el => { if (el.shadowRoot) walk(el.shadowRoot); });
   return hits;
 }
 """
