@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<body>
+<label id="location-label">Country</label>
+<div>
+  <div><span id="selected"></span><input role="combobox" aria-labelledby="location-label"></div>
+  <div role="listbox" hidden>
+    <div role="option">Select one</div>
+    <div role="option">India</div>
+    <div role="option">Sri Lanka</div>
+  </div>
+</div>
+<script>
+const input = document.querySelector('input');
+const menu = document.querySelector('[role=listbox]');
+input.addEventListener('click', () => { menu.hidden = false; });
+menu.addEventListener('click', ({target}) => {
+  if (target.getAttribute('role') !== 'option') return;
+  document.querySelector('#selected').textContent = target.textContent;
+  menu.hidden = true;
+});
+</script>
+</body></html>

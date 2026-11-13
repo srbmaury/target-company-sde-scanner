@@ -498,21 +498,43 @@ class Resolver:
             return pick(r"^none of (the above|these)|^none$|do(es)? not apply")
         return None
 
-    def resolve(self, question, kind="text", options=None, required=False, quick=False):
-        """kind: text | textarea | choice | checkbox. Returns Answer or None to leave blank.
+    def resolve(self, question, kind="text", options=None, required=False, quick=False, context=None):
+        """Resolve a field from profile facts, rules, optional model, or user input.
 
-        With the local model on, it answers every field: your profile answers, remembered answers and
-        the keyword rules only suggest, and the model keeps a suggestion (exactly as written) only when
-        it really answers the question. quick=True never asks you.
+        context describes the field without changing the label used by deterministic
+        rules. quick=True never asks you.
         """
         question = re.sub(r"\s+", " ", question or "").strip(" *:")
-        self._q = question   # _fit reads it (a Yes against "Bengaluru"/"Others"): never the previous question's
-        if not required and re.match(r"\s*if (yes|so|applicable|you (answered|selected|chose))\b", question, re.I):
+        self._q = question
+        context = {key: value for key, value in (context or {}).items() if value}
+        conditional = bool(re.match(r"^(if|when)\b", question, re.I))
+        parent = context.get("parent") or {}
+        if parent and conditional:
+            condition = re.match(r"^if\s+(yes|no|so)\b", question, re.I)
+            answer = str(parent.get("answer", "")).strip().lower()
+            applicable = condition and answer in ("yes", "no")
+            if applicable and answer != ("yes" if condition[1].lower() == "so" else condition[1].lower()):
+                return None
+            options = real_options(options or [])
+            key = (question.lower(), kind, tuple(options), repr(context))
+            if applicable and self.llm and self.llm.enabled and kind != "checkbox" and not any(
+                    pattern.search(question) for pattern in self.always_ask):
+                draft = self._cached(("follow-up", *key), lambda: self._by_model(question, kind, options, None, context))
+                if draft is not None and draft is not MODEL_FAILED:
+                    if kind != "textarea" or self.auto_drafts or not required:
+                        return draft
+                    if not quick:
+                        return self._cached(("follow-up review", *key), lambda: self._ask(
+                            question, kind, options, required, draft.value, reason="review the follow-up draft", learn=False))
+            return self._cached(("follow-up ask", *key), lambda: self._ask(
+                question, kind, options, required, None,
+                reason=f"follow-up to “{parent.get('question', '')}”", learn=False)) if required and not quick else None
+        if not parent and not required and re.match(r"\s*if (yes|so|applicable|you (answered|selected|chose))\b", question, re.I):
             return None   # an optional follow-up to another answer ("If you answered Other, please specify"): blank
         employer = self.job.get("company") or ""
         past = list(self.p.get("work.past_employers") or []) + [self.p.get("work.current_company") or ""]
         worked_here = bool(employer) and same_employer(employer, [e for e in past if e])
-        if kind in ("text", "textarea") and re.match(r"\s*if (yes|so)\b", question, re.I) and \
+        if not parent and kind in ("text", "textarea") and re.match(r"\s*if (yes|so)\b", question, re.I) and \
                 re.search(r"visa|sponsor|relative|related to|family|government|convict|referr" +
                           ("" if worked_here else r"|worked (for|at)|employed by"), question, re.I):
             # the parent question ("Are you on a visa?", "Do you have relatives here?") is a No from your profile
@@ -557,16 +579,18 @@ class Resolver:
         suggestion = self._by_rules(question, kind, options, False, quick=True)
         if suggestion is None and HEAR_RE.search(question):
             suggestion = self._how_did_you_hear(question, kind, options)
-        ans = self._cached(("model", question.lower(), kind, tuple(options)),
-                           lambda: self._by_model(question, kind, options, suggestion))
+        # Same label can mean different things in different sections of an application.
+        context_key = repr(context)
+        ans = self._cached(("model", question.lower(), kind, tuple(options), context_key),
+                           lambda: self._by_model(question, kind, options, suggestion, context))
         if ans is MODEL_FAILED:
             return self._by_rules(question, kind, options, required, quick)
         if ans is None and required and not quick:
-            return self._cached(("ask", question.lower(), kind, tuple(options)), lambda: self._ask(
+            return self._cached(("ask", question.lower(), kind, tuple(options), context_key), lambda: self._ask(
                 question, kind, options, required, None, reason="the model could not answer"))
         if ans is not None and ans.source == "model" and kind == "textarea" and required and not quick \
                 and not self.auto_drafts:
-            return self._cached(("review", question.lower(), kind, tuple(options)), lambda: self._ask(
+            return self._cached(("review", question.lower(), kind, tuple(options), context_key), lambda: self._ask(
                 question, kind, options, required, ans.value, reason="model draft, review it"))
         return ans
 
@@ -624,11 +648,12 @@ class Resolver:
                 return Answer(ok[0], "profile", opts[ok[0]])
         return self._fit(value, kind, real_options(options or []), "profile") if value is not None else None
 
-    def _by_model(self, question, kind, options, suggestion):
+    def _by_model(self, question, kind, options, suggestion, context=None):
         try:
             resume = self.p.resume_text(self.resume_key) if self.resume_key else ""
             shown = None if suggestion is None else (suggestion.display or str(suggestion.value))
-            out = self.llm.answer(question, kind, options, self.p.facts(), resume, self.job, shown)
+            out = self.llm.answer(question, kind, options, self.p.facts(), resume, self.job, shown,
+                                  **({"context": context} if context else {}))
         except Exception:
             return MODEL_FAILED   # model unreachable or timed out: the rules answer instead
         value = out["answer"]
@@ -659,12 +684,13 @@ class Resolver:
 
     @staticmethod
     def _option_index(value, options):
-        """The model's chosen option (its exact text, else the closest option) as an index, or None."""
+        """Accept only a unique visible option with the same text."""
         text = str(value if value is not None else "").strip()
         if not text:
             return None
-        exact = next((i for i, o in enumerate(options) if o.strip().lower() == text.lower()), None)
-        return exact if exact is not None else pick(text, options)
+        normalize = lambda s: " ".join(s.split()).casefold()
+        exact = [i for i, o in enumerate(options) if normalize(o) == normalize(text)]
+        return exact[0] if len(exact) == 1 else None
 
     def _by_rules(self, question, kind, options, required, quick):
         """Your profile answers, remembered answers and keyword rules (the model only as a last resort)."""

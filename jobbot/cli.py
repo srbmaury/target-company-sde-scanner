@@ -15,6 +15,7 @@
 """
 
 import argparse
+import os
 import re
 import sys
 import textwrap
@@ -32,13 +33,15 @@ def _profile():
 
 
 def _llm(args):
-    if getattr(args, "llm", "ollama") == "none":
+    provider = getattr(args, "llm", None) or llm_mod.DEFAULT_PROVIDER
+    if provider == "none":
         return llm_mod.LLM(enabled=False)
-    model = llm_mod.LLM(model=args.model)
+    model = llm_mod.LLM(model=args.model, provider=provider)
     if not model.enabled:
-        print("Ollama is not running; continuing without the local model (`ollama serve` to enable).")
+        hint = "Set OPENAI_API_KEY" if provider == "openai" else "Start `ollama serve`"
+        print(f"{provider} is unavailable ({hint}); continuing without model assistance.")
     elif not model.has_model():
-        print(f"Model {args.model} is not pulled; run `ollama pull {args.model}`. Continuing without it.")
+        print(f"Model {model.model} is not pulled; run `ollama pull {model.model}`. Continuing without it.")
         model.enabled = False
     return model
 
@@ -93,11 +96,13 @@ def cmd_doctor(args):
     else:
         ok = False
         print("✗ playwright missing: pip install -r requirements.txt")
-    model = llm_mod.LLM(model=args.model)
+    model = llm_mod.LLM(model=args.model, provider=args.llm)
     if model.enabled:
-        print(f"✓ ollama running; model {args.model}: {'ready' if model.has_model() else 'not pulled'}")
+        state = "configured (API access checked on first request)" if model.provider == "openai" else ("ready" if model.has_model() else "not pulled")
+        print(f"✓ {model.provider}: {model.model}: {state}")
     else:
-        print("- ollama not running (optional): brew install ollama && brew services start ollama")
+        hint = "set OPENAI_API_KEY" if model.provider == "openai" else "start ollama serve"
+        print(f"- {model.provider} unavailable (optional): {hint}")
     conn = tracker.connect()
     print(f"✓ tracker: {paths.DB} ({sum(tracker.stats(conn).values())} applications)")
     from . import gmail
@@ -166,7 +171,7 @@ def cmd_rank(args):
     from .rank import rank_jobs
 
     p, conn, model = _profile(), tracker.connect(), _llm(args)
-    how = f"local model {model.model}" if model.enabled else "keyword matching"
+    how = f"{model.provider} model {model.model}" if model.enabled else "keyword matching"
     print(f"Ranking with {how}…")
 
     def progress(i, total, job, score):
@@ -177,6 +182,10 @@ def cmd_rank(args):
 
 
 def cmd_apply(args):
+    from .accounts import enabled
+    if enabled():
+        sys.exit("Browser applications run in local mode. Unset JOBBOT_MONGODB_URI to use your local setup.")
+
     from .apply.engine import Session
     from .apply.runner import review_ready, run_jobs, select_targets
     from .apply.ui import TerminalUI
@@ -185,7 +194,7 @@ def cmd_apply(args):
     automatic = args.auto_submit and not args.dry_run
     unattended = args.unattended or args.auto_submit
     if args.auto_submit and not model.enabled:
-        sys.exit("Automatic applications require a running Ollama model for review.")
+        sys.exit(f"Automatic applications require a configured {model.provider} model for review.")
     if args.top and not tracker.list_jobs(conn, limit=args.top):
         sys.exit("No tracked roles. Run `jobbot scan` first.")
 
@@ -423,10 +432,21 @@ def cmd_password(args):
           + (f", plus one for {site}." if site else "."))
 
 
+def cmd_account_import(_args):
+    from .accounts import enabled, import_local
+
+    if not enabled():
+        sys.exit("Set JOBBOT_MONGODB_URI and the hosted account configuration before importing.")
+    imported, skipped = import_local()
+    print("Imported: " + (", ".join(imported) or "nothing"))
+    if skipped:
+        print("Kept existing hosted data: " + ", ".join(skipped))
+
+
 def cmd_ui(args):
     from .ui.server import serve
 
-    serve(port=args.port, open_browser=not args.no_open)
+    serve(port=args.port or int(os.getenv("PORT", "8765")), open_browser=not args.no_open)
 
 
 def cmd_logs(args):
@@ -448,15 +468,16 @@ def build_parser():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def with_llm(sp):
-        sp.add_argument("--llm", choices=("ollama", "none"), default="ollama")
-        sp.add_argument("--model", default=llm_mod.DEFAULT_MODEL)
+        sp.add_argument("--llm", choices=("ollama", "openai", "none"), default=llm_mod.DEFAULT_PROVIDER)
+        sp.add_argument("--model", default=None, help="model ID (default depends on provider)")
 
     sp = sub.add_parser("init", help="create profile.yaml in the repo folder (git-ignored)")
     sp.add_argument("--force", action="store_true", help="overwrite an existing profile")
     sp.set_defaults(fn=cmd_init)
 
     sp = sub.add_parser("doctor", help="check setup")
-    sp.add_argument("--model", default=llm_mod.DEFAULT_MODEL)
+    sp.add_argument("--llm", choices=("ollama", "openai"), default=llm_mod.DEFAULT_PROVIDER)
+    sp.add_argument("--model", default=None)
     sp.set_defaults(fn=cmd_doctor)
 
     sp = sub.add_parser("scan", help="find matching roles")
@@ -502,7 +523,7 @@ def build_parser():
                     help="never stop: jobs that need you are listed at the end, and each finished application waits "
                          "in its own tab for your Submit")
     sp.add_argument("--auto-submit", action=argparse.BooleanOptionalAction, default=True,
-                    help="apply without prompts; require Ollama approval before each Next and Submit (default)")
+                    help="apply without prompts; require configured LLM approval before each Next and Submit (default)")
     sp.set_defaults(fn=cmd_apply)
 
     sp = sub.add_parser("answers", help="review the local model's answers and correct wrong ones")
@@ -514,9 +535,12 @@ def build_parser():
     sp.set_defaults(fn=cmd_answers)
 
     sp = sub.add_parser("ui", help="open the local dashboard in your browser")
-    sp.add_argument("--port", type=int, default=8765)
+    sp.add_argument("--port", type=int, help="listen port (default: PORT or 8765)")
     sp.add_argument("--no-open", action="store_true", help="do not open a browser tab")
     sp.set_defaults(fn=cmd_ui)
+
+    sp = sub.add_parser("account-import", help="copy local profile, PDFs and tracker to an empty hosted account")
+    sp.set_defaults(fn=cmd_account_import)
 
     sp = sub.add_parser("resumes", help="read every resume now and list the skills each one shows")
     sp.set_defaults(fn=cmd_resumes)
@@ -571,7 +595,15 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    args.fn(args)
+    from .accounts import AccountError
+    from pymongo.errors import PyMongoError
+
+    try:
+        args.fn(args)
+    except AccountError as exc:
+        sys.exit(str(exc))
+    except PyMongoError:
+        sys.exit("Could not access MongoDB. Check the account database configuration.")
 
 
 if __name__ == "__main__":

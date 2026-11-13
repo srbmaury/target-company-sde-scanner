@@ -23,7 +23,7 @@ browser_profile_holder = browser.browser_profile_holder
 _matching_option = dropdowns.matching_option
 REVIEW_BATCH = review.REVIEW_BATCH
 from .unattended import NeedsYou, UnattendedUI
-from .verify import HEAR_MINE_RE, HEAR_OPTION_RE, READBACK_JS, check_page, matches
+from .verify import HEAR_MINE_RE, HEAR_OPTION_RE, READBACK_JS, check_page, matches, record_matches
 
 MAX_ROUNDS = 5           # review rounds per page before asking you
 TRUSTED = ("profile", "rule", "remembered")   # sources allowed to overwrite a value the site pre-filled
@@ -91,6 +91,8 @@ class Session:
         self.auto_next = auto_next
         self._ats = None
         self._consent_approved = False   # one yes covers every consent box in the current application
+        self._consent_allowed = set()
+        self._consent_declined = set()
         from ..memory import Memory
 
         self.memory = Memory.for_profile(profile)
@@ -208,8 +210,8 @@ class Session:
         self._consent_allowed = set()
         self._consent_declined = set()
         self._manual_records = {}
-        self._mine = set()   # labels jobbot has filled or confirmed during this application
-        self._broken = set()  # labels whose field could not be filled; not retried in later review rounds
+        self._mine = set()   # field ids jobbot has filled or confirmed during this application
+        self._broken = set()  # field ids whose field could not be filled; not retried in later review rounds
         self._log(f"=== {job['company']} — {job['title']} [{ats}] {url} resume={resume_key}")
         step = 1
         visits, began, check = {}, time.time(), None
@@ -378,8 +380,6 @@ class Session:
                 if hasattr(self.ui, "preview_page"):
                     self._preview_page(page)
             force = {m[0] for m in check.mismatches}
-            for label in force:
-                self._mine.discard(label)
             if changes == 0 and check.ok:
                 return total, check, rnd
             if changes == 0 and not force:
@@ -413,9 +413,9 @@ class Session:
             loc.select_option(label=value)
         else:
             loc.fill(value)
-        self._manual_records[target_id] = {"id": target_id, "kind": f["kind"], "label": f["label"], "expected": value}
-        self._broken.discard(f["label"])
-        self._mine.add(f["label"])
+        self._manual_records[target_id] = {"id": target_id, "kind": f["kind"], "label": f["label"], "expected": value, "source": "you"}
+        self._broken.discard(f["id"])
+        self._mine.add(f["id"])
         self.ui.info(f"Corrected {f['label']}; reading the value back again.")
 
     def _preview_page(self, page):
@@ -446,9 +446,13 @@ class Session:
                     ", ".join(o for o, selected in zip(f.get("options", []), value) if selected)
             got = readback.get(r["id"], {}) if r else {}
             actual = got.get("value", value)
-            status = ("verified" if got.get("found") and matches(r["expected"], actual, r["kind"]) else "needs revision") if r else ("present, review" if value else "required, empty" if f.get("required") else "optional, empty")
+            status = ("verified" if got.get("found") and record_matches(r, actual) else "needs revision") if r else ("present, review" if value else "required, empty" if f.get("required") else "optional, empty")
             out.append({"id": f["id"], "kind": f["kind"], "options": f.get("options", []), "label": f["label"], "required": f.get("required", False), "expected": r["expected"] if r else None,
-                        "actual": str(value if f["kind"] in ("radio", "yesno", "checkgroup") else actual), "status": status})
+                        "actual": str(value if f["kind"] in ("radio", "yesno", "checkgroup") else actual),
+                        "label_source": f.get("label_source"), "context": f.get("context") or {},
+                        "answer_source": r.get("source") if r else None,
+                        "status": ("question unclear, review" if f["kind"] != "file" and values.ambiguous_question(f) and not r
+                                   else status)})
         return out
 
     def _log(self, *lines):
@@ -464,9 +468,9 @@ class Session:
         except OSError:
             pass
 
-    def _trusted(self, resolver, label, kind, options=None):
-        """Your profile's answer for a field, from your own answers and rules only (no model, no asking)."""
-        ans = resolver.resolve(label, kind, options=options, required=False, quick=True)
+    def _trusted(self, resolver, label, kind, options=None, context=None):
+        """Only trusted answers may overwrite what the page already contains."""
+        ans = resolver.resolve(label, kind, options=options, required=False, quick=True, context=context)
         return ans if ans is not None and ans.source in TRUSTED else None
 
     def verify(self, page, report):
@@ -659,11 +663,12 @@ class Session:
         filled, skipped, consents, records = [], [], [], []
         mine = getattr(self, "_mine", set())
 
-        def note(f, label, ans, expected=None, target_id=None, kind=None, was=None):
-            mine.add(label)
+        def note(f, label, ans, expected=None, target_id=None, kind=None, was=None, source=None):
+            mine.add(f["id"])
             filled.append((f"{label} (was “{was[:30]}”)" if was else label, ans))
             record = {"id": target_id or f["id"], "kind": kind or f["kind"], "label": label,
-                      "expected": str(expected if expected is not None else getattr(ans, "display", "") or ans)}
+                      "expected": str(expected if expected is not None else getattr(ans, "display", "") or ans),
+                      "source": source or getattr(ans, "source", None)}
             if re.search(r"school|university|college|institut", label, re.I):
                 # an autocomplete may replace the full name with one of its own (e.g. "BHU University")
                 schools = self.profile.get("education.school") or []
@@ -671,7 +676,7 @@ class Session:
             records.append(record)
 
         fields = self._fields(page)
-        code_boxes = [f for f in fields if f["kind"] == "text" and CODE_RE.search(f["label"] or "")]
+        code_boxes = [f for f in fields if f["kind"] == "text" and not values.ambiguous_question(f) and CODE_RE.search(f["label"] or "")]
         if code_boxes and not all(f["value"] for f in code_boxes):
             code = self._code_from_email(page) or self.ui.ask_code(code_boxes[0]["label"])
             if code:
@@ -693,8 +698,18 @@ class Session:
         for f in fields:
             self._check_deadline()
             kind, label = f["kind"], f["label"] or "(unlabelled field)"
-            if kind not in ("file", "checkbox", "listbutton") and not values.meaningful_label(label):
-                if f["required"]:
+            if f.get("context", {}).get("parent") and records:
+                # A preceding control may have changed since the initial scan.
+                fresh = next((item for item in self._fields(page) if item["id"] == f["id"]), None)
+                if fresh is None:
+                    continue
+                f = fresh
+            context = f.get("context")
+            manual = getattr(self, "_manual_records", {}).get(f["id"])
+            if kind != "file" and values.ambiguous_question(f) and not manual:
+                if f["required"] and not real_options([f.get("text") or f.get("shown") or
+                                                       (f["value"] if isinstance(f["value"], str) else "")]) and not (
+                        isinstance(f["value"], list) and any(f["value"])):
                     skipped.append(f"{label} (question could not be identified)")
                 continue
             if re.search(r"captcha|type (?:the |below )?image text", label, re.I):
@@ -707,7 +722,6 @@ class Session:
                 if f["required"]:
                     skipped.append(f"{label} (requires your answer)")
                 continue
-            manual = getattr(self, "_manual_records", {}).get(f["id"])
             if manual and kind in ("text", "textarea", "select"):
                 value = f.get("text") if kind == "select" else f.get("value")
                 if not matches(manual["expected"], value or "", kind):
@@ -716,14 +730,14 @@ class Session:
                         loc.select_option(label=manual["expected"])
                     else:
                         loc.fill(manual["expected"])
-                    note(f, label, manual["expected"], expected=manual["expected"])
-                mine.add(label)
+                    note(f, label, manual["expected"], expected=manual["expected"], source="you")
+                mine.add(f["id"])
                 continue
             if kind == "file" or TRAP_RE.search(label):
                 continue
             if kind == "listbutton" and not f["label"]:
                 continue  # Workday's language picker and similar chrome
-            if label in getattr(self, "_broken", ()):
+            if f["id"] in getattr(self, "_broken", ()):
                 if f["required"]:
                     skipped.append(f"{label} (could not be filled; please check it)")
                 continue
@@ -731,15 +745,15 @@ class Session:
                 if kind in ("text", "textarea"):
                     was = None
                     if f["value"] and label not in force:
-                        if label in mine:
+                        if f["id"] in mine:
                             continue
-                        ans = self._trusted(resolver, label, kind)
+                        ans = self._trusted(resolver, label, kind, context=context)
                         if ans is None or matches(self._text_value(f, label, ans, has_dial_picker), f["value"], "text"):
-                            mine.add(label)
+                            mine.add(f["id"])
                             continue
                         was = f["value"]  # pre-filled by the site and wrong: correct it
                     else:
-                        ans = resolver.resolve(label, kind, required=f["required"])
+                        ans = resolver.resolve(label, kind, required=f["required"], context=context)
                     if ans:
                         loc = page.locator(f'[data-jobbot-id="{f["id"]}"]')
                         value = fit_length(self._text_value(f, label, ans, has_dial_picker), loc)
@@ -753,16 +767,16 @@ class Session:
                     was = None
                     current = f.get("text") or ""
                     if current and real_options([current]) and label not in force:
-                        if label in mine:
+                        if f["id"] in mine:
                             continue
-                        ans = self._trusted(resolver, label, "choice", opts)
+                        ans = self._trusted(resolver, label, "choice", opts, context)
                         if ans is None or ans.display == current:
-                            mine.add(label)
+                            mine.add(f["id"])
                             continue
                         was = current
                     else:
-                        ans = resolver.resolve(label, "choice", options=opts, required=f["required"])
-                    if ans:
+                        ans = resolver.resolve(label, "choice", options=opts, required=f["required"], context=context)
+                    if ans and opts.count(ans.display) == 1:
                         page.locator(f'[data-jobbot-id="{f["id"]}"]').select_option(label=ans.display)
                         note(f, label, ans, was=was)
                     elif f["required"]:
@@ -770,14 +784,14 @@ class Session:
                 elif kind in ("combo", "listbutton"):
                     if kind == "listbutton" and real_options([f["value"]]) and f["value"].lower() not in ("select one",) \
                             and label not in force:
-                        if label in mine:
+                        if f["id"] in mine:
                             continue
-                        want = self._trusted(resolver, label, "text")
+                        want = self._trusted(resolver, label, "text", context=context)
                         if want is None or matches(str(want.value), f["value"], "combo"):
-                            mine.add(label)
+                            mine.add(f["id"])
                             continue
                         # pre-filled with something your profile disagrees with: choose again below
-                    elif kind == "combo" and (f["value"] or f.get("shown") or label in mine) and label not in force:
+                    elif kind == "combo" and (f["value"] or f.get("shown") or f["id"] in mine) and label not in force:
                         # Already set (react-select shows its choice outside the input, so the value can
                         # read empty): choose again only when the check says it did not stick.
                         continue
@@ -790,16 +804,20 @@ class Session:
                         skipped.append(label)
                 elif kind in ("radio", "checkgroup", "yesno"):
                     if any(f["value"]) and label not in force:
-                        if label in mine or kind == "checkgroup":
+                        if f["id"] in mine or kind == "checkgroup":
                             continue
-                        want = self._trusted(resolver, label, "choice", f["options"])
-                        if want is None or f["value"][want.value]:
-                            mine.add(label)
+                        want = self._trusted(resolver, label, "choice", f["options"], context)
+                        if want is None or f["options"].count(want.display) != 1:
+                            mine.add(f["id"])
                             continue
-                        ids = f["id"].split(",")
-                        self._tick(page, ids[want.value])
+                        index = f["options"].index(want.display)
+                        if f["value"][index]:
+                            mine.add(f["id"])
+                            continue
+                        target_id = f["id"].split(",")[index]
+                        self._tick(page, target_id)
                         was = next((o for o, v in zip(f["options"], f["value"]) if v), "")
-                        note(f, label, want, target_id=ids[want.value], was=was)
+                        note(f, label, want, target_id=target_id, was=was)
                         continue
                     if kind in ("radio", "yesno") and CONSENT_RE.search(label):
                         consents.append({**f, "id": f["id"].split(",")[0]})
@@ -807,11 +825,11 @@ class Session:
                     if kind == "checkgroup" and len(f["options"]) <= 2 and all(CONSENT_RE.search(o) for o in f["options"]):
                         consents.append({**f, "id": f["id"].split(",")[0], "label": f"{label} [{f['options'][0]}]"})
                         continue
-                    ans = resolver.resolve(label, "choice", options=f["options"], required=f["required"])
-                    if ans:
-                        ids = f["id"].split(",")
-                        self._tick(page, ids[ans.value])
-                        note(f, label, ans, target_id=ids[ans.value])
+                    ans = resolver.resolve(label, "choice", options=f["options"], required=f["required"], context=context)
+                    if ans and f["options"].count(ans.display) == 1:
+                        target_id = f["id"].split(",")[f["options"].index(ans.display)]
+                        self._tick(page, target_id)
+                        note(f, label, ans, target_id=target_id)
                     elif f["required"]:
                         skipped.append(label)
                 elif kind == "checkbox":
@@ -823,7 +841,7 @@ class Session:
                         # one box of a "how did you hear about us" group: tick only where you found the role
                         if HEAR_MINE_RE.fullmatch(label.strip(" *")):
                             self._tick(page, f["id"])
-                            note(f, label, "ticked (where you found this role)")
+                            note(f, label, "ticked (where you found this role)", source="rule")
                     else:
                         # Rules only: the local model once ticked 7 of 8 "how did you hear" boxes.
                         saved, resolver.llm = resolver.llm, None
@@ -836,14 +854,14 @@ class Session:
                             note(f, label, ans)
             except Exception as e:  # keep going; the review step lists what is left
                 skipped.append(f"{label} (error: {type(e).__name__})")
-                getattr(self, "_broken", set()).add(label)
+                getattr(self, "_broken", set()).add(f["id"])
                 try:
                     page.keyboard.press("Escape")   # close a menu the failed attempt may have opened
                 except Exception:
                     pass
 
-        consents = [c for c in consents if c["label"] not in getattr(self, "_consent_declined", set())]
-        if self._dry_validation() and any(c["label"] not in getattr(self, "_consent_allowed", set()) for c in consents):
+        consents = [c for c in consents if c["label"] not in self._consent_declined]
+        if self._dry_validation() and any(c["label"] not in self._consent_allowed for c in consents):
             self._consent_approved = False
         if consents and not self._consent_approved:
             self._preview_page(page)
@@ -851,8 +869,6 @@ class Session:
                 "Approve these consent choices?\n  - "
                 + "\n  - ".join(c["label"][:160] for c in consents))
             if self._consent_approved:
-                if not hasattr(self, "_consent_allowed"):
-                    self._consent_allowed = set()
                 self._consent_allowed.update(c["label"] for c in consents)
             else:
                 self._consent_declined.update(c["label"] for c in consents)
@@ -873,9 +889,9 @@ class Session:
                         skipped.append(c["label"][:110])
                         continue
                     opts.nth(idx).click()
-                    note(c, c["label"][:80], "confirmed (you approved)", expected=texts[idx].strip())
+                    note(c, c["label"][:80], "confirmed (you approved)", expected=texts[idx].strip(), source="you")
                 else:
-                    note(c, c["label"][:80], "ticked (you approved)", expected="checked", kind="consent")
+                    note(c, c["label"][:80], "ticked (you approved)", expected="checked", kind="consent", source="you")
         return {"filled": filled, "skipped": skipped, "records": records}
 
     _code_from_email = email_verification.code_from_email

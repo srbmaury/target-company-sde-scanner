@@ -22,6 +22,7 @@
       <button role="tab" data-tab="docs">Docs</button>
     </nav>
     <div class="status" id="status"></div>
+    <button id="account-signout" hidden>Sign out</button>
   </header>
 
   <main>
@@ -51,7 +52,7 @@
         <div class="toolbar run-options">
           <label class="check" title="Never stop: jobs that need you are listed at the end, and each finished application waits for your Submit"><input type="checkbox" id="unattended"> Don't stop for me</label>
           <label class="check" title="Fill and check every page, but never submit"><input type="checkbox" id="validate-steps"> Validate every step (no submission)</label>
-          <label class="check" title="Runs without prompts and submits only after Ollama approves every field"><input type="checkbox" id="auto-submit" checked> Submit verified applications</label>
+          <label class="check" title="Runs without prompts and submits only after the configured LLM approves every field"><input type="checkbox" id="auto-submit" checked> Submit verified applications</label>
         </div>
       </div>
       <div id="run-confirmation" class="prompt" role="region" aria-label="Confirm application run" hidden></div>
@@ -63,7 +64,7 @@
         </tr></thead>
         <tbody></tbody>
       </table></div>
-      <p class="hint">Applications open in jobbot's own Chrome window. Automatic submission requires Ollama approval of every page. Jobs needing your action are listed while the batch continues.</p>
+      <p class="hint">Applications open in jobbot's own Chrome window. Automatic submission requires the configured LLM to approve every page. Jobs needing your action are listed while the batch continues.</p>
     </section>
 
     <!-- Apply (live run) -->
@@ -102,7 +103,7 @@
       <div class="table-wrap"><table class="grid" id="apps-table">
         <thead><tr>
           <th data-sort="id">#</th><th data-sort="company">Company</th><th data-sort="title">Role</th>
-          <th data-sort="status">Status</th><th data-sort="applied_on">Applied</th><th data-sort="updated_on">Updated</th>
+          <th data-sort="status">Status</th><th data-sort="resume">Resume used</th><th data-sort="applied_on">Applied</th><th data-sort="updated_on">Updated</th>
           <th data-sort="source">Source</th>
         </tr></thead>
         <tbody></tbody>
@@ -114,13 +115,14 @@
       <div class="cards">
         <div class="card"><h3>Scan</h3><p>Sweep 220+ company job boards for new roles (about 2 minutes).</p>
           <button class="primary" data-task="scan">Run scan</button></div>
-        <div class="card"><h3>Rank</h3><p>Score new roles against your resumes with the local model.</p>
+        <div class="card"><h3>Rank</h3><p>Score new roles against your resumes with the configured LLM.</p>
           <button class="primary" data-task="rank">Run rank</button></div>
         <div class="card"><h3>Resumes</h3><p>Read every resume and list the skills each shows. Questions about tools none of them name are answered 0 / No.</p>
           <button class="primary" data-task="resumes">Parse resumes</button></div>
         <div class="card"><h3>Gmail</h3><p id="gmail-text">Import application emails, and read verification codes and links for sign-ups.</p>
           <button class="primary" data-task="sync-gmail" id="gmail-sync">Sync Gmail</button>
-          <button data-task="gmail-login" id="gmail-login">Connect Gmail</button></div>
+          <button data-task="gmail-login" id="gmail-login">Connect Gmail</button>
+          <button id="gmail-disconnect" hidden>Disconnect Gmail</button></div>
       </div>
       <h3 class="section-title">Recent runs</h3>
       <div id="tasks"></div>
@@ -142,7 +144,17 @@
       <div class="toolbar"><span class="muted" id="profile-path"></span>
         <button class="primary" id="profile-save">Save</button><span id="profile-msg"></span></div>
       <textarea id="profile-text" spellcheck="false"></textarea>
-      <p class="hint">Your profile is git-ignored and never committed. Saving keeps a backup next to it (<code>profile.yaml.bak</code>).</p>
+      <p class="hint" id="local-profile-hint">Your profile is git-ignored and never committed. Saving keeps a backup next to it (<code>profile.yaml.bak</code>).</p>
+      <div class="card" id="account-resume" hidden>
+        <h3>Upload an account resume</h3>
+        <p>Use a key from the YAML <code>resumes:</code> section. Hosted Jobbot uses your uploaded PDF, not a path from your computer.</p>
+        <form id="resume-upload">
+          <label>Resume key <input id="resume-key" required maxlength="48" pattern="[A-Za-z0-9_\-]{1,48}" placeholder="backend"></label>
+          <label>PDF <input id="resume-file" type="file" accept=".pdf,application/pdf" required></label>
+          <button class="primary">Upload PDF</button>
+          <span id="resume-msg" role="status"></span>
+        </form>
+      </div>
     </section>
   </main>
 

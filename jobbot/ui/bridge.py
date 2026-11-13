@@ -241,7 +241,7 @@ def start(keys, dry_run=False, auto_next=True, resume=None, use_llm=True, force=
     if auto_submit:
         dry_run, auto_next, unattended, validation = False, True, True, True
         if not use_llm:
-            raise ValueError("Automatic submission requires Ollama review.")
+            raise ValueError("Automatic submission requires configured LLM review.")
     with START_LOCK:
         run = CURRENT["run"]
         if run and run.status in ("starting", "running", "waiting"):
@@ -284,7 +284,7 @@ def worker_browser_dir(i):
 
 def _parallel(run, prof, model, ui, targets, workers, resume, on_result):
     """Auto-submit with several browsers at once: each worker takes the next role from a shared queue.
-    Every page still gets the full review; Ollama serves the workers' reviews in parallel."""
+    Every page still gets the full review; the configured model serves workers in parallel."""
     import queue
 
     from ..apply.engine import Session
@@ -348,7 +348,9 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
         if use_llm and model.enabled and not model.has_model():
             model.enabled = False
         if auto_submit and not model.enabled:
-            raise ValueError("Automatic submission requires a running Ollama model; no applications were opened.")
+            raise ValueError("Automatic submission requires a configured LLM provider; no applications were opened.")
+        if model.enabled:
+            run.log("info", f"Using {model.provider} model {model.model} for application assistance and review.")
         targets = select_targets(conn, keys, force=force, note=lambda m: run.log("info", m),
                                  exclude=prof.get("preferences.exclude_companies") or [])
         if auto_submit:

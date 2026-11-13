@@ -1079,7 +1079,7 @@ class ValidationPromptTest(unittest.TestCase):
         check = Check()
         session._ollama_review(Mock(inner_text=Mock(return_value="")), resolver, {}, check, 1)
         self.assertFalse(check.ok)
-        self.assertIn("Ollama did not approve this step.", check.errors)
+        self.assertIn("LLM did not approve this step.", check.errors)
         session.llm.review_application_step.return_value["issues"] = [{"field_id": "auth", "reason": "wrong", "expected": "No"}]
         check = Check()
         session._ollama_review(Mock(inner_text=Mock(return_value="")), resolver, {}, check, 1)
@@ -1212,7 +1212,7 @@ class ValidationPromptTest(unittest.TestCase):
         from unittest.mock import patch
         from jobbot import llm
         model = llm.LLM.__new__(llm.LLM)
-        model.enabled, model.model = True, "qwen2.5:7b"
+        model.enabled, model.model, model.provider = True, "qwen2.5:7b", "ollama"
         with patch.object(llm, "MODEL_SLOTS") as slots, patch.object(llm, "SLOT_WAIT", 0):
             slots.acquire.return_value = False   # every slot busy
             with self.assertRaises(TimeoutError):
@@ -1285,7 +1285,7 @@ class ValidationPromptTest(unittest.TestCase):
         from unittest.mock import patch
         from jobbot import llm
         model = llm.LLM.__new__(llm.LLM)
-        model.enabled, model.model = True, "qwen2.5:7b"
+        model.enabled, model.model, model.provider = True, "qwen2.5:7b", "ollama"
         sent = []
         def capture(req, timeout=None):
             sent.append(json.loads(req.data)["options"]["num_ctx"])

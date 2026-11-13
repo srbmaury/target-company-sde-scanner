@@ -20,6 +20,10 @@ async function api(path, body) {
     throw e;
   }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    location.replace("/");
+    throw new Error("Sign in to Jobbot.");
+  }
   if (res.status === 403 && /token/.test(data.error || "")) {
     // A page left open across a restart holds the old access token: every call fails until it reloads.
     connection("jobbot was restarted, so this page is out of date.", true);
@@ -72,10 +76,20 @@ async function loadSummary() {
   $("#stats").innerHTML = cards.map(([l, v]) => `<div class="stat" title="${esc(tips[l] || "")}"><div class="label">${esc(l)}</div><div class="value">${esc(v)}</div></div>`).join("");
   const dot = (ok) => `<span class="dot" style="background:${ok ? "var(--good)" : "var(--border)"}"></span>`;
   $("#status").innerHTML = `<span>${dot(s.gmail)}Gmail ${s.gmail ? "connected" : "not connected"}</span>
-    <span>${dot(s.ollama)}Ollama ${s.ollama ? "running" : "off"}</span>`;
+    <span>${dot(s.llm_available)}${esc(s.llm_provider === "openai" ? "OpenAI API" : "Ollama")} ${s.llm_available ? (s.llm_provider === "openai" ? "key configured" : "running") : "unavailable"}</span>`;
   $("#gmail-text").textContent = s.gmail
     ? "Import application emails, and read verification codes and links for sign-ups."
-    : "Connect Gmail (read-only) to import your applications. Needs the one-time OAuth client from the README.";
+    : s.account ? "Connect your Google account to import application emails with read-only access."
+      : "Connect Gmail to import your applications. Needs the one-time OAuth client from the README.";
+  $("#account-signout").hidden = !s.account;
+  $("#gmail-disconnect").hidden = !(s.account && s.gmail);
+  $("#gmail-login").hidden = !!(s.account && s.gmail);
+  $("#account-resume").hidden = !s.account;
+  $("#local-profile-hint").hidden = !!s.account;
+  if (s.account) {
+    $("#apply-selected").title = $("#dry-selected").title = "Run browser applications from local Jobbot.";
+  }
+  $("#apply-selected").disabled = $("#dry-selected").disabled = !state.selected.size || !!s.account;
   $("#gmail-sync").disabled = !s.gmail;
   const sel = $("#apps-status");
   if (sel.options.length === 1) s.statuses.forEach((st) => sel.add(new Option(st, st)));
@@ -181,7 +195,7 @@ function updateSelection() {
   $("#notdup-selected").hidden = state.view !== "possible";
   $("#notdup-selected").disabled = !n;
   $("#sel-count").textContent = n ? `${n} selected` : "None selected";
-  $("#apply-selected").disabled = $("#dry-selected").disabled = !n;
+  $("#apply-selected").disabled = $("#dry-selected").disabled = !n || !!state.summary?.account;
   $("#sel-clear").classList.toggle("invisible", !n);   // keeps its space: buttons never shift under the cursor
   const keys = selectable(), picked = keys.filter((k) => state.selected.has(k)).length;
   const all = keys.length > 0 && picked === keys.length;
@@ -382,7 +396,11 @@ async function retry(keys) {
 function renderEvent(e) {
   if (e.kind === "audit") {
     return `<details class="ev"><summary>${esc(e.t)} Page ${e.step}, revision ${e.round} — ${e.ok ? "verified" : "needs revision"} (${e.fields.length} fields)</summary>
-      <table class="grid"><thead><tr><th>Field</th><th>Expected</th><th>Page value</th><th>Result</th></tr></thead><tbody>${e.fields.map((f) => `<tr><td>${esc(f.label)}${f.required ? " *" : ""}</td><td>${esc(f.expected ?? "Not set by jobbot")}</td><td>${esc(f.actual)}</td><td>${esc(f.status)}</td></tr>`).join("")}</tbody></table>
+      <table class="grid"><thead><tr><th>Extracted question</th><th>Expected answer</th><th>Page value</th><th>Result</th></tr></thead><tbody>${e.fields.map((f) => `<tr><td>${esc(f.label || "(unidentified)")}${f.required ? " *" : ""}
+        ${[f.label_source, f.context?.group, f.context?.instructions,
+            f.context?.parent && `Follow-up to “${f.context.parent.question}” — ${f.context.parent.answer}`]
+          .filter(Boolean).map((t) => `<div class="muted">${esc(t)}</div>`).join("")}</td>
+        <td>${esc(f.expected ?? "Not set by jobbot")}${f.answer_source ? `<div class="muted">${esc(f.answer_source)}</div>` : ""}</td><td>${esc(f.actual)}</td><td>${esc(f.status)}</td></tr>`).join("")}</tbody></table>
       <ul>${(e.problems || []).map((p) => `<li>${esc(p)}</li>`).join("")}</ul></details>`;
   }
   if (e.kind === "report") {
@@ -495,9 +513,10 @@ function renderApps() {
       <td class="role">${a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>` : esc(a.title)}
         ${a.notes ? `<div class="reason">${esc(a.notes).slice(0, 140)}</div>` : ""}</td>
       <td><span class="pill ${esc(a.status)}">${esc(a.status)}</span></td>
+       <td>${a.resume ? esc(a.resume) : `<span class="muted" title="No resume recorded for this application">Not recorded</span>`}</td>
       <td class="num">${esc(a.applied_on || "")}</td><td class="num">${esc((a.updated_on || "").slice(0, 10))}</td>
       <td>${esc(a.source || "")}</td></tr>`).join("")
-    : `<tr><td colspan="7" class="empty">No applications yet.</td></tr>`;
+    : `<tr><td colspan="8" class="empty">No applications yet.</td></tr>`;
 }
 
 async function openApp(id) {
@@ -507,7 +526,8 @@ async function openApp(id) {
   openDialog(`<h2>${esc(a.company)} — ${esc(a.title)}</h2>
     <div class="muted">${esc(a.location || "")} ${a.applied_on ? "· applied " + esc(a.applied_on) : ""} · via ${esc(a.source || "?")}</div>
     ${a.url ? `<p><a href="${esc(a.url)}" target="_blank" rel="noopener">Open posting</a></p>` : ""}
-    <div class="row"><label>Company</label><input type="text" name="company" value="${esc(a.company)}"></div>
+    <div class="row"><label>Resume used</label><span>${a.resume ? esc(a.resume) : `<span class="muted">Not recorded</span>`}</span></div>
+     <div class="row"><label>Company</label><input type="text" name="company" value="${esc(a.company)}"></div>
     <div class="row"><label>Role${a.title.startsWith("(role not stated") ? " — naming it stops this application matching every role at the company" : ""}</label>
       <input type="text" name="title" value="${esc(a.title)}"></div>
     <div class="row"><label>Posting link (optional)</label><input type="text" name="url" value="${esc(a.url || "")}"></div>
@@ -564,7 +584,14 @@ function alertInline(root, msg) {
 
 // ---------- actions / tasks ----------
 async function startTask(name) {
-  try { await api("tasks/" + name, {}); } catch (e) { alertInline($(`[data-task="${name}"]`).closest(".card"), e.message); }
+  try {
+    if (name === "gmail-login" && state.summary?.account) {
+      const r = await api("account/gmail/connect", {});
+      location.assign(r.url);
+      return;
+    }
+    await api("tasks/" + name, {});
+  } catch (e) { alertInline($(`[data-task="${name}"]`)?.closest(".card") || $("#tasks"), e.message); }
   loadTasks();
 }
 
@@ -734,6 +761,27 @@ async function loadDocs(name = state.doc || "README", anchor = "") {
 
 // ---------- wiring ----------
 document.addEventListener("DOMContentLoaded", async () => {
+  $("#account-signout").addEventListener("click", async () => {
+    try { await api("account/logout", {}); location.replace("/"); }
+    catch (e) { alertInline($("#status"), e.message); }
+  });
+  $("#gmail-disconnect").addEventListener("click", async () => {
+    if (!confirm("Disconnect Gmail and revoke Jobbot’s access?")) return;
+    try { await api("account/gmail/disconnect", {}); await loadSummary(); }
+    catch (e) { alertInline($("#gmail-text"), e.message); }
+  });
+  $("#resume-upload").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const msg = $("#resume-msg"), file = $("#resume-file").files[0];
+    if (!file || file.size > 5 * 1024 * 1024) { msg.textContent = "Choose a PDF up to 5 MiB."; return; }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const chunks = [];
+      for (let i = 0; i < bytes.length; i += 8192) chunks.push(String.fromCharCode(...bytes.subarray(i, i + 8192)));
+      await api("account/resume", { key: $("#resume-key").value, pdf: btoa(chunks.join("")) });
+      msg.textContent = "Uploaded. Make sure this key is saved under resumes in your profile.";
+    } catch (e) { msg.textContent = e.message; }
+  });
   $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
   const reloadJobs = debounce(loadJobs);
   ["#jobs-q", "#jobs-min"].forEach((s) => $(s).addEventListener("input", reloadJobs));

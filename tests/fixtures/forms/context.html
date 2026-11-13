@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<body>
+<form>
+  <fieldset>
+    <legend>Work history</legend>
+    <label for="experience">Experience summary</label>
+    <textarea id="experience" aria-describedby="guidance error"></textarea>
+    <small id="guidance">Describe only paid employment.</small>
+    <div id="error" role="alert">This is not a field instruction.</div>
+  </fieldset>
+  <label for="gap">Did you have an employment gap?</label>
+  <select id="gap" aria-controls="followup">
+    <option selected>Yes</option><option>No</option>
+  </select>
+  <div id="followup">
+    <label for="explain">If yes, please explain</label>
+    <textarea id="explain"></textarea>
+  </div>
+  <input id="ambiguous" placeholder="Please select one" required>
+  <fieldset><legend>Do you consent to marketing?</legend>
+    <label><input type="radio" name="response" value="yes">Yes</label>
+    <label><input type="radio" name="response" value="no">No</label>
+  </fieldset>
+</form>
+<form>
+  <fieldset><legend>Are you authorized to work in India?</legend>
+    <label><input type="radio" name="response" value="yes">Yes</label>
+    <label><input type="radio" name="response" value="no">No</label>
+  </fieldset>
+</form>
+</body></html>

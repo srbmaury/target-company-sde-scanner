@@ -79,8 +79,12 @@ def yes_no_sentence(want, actual):
 def expected_answer(resolver, field):
     """Your answer to this field from the profile and rules only (never the model, never asking you),
     or None when they do not determine it."""
+    from .values import ambiguous_question
+
+    if ambiguous_question(field):
+        return None
     label, kind = field.get("label") or "", field.get("kind")
-    if kind in ("file", "checkbox", "textarea") or SKIP_LABEL.search(label) or label == "(unlabelled field)":
+    if kind in ("file", "checkbox", "textarea") or (field.get("context") or {}).get("parent") or SKIP_LABEL.search(label) or label == "(unlabelled field)":
         return None
     options = field.get("options") or []
     choice = kind in CHOICE_KINDS and bool(options)   # a type-ahead box stores no option list: compare text

@@ -3,11 +3,11 @@
 | Command | What it does |
 | --- | --- |
 | `init [--force]` | Create `profile.yaml` (git-ignored) from the template |
-| `doctor` | Check profile, resume files, Playwright, Ollama, and the tracker |
+| `doctor` | Check profile, resume files, Playwright, configured LLM, and the tracker |
 | `scan [--companies A,B] [--exclude C] [--locations REGEX] [--max-yoe N] [--show-all] [--no-careers-pages]` | Find matching roles and store new ones |
-| `rank [--limit N] [--rerank] [--llm none] [--model NAME]` | Score unranked roles against your resumes |
+| `rank [--limit N] [--rerank] [--llm ollama|openai|none] [--model NAME]` | Score unranked roles against your resumes |
 | `jobs [--why] [--urls] [--limit N] [--include-applied]` | List tracked roles, best fit first |
-| `apply <n, x-y or URL>... [--top N] [--all] [--min-fit N] [--exclude A,B] [-y] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm none]` | Fill applications in Chrome |
+| `apply <n, x-y or URL>... [--top N] [--all] [--min-fit N] [--exclude A,B] [-y] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm ollama|openai|none]` | Fill applications in Chrome |
 | `dismiss <n>...` | Hide roles you are not interested in |
 | `logs [--date YYYY-MM-DD] [-n N]` | Show what `apply` filled, corrected and checked |
 | `answers [ok N \| fix N "text"] [--all]` | Review the local model's answers; mark them right or correct them |
@@ -20,7 +20,7 @@
 Every command explains its options with `--help`, for example `./jobbot.sh apply --help`.
 
 Environment variables: `JOBBOT_PROFILE` (default `./profile.yaml`), `JOBBOT_HOME` (default
-`~/.jobbot`), `JOBBOT_MODEL` (default `qwen2.5:7b`), and `OLLAMA_HOST`.
+`~/.jobbot`), `JOBBOT_MODEL` (Ollama default `qwen2.5:7b`), `OLLAMA_HOST`, `JOBBOT_LLM_PROVIDER` (`ollama` or `openai`), `OPENAI_API_KEY`, and `OPENAI_MODEL` (default `gpt-4.1-mini`).
 
 ## Running only the scanner
 

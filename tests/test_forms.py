@@ -96,6 +96,56 @@ class FormTests(unittest.TestCase):
         return {"url": url, "company": "TestCo", "title": "Backend Engineer II", "location": "Hyderabad", "ats": ats,
                 "board": None, "description": "", "experience": "2+ yrs"}
 
+    def test_field_context_and_audit_trace(self):
+        from unittest.mock import Mock
+        from jobbot.answers import Resolver
+        session = self.session(RecordingUI())
+        page = session.ctx.pages[0]
+        page.goto(self.base + "/context.html")
+        model = Mock(enabled=True, last_reasoning="Grounded fixture answer")
+        model.answer.side_effect = lambda question, *a, **kw: {
+            "fits": False, "basis": "fact", "answer": {
+                "Experience summary": "I built backend services.",
+                "If yes, please explain": "I took a career break.",
+            }.get(question, "")}
+        resolver = Resolver(session.profile, model, auto_drafts=True)
+        fields = session._fields(page)
+        radio_questions = [f["label"] for f in fields if f["kind"] == "radio"]
+        self.assertEqual(radio_questions, ["Do you consent to marketing?", "Are you authorized to work in India?"])
+        report = session.fill_page(page, resolver)
+        audit = {f["label"]: f for f in session.audit_fields(page, report)}
+        self.assertEqual(audit["Experience summary"]["label_source"], "linked label")
+        self.assertEqual(audit["Experience summary"]["context"]["group"], "Work history")
+        self.assertEqual(audit["Experience summary"]["context"]["instructions"], "Describe only paid employment.")
+        self.assertEqual(audit["If yes, please explain"]["context"]["parent"], {
+            "question": "Did you have an employment gap?", "answer": "Yes"})
+        self.assertEqual(audit["If yes, please explain"]["answer_source"], "model")
+        self.assertEqual(audit["If yes, please explain"]["actual"], "I took a career break.")
+        self.assertEqual(audit["Please select one"]["status"], "question unclear, review")
+        self.assertTrue(any("question could not be identified" in m for m in report["skipped"]))
+        self.assertEqual(page.locator("#ambiguous").input_value(), "")
+        self.assertFalse(any(page.locator('input[name="response"]').nth(i).is_checked() for i in (0, 1)))
+        self.assertFalse(any(call.args[0] == "Please select one" for call in model.answer.call_args_list))
+        page.locator("#gap").select_option(label="No")
+        page.locator("#explain").fill("")
+        session.fill_page(page, resolver)
+        self.assertEqual(page.locator("#explain").input_value(), "")
+
+    def test_dropdown_uses_option_text_and_verifies_the_committed_value(self):
+        from jobbot.answers import Resolver
+        from jobbot.apply.verify import check_page
+        session = self.session(RecordingUI())
+        page = session.ctx.pages[0]
+        page.goto(self.base + "/option-readback.html")
+        report = session.fill_page(page, Resolver(session.profile))
+        self.assertEqual(page.locator("#selected").inner_text(), "India")
+        self.assertEqual(report["records"][0]["expected"], "India")
+        page.locator("#selected").evaluate("(el) => el.textContent = 'India, New Office'")
+        self.assertTrue(check_page(page, report["records"], [], session._fields(page)).mismatches)
+        page.locator("#selected").evaluate("(el) => el.textContent = ''")
+        page.locator("label").evaluate("(el) => el.textContent = 'Country (example: India)'")
+        self.assertTrue(check_page(page, report["records"], [], session._fields(page)).mismatches)
+
     def test_nested_ashby_yesno_and_css_required(self):
         ui = RecordingUI()
         session = self.session(ui, {"automation": {"auto_consent": False}})

@@ -9,6 +9,8 @@ Long tasks (scan, rank, Gmail sync) run as `python -m jobbot ...` subprocesses; 
 page polls their output.
 """
 
+import base64
+import binascii
 import datetime as dt
 import json
 import mimetypes
@@ -21,12 +23,14 @@ import sys
 import threading
 import urllib.parse
 import webbrowser
+from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import yaml
 
-from .. import paths, tracker
+from .. import accounts, gmail, paths, profile as profile_mod, tracker
+from pymongo.errors import PyMongoError
 from . import bridge
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -51,7 +55,6 @@ def _row(r):
 
 def _excluded_companies():
     """preferences.exclude_companies, so the page can show which roles apply will skip."""
-    from .. import profile as profile_mod
     try:
         return list(profile_mod.load().get("preferences.exclude_companies") or [])
     except Exception:   # missing or invalid profile: nothing is excluded
@@ -97,7 +100,7 @@ def _new_jobs(conn):
 
 
 def summary_payload(conn):
-    from .. import gmail, llm
+    from .. import llm
 
     stats = tracker.stats(conn)
     total = sum(stats.values())
@@ -108,7 +111,11 @@ def summary_payload(conn):
         "interview_rate": round(100 * (stats.get("interview", 0) + stats.get("offer", 0)) / total) if total else 0,
         "open_jobs": _new_jobs(conn),
         "gmail": gmail.is_connected(),
-        "ollama": llm.LLM.available(),
+        "account": accounts.enabled(),
+        "llm_provider": llm.DEFAULT_PROVIDER,
+        "llm_model": llm.OPENAI_MODEL if llm.DEFAULT_PROVIDER == "openai" else llm.DEFAULT_MODEL,
+        "llm_available": llm.LLM.available(),
+        "ollama": llm.LLM.available("ollama"),
         "profile": str(paths.PROFILE),
         "statuses": list(tracker.STATUSES),
     }
@@ -190,6 +197,9 @@ def start_task(name):
 class Handler(BaseHTTPRequestHandler):
     token = ""
     port = 0
+    account = None
+    session_cookie = "__Host-jobbot-session"
+    flow_cookie = "__Host-jobbot-flow"
 
     def log_message(self, *args):
         pass
@@ -197,12 +207,83 @@ class Handler(BaseHTTPRequestHandler):
     # security: only our page, only on localhost
     def _allowed_host(self):
         host = (self.headers.get("Host") or "").lower()
+        if self.account:
+            return host == urllib.parse.urlsplit(self.account.origin).netloc
         return host in (f"127.0.0.1:{self.port}", f"localhost:{self.port}")
 
-    def _authorized(self):
-        return self._allowed_host() and secrets.compare_digest(self.headers.get("X-Jobbot-Token", ""), self.token)
+    def _cookie(self, name):
+        jar = SimpleCookie()
+        try:
+            jar.load(self.headers.get("Cookie", ""))
+        except CookieError:
+            return ""
+        return jar[name].value if name in jar else ""
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+    @staticmethod
+    def _set_cookie(name, value, age):
+        return ("Set-Cookie", f"{name}={value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age={age}")
+
+    def _session(self):
+        return self._cookie(self.session_cookie)
+
+    def _authorized(self):
+        if not self._allowed_host() or not secrets.compare_digest(self.headers.get("X-Jobbot-Token", ""), self.token):
+            return False
+        return not self.account or (self.account.session(self._session()) and (
+            self.command != "POST" or self.headers.get("Origin") == self.account.origin))
+
+    def _auth_get(self, url):
+        if url.path == "/auth/google":
+            if self.account.session(self._session()):
+                return self._redirect("/")
+            target, browser = self.account.begin("login", self._session())
+            return self._redirect(target, self._set_cookie(self.flow_cookie, browser, 600))
+        if url.path == "/auth/google/callback":
+            query = urllib.parse.parse_qs(url.query)
+            get = lambda name: query.get(name, [""])[0]
+            try:
+                token = self.account.finish(get("state"), self._cookie(self.flow_cookie), get("code"), self._session())
+            except (accounts.AccountError, gmail.GmailError, OSError, ValueError, KeyError):
+                return self._send(400, "Google sign-in or Gmail consent failed. Return to Jobbot and try again.",
+                                  "text/plain; charset=utf-8", [self._set_cookie(self.flow_cookie, "", 0)])
+            headers = [self._set_cookie(self.flow_cookie, "", 0)]
+            if token:
+                headers.append(self._set_cookie(self.session_cookie, token, 7 * 86400))
+            return self._redirect("/", *headers)
+        return self._send(404, {"error": "not found"})
+
+    def _redirect(self, url, *headers):
+        return self._send(303, b"", "text/plain", [("Location", url), *headers])
+
+    def _account_post(self, parts, body):
+        if parts == ["account", "logout"]:
+            self.account.logout(self._session())
+            return self._send(200, {"ok": True}, headers=[self._set_cookie(self.session_cookie, "", 0)])
+        if parts == ["account", "gmail", "connect"]:
+            target, browser = self.account.begin("gmail", self._session())
+            return self._send(200, {"url": target}, headers=[self._set_cookie(self.flow_cookie, browser, 600)])
+        if parts == ["account", "gmail", "disconnect"]:
+            try:
+                gmail.logout()
+            except gmail.GmailError as exc:
+                return self._send(409, {"error": str(exc)})
+            return self._send(200, {"ok": True})
+        if parts == ["account", "resume"]:
+            key = body.get("key")
+            if not profile_mod.valid_resume_key(key):
+                return self._send(400, {"error": "Use a resume key of 1–48 letters, numbers, underscores or dashes."})
+            try:
+                data = base64.b64decode(body.get("pdf", ""), validate=True)
+            except (ValueError, TypeError, binascii.Error):
+                return self._send(400, {"error": "Invalid PDF upload."})
+            if not data.startswith(b"%PDF-") or len(data) > accounts.MAX_PDF:
+                return self._send(400, {"error": "Select a PDF no larger than 5 MiB."})
+            self.account.write("resume:" + key, data)
+            return self._send(200, {"ok": True})
+        return self._send(404, {"error": "not found"})
+
+
+    def _send(self, code, body, ctype="application/json; charset=utf-8", headers=()):
         data = body if isinstance(body, bytes) else (json.dumps(body, default=str) if ctype.startswith("application/json")
                                                     else body).encode()
         self.send_response(code)
@@ -210,29 +291,59 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        for name, value in headers:
+            self.send_header(name, value)
         self.send_header("Content-Security-Policy",
-                         "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'")
+                         "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
         self.end_headers()
         self.wfile.write(data)
 
-    def _json_body(self):
+    def _json_body(self, limit=2_000_000):
         length = int(self.headers.get("Content-Length") or 0)
-        if length > 2_000_000:
+        if not 0 <= length <= limit:
             raise ValueError("request too large")
         return json.loads(self.rfile.read(length) or b"{}")
 
     def do_GET(self):
+        try:
+            return self._get()
+        except (PyMongoError, accounts.AccountError):
+            return self._send(503, {"error": "Account storage is unavailable. Try again shortly."})
+
+    def _get(self):
         if not self._allowed_host():
             return self._send(403, {"error": "forbidden host"})
         url = urllib.parse.urlparse(self.path)
+        if self.account and url.path.startswith("/auth/"):
+            return self._auth_get(url)
+        if self.account and not self.account.session(self._session()):
+            if url.path in ("/", "/index.html"):
+                return self._static("/login.html")
+            if url.path == "/style.css":
+                return self._static(url.path)
+            return self._send(401, {"error": "Sign in to Jobbot."})
         if not url.path.startswith("/api/"):
             return self._static(url.path)
         if not self._authorized():
             return self._send(403, {"error": "missing or wrong token"})
         params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+        parts = url.path.strip("/").split("/")[1:]
+        if self.account and parts == ["profile"]:
+            raw, version = self.account.read("profile")
+            if raw is None:
+                raw = paths.EXAMPLE_PROFILE.read_bytes()
+            return self._send(200, {"path": "MongoDB account profile", "text": raw.decode(), "mtime": version})
+        if self.account and parts == ["apply"]:
+            return self._send(200, {"status": "idle"})
+        if self.account and parts == ["runs"]:
+            return self._send(200, [])
+        if self.account and parts == ["logs"]:
+            return self._send(200, {"dates": [], "date": "", "lines": []})
+        if self.account and parts[:1] == ["runs"]:
+            return self._send(404, {"error": "Local browser runs are not stored in the hosted account."})
         conn = tracker.connect()
         try:
-            parts = url.path.strip("/").split("/")[1:]
             if parts == ["summary"]:
                 return self._send(200, summary_payload(conn))
             if parts == ["jobs"]:
@@ -283,9 +394,25 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
 
     def do_POST(self):
+        try:
+            return self._post()
+        except accounts.AccountError as exc:
+            return self._send(409, {"error": str(exc)})
+        except PyMongoError:
+            return self._send(503, {"error": "Account storage is unavailable. Try again shortly."})
+        except (KeyError, ValueError, yaml.YAMLError) as exc:
+            return self._send(400, {"error": str(exc)})
+
+    def _post(self):
+        if self.account and self._allowed_host() and not self.account.session(self._session()):
+            return self._send(401, {"error": "Sign in to Jobbot."})
         if not self._authorized():
             return self._send(403, {"error": "missing or wrong token"})
         parts = urllib.parse.urlparse(self.path).path.strip("/").split("/")[1:]
+        if self.account and parts[:1] == ["account"]:
+            return self._account_post(parts, self._json_body(7_000_000 if parts == ["account", "resume"] else 2_000_000))
+        if self.account and (parts[:1] == ["apply"] or parts == ["tasks", "gmail-login"]):
+            return self._send(400, {"error": "Use the hosted Connect Gmail button or run browser applications locally."})
         conn = tracker.connect()
         try:
             body = self._json_body()
@@ -331,6 +458,11 @@ class Handler(BaseHTTPRequestHandler):
                 data = yaml.safe_load(text)   # refuse to save YAML that does not parse
                 if not isinstance(data, dict) or "personal" not in data:
                     return self._send(400, {"error": "The profile must be a YAML mapping with a `personal` section."})
+                if self.account:
+                    if not isinstance(body.get("mtime"), str):
+                        return self._send(400, {"error": "Reload the account profile before saving."})
+                    version = self.account.write("profile", text.encode(), expected=body["mtime"])
+                    return self._send(200, {"ok": True, "mtime": version})
                 if paths.PROFILE.exists() and body.get("mtime") and str(body["mtime"]) != str(paths.PROFILE.stat().st_mtime_ns):
                     # e.g. an apply run saved a learned answer since you opened the page: don't overwrite it.
                     # (sent as a string: nanosecond timestamps are too large for JavaScript numbers)
@@ -383,21 +515,31 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, body, ctype)
 
 
-def make_server(port=0):
-    handler = type("JobbotHandler", (Handler,), {"token": secrets.token_urlsafe(24)})
-    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+def make_server(port=0, account=None, bind="127.0.0.1"):
+    if not account and bind != "127.0.0.1":
+        raise ValueError("Non-local dashboard binding requires hosted account mode.")
+    handler = type("JobbotHandler", (Handler,), {"token": secrets.token_urlsafe(24), "account": account})
+    server = ThreadingHTTPServer((bind, port), handler)
     handler.port = server.server_port
     return server
 
 
 def serve(port=8765, open_browser=True):
     paths.ensure_home()
-    try:
-        server = make_server(port)
-    except OSError:
-        server = make_server(0)   # the preferred port is busy; take any free one
+    account = accounts.current() if accounts.enabled() else None
+    if account:
+        account.initialize()
+        server = make_server(port, account, os.getenv("JOBBOT_BIND", "127.0.0.1"))
+        print(f"jobbot account dashboard: {account.origin} (Ctrl+C to stop)")
+        open_browser = False
+    else:
+        try:
+            server = make_server(port)
+        except OSError:
+            server = make_server(0)   # the preferred port is busy; take any free one
     url = f"http://127.0.0.1:{server.server_port}/"
-    print(f"jobbot dashboard: {url}  (Ctrl+C to stop)")
+    if not account:
+        print(f"jobbot dashboard: {url}  (Ctrl+C to stop)")
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:

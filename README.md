@@ -2,16 +2,16 @@
 
 [![tests](https://github.com/srbmaury/target-company-sde-scanner/actions/workflows/tests.yml/badge.svg)](https://github.com/srbmaury/target-company-sde-scanner/actions/workflows/tests.yml)
 
-**Find, rank, apply to, and track software-engineering roles: free, local, and private.**
+**Find, rank, apply to, and track software-engineering roles, locally by default with optional OpenAI inference.**
 
 Built for candidates with roughly 1–3 years of experience. It reads open roles from 300+ target
 companies, ranks them against each of your resumes, fills applications in Chrome while you watch,
-and keeps every application in one tracker. Automatic applications require Ollama approval before each Next and Submit; manual mode is available.
+and keeps every application in one tracker. Automatic applications require approval from the configured LLM (local Ollama or OpenAI) before each Next and Submit; manual mode is available.
 
 It comes in two forms:
 
 - **jobbot**, a command-line tool. It scans company job boards, ranks roles against your resumes
-  with a local model, fills applications in Chrome while you watch, and tracks every application.
+  with the configured LLM, fills applications in Chrome while you watch, and tracks every application.
 - **An AI-assistant skill** (`SKILL.md`) for Codex or Claude Code. It runs the same search
   conversationally and can tailor a resume to each role.
 
@@ -26,8 +26,8 @@ $ ./jobbot.sh jobs --why
 | | What jobbot does |
 | --- | --- |
 | **Find** | Reads open roles from 300+ companies' job boards and careers sites, filtered to your locations and experience |
-| **Rank** | Scores each role 0–100 against every resume variant with a local model (Ollama), and picks the resume to send |
-| **Apply** | Fills forms in its own Chrome window, re-checks every value, moves through multi-page forms, and requires Ollama approval before every Next and Submit; runs without prompts and skips blocked applications |
+| **Rank** | Scores each role 0–100 against every resume variant with Ollama (default) or the OpenAI API, and picks the resume to send |
+| **Apply** | Fills forms in its own Chrome window, re-checks every value, moves through multi-page forms, and requires configured LLM approval before every Next and Submit; runs without prompts and skips blocked applications |
 | **Learn** | Remembers your answers to new questions and reuses them at other companies |
 | **Track** | Records every application, imports the rest from Gmail, and never reopens a role you applied to |
 | **Dashboard** | Does all of the above from a local web page: `./jobbot.sh ui` |
@@ -38,7 +38,7 @@ $ ./jobbot.sh jobs --why
 
 ## Quick start
 
-**You need:** Python 3.10+ and Google Chrome. The local model needs [Ollama](https://ollama.com);
+**You need:** Python 3.10+ and Google Chrome. Local inference needs [Ollama](https://ollama.com);
 it is optional, and setup commands below assume macOS with Homebrew.
 
 ```bash
@@ -51,7 +51,7 @@ brew install ollama && brew services start ollama && ollama pull qwen2.5:7b
 
 ./jobbot.sh init       # creates profile.yaml (git-ignored) from the template
 # edit profile.yaml: your details, resume paths, preferences
-./jobbot.sh doctor     # checks profile, resumes, browser, and Ollama
+./jobbot.sh doctor     # checks profile, resumes, browser, and configured LLM
 ```
 
 `doctor` should end with every line ticked:
@@ -63,6 +63,30 @@ brew install ollama && brew services start ollama && ollama pull qwen2.5:7b
 ✓ ollama running; model qwen2.5:7b: ready
 ✓ tracker: /Users/you/.jobbot/applications.db (0 applications)
 ```
+
+### Optional private hosted account
+
+Use the [MongoDB account setup](docs/accounts.md) to keep one dashboard, profile, resume library,
+Gmail connection, and tracker across devices. Local mode remains the default.
+
+### Optional OpenAI API instead of Ollama
+
+Ollama is still the default; there is **no automatic switch to a paid provider**. To use OpenAI without downloading a local model, configure the following environment variables for the terminal or deployment process:
+
+```bash
+export JOBBOT_LLM_PROVIDER=openai
+export OPENAI_API_KEY="your-secret-key"
+export OPENAI_MODEL=gpt-4.1-mini    # optional; default
+./jobbot.sh doctor
+./jobbot.sh rank
+./jobbot.sh apply --top 5 --dry-run
+```
+
+Or override only one CLI command with `./jobbot.sh rank --llm openai` or `./jobbot.sh apply --llm openai --top 5 --dry-run`. Set `--model` to choose a different model supported by OpenAI Chat Completions and JSON mode. The dashboard's background ranking and application workers use `JOBBOT_LLM_PROVIDER` and `OPENAI_MODEL` from the environment that started `./jobbot.sh ui`; restart after changing them.
+
+**Privacy and cost:** OpenAI inference sends candidate profile facts, resume text, application questions, and form-review values to the OpenAI API. API usage is billed separately from ChatGPT subscriptions. Put the API key in your shell environment or your deployment's secret environment variables, **not** in `profile.yaml` or committed files. If the key is missing or the API fails, automated submissions stay blocked; ranking falls back to keyword matching. See [Privacy](docs/privacy.md).
+
+To switch back to local Ollama, run `unset JOBBOT_LLM_PROVIDER OPENAI_API_KEY` (or set `JOBBOT_LLM_PROVIDER=ollama`). `./jobbot.sh rank --llm none` uses keyword ranking without either model.
 
 To run `jobbot` from any folder:
 
@@ -123,7 +147,7 @@ More: [finding and ranking jobs](docs/finding-jobs.md) · [how `apply` works](do
 
 | Path | Purpose |
 | --- | --- |
-| `jobbot/` | The command-line tool: `cli.py`, `scan.py`, `rank.py`, `llm.py` (Ollama), `answers.py` and `memory.py` (answering questions, learned answers), `tracker.py`, `gmail.py` and `mailimport.py` |
+| `jobbot/` | The command-line tool: `cli.py`, `scan.py`, `rank.py`, `llm.py` (Ollama / OpenAI), `answers.py` and `memory.py` (answering questions, learned answers), `tracker.py`, `gmail.py` and `mailimport.py` |
 | `jobbot/apply/` | Browser filling: `engine.py` (pages, review rounds, Workday), `fields.py`, `verify.py` (readback and checks), `runner.py` (choosing and working through roles) |
 | `jobbot/ui/` | The dashboard: `server.py` (local API), `bridge.py` (runs `apply` for the page), `static/` |
 | `jobbot.sh` | Launcher that uses the project virtualenv |

@@ -82,7 +82,7 @@ class ParallelRegressionTest(unittest.TestCase):
                     self.close()
             return Response(json.dumps({"message": {"content": "ok"}}).encode())
         model = LLM.__new__(LLM)
-        model.enabled, model.model = True, "fixture"
+        model.enabled, model.model, model.provider = True, "fixture", "ollama"
         # as many at once as Ollama serves (OLLAMA_NUM_PARALLEL), never more: here 3 slots, 6 callers
         with patch("jobbot.llm.MODEL_SLOTS", threading.BoundedSemaphore(3)), \
                 patch("jobbot.llm.urllib.request.urlopen", side_effect=response), ThreadPoolExecutor(max_workers=6) as pool:

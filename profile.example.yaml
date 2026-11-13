@@ -98,8 +98,8 @@ resumes:
 # How much jobbot does without asking you. Submit always needs your keypress.
 automation:
   parallel_workers: 4       # dashboard application browsers running at once
-  ollama_review_each_step: true  # require explicit model approval covering every field
-  auto_accept_drafts: true   # use the local model's drafts for free-text questions without asking
+  ollama_review_each_step: true  # legacy setting name: require configured LLM approval covering every field
+  auto_accept_drafts: true   # use the configured model's drafts for free-text questions without asking
   auto_consent: false        # tick privacy/consent boxes without asking (true = no consent prompt)
   create_accounts: false     # sign in to job sites, and sign up where you have no account, with the
                              # password from `jobbot password` (Keychain); CAPTCHAs stay yours

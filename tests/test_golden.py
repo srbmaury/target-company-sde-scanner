@@ -161,6 +161,12 @@ class ModelAnswersEveryField(unittest.TestCase):
         self.assertEqual(self.resolve(llm, "Can you work 4 days a week from the office?", "choice", ["No", "Yes"]),
                          ("model", "Yes"))
 
+    def test_rejects_ambiguous_model_options(self):
+        question = "What working arrangement are you open to?"
+        llm = self.FakeLLM(lambda q, s: {"fits": False, "basis": "inference", "answer": "Hybrid"})
+        self.assertIsNone(self.resolve(llm, question, "choice", ["Hybrid (2 days)", "Hybrid (3 days)"]))
+        self.assertIsNone(self.resolve(llm, question, "choice", ["Hybrid", "HYBRID"]))
+
     def test_choice_by_text_not_number(self):
         options = ["Iceland +354", "British Indian Ocean Territory +246", "India +91", "Indonesia +62"]
         llm = self.FakeLLM(lambda q, s: {"fits": False, "basis": "fact", "answer": "India +91"})

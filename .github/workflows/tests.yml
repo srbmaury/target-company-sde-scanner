@@ -11,7 +11,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt pyflakes
+      - run: pip install -r requirements.txt pyflakes mongomock
       - run: python -m playwright install --with-deps chromium   # for tests/test_forms.py
       - run: python -m pyflakes jobbot tests
       - run: python -m unittest discover -s tests -v
