@@ -108,7 +108,10 @@ def summary_payload(conn):
         "interview_rate": round(100 * (stats.get("interview", 0) + stats.get("offer", 0)) / total) if total else 0,
         "open_jobs": _new_jobs(conn),
         "gmail": gmail.is_connected(),
-        "ollama": llm.LLM.available(),
+        "llm_provider": llm.DEFAULT_PROVIDER,
+        "llm_model": llm.OPENAI_MODEL if llm.DEFAULT_PROVIDER == "openai" else llm.DEFAULT_MODEL,
+        "llm_available": llm.LLM.available(),
+        "ollama": llm.LLM.available("ollama"),
         "profile": str(paths.PROFILE),
         "statuses": list(tracker.STATUSES),
     }
