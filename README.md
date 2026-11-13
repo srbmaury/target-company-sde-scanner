@@ -181,8 +181,9 @@ See [Gmail tracking](docs/tracking.md).
 Hosted mode is optional and supports **one configured owner per deployment**. It can scan,
 rank, track, and import Gmail. It does not host the browser used to fill applications.
 
-1. Provision MongoDB and choose a stable HTTPS dashboard URL. Configure a TLS-enabled database
-   connection with access restricted to your deployment.
+1. Provision MongoDB and run Jobbot on a Render Web Service or in GitHub Codespaces. Jobbot
+   detects the dashboard URL from the platform. Configure a TLS-enabled database connection
+   with access restricted to your deployment.
 2. Create a Google **Web application** OAuth client with the exact redirect URI
    `https://YOUR-DASHBOARD-HOST/auth/google/callback`. The Desktop app JSON is for the local flow.
 3. Set these variables in the hosting environment:
@@ -193,7 +194,6 @@ rank, track, and import Gmail. It does not host the browser used to fill applica
    | `JOBBOT_MONGODB_DB` | Optional database name, default `jobbot` |
    | `JOBBOT_DATA_KEY` | Fernet encryption key. Generate once and back it up securely |
    | `JOBBOT_ACCOUNT_EMAIL` | Google email allowed to sign in and connect Gmail |
-   | `JOBBOT_PUBLIC_URL` | The dashboard's HTTPS origin, no subpath |
    | `JOBBOT_GOOGLE_CLIENT_ID` | Web application OAuth client ID |
    | `JOBBOT_GOOGLE_CLIENT_SECRET` | Web application OAuth client secret |
    | `JOBBOT_BIND` | `0.0.0.0` behind the host's HTTPS proxy |
@@ -212,7 +212,7 @@ rank, track, and import Gmail. It does not host the browser used to fill applica
 5. Open **Profile** to fill in your details. Save a key for each resume, then upload its PDF
    using that key. A new account starts blank. Hosted mode uses those uploads, not local paths.
 
-The sign-in page appears at the configured HTTPS URL. If you only see the local dashboard,
+The sign-in page appears at the detected HTTPS URL. If you only see the local dashboard,
 check that the process was started with the hosted environment variables.
 See the [hosted account guide](docs/accounts.md) for storage limits and configuration details.
 Local browser runs and the local tracker remain separate.

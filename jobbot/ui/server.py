@@ -526,7 +526,7 @@ def make_server(port=0, account=None, bind="127.0.0.1"):
 
 def serve(port=8765, open_browser=True):
     paths.ensure_home()
-    account = accounts.current() if accounts.enabled() else None
+    account = accounts.current(port) if accounts.enabled() else None
     if account:
         account.initialize()
         server = make_server(port, account, os.getenv("JOBBOT_BIND", "127.0.0.1"))

@@ -18,6 +18,26 @@ from jobbot import accounts, gmail, paths, profile, tracker
 from jobbot.ui import server
 
 
+class HostedOriginTests(unittest.TestCase):
+    def test_render_supplies_the_dashboard_origin(self):
+        with patch.dict(os.environ, {"RENDER_EXTERNAL_URL": "https://my-jobbot.onrender.com/"}, clear=True):
+            self.assertEqual(accounts.hosted_origin(), "https://my-jobbot.onrender.com")
+
+    def test_codespace_uses_the_dashboard_port(self):
+        env = {"CODESPACES": "true", "CODESPACE_NAME": "my-space",
+               "GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN": "app.github.dev"}
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(accounts.hosted_origin(), "https://my-space-8765.app.github.dev")
+            self.assertEqual(accounts.hosted_origin(9001), "https://my-space-9001.app.github.dev")
+
+    def test_untrusted_or_unsupported_origin_is_not_used(self):
+        for env in ({}, {"RENDER_EXTERNAL_URL": "http://my-jobbot.onrender.com"},
+                    {"RENDER_EXTERNAL_URL": "https://my-jobbot.onrender.com/path"}):
+            with self.subTest(env=env), patch.dict(os.environ, env, clear=True):
+                with self.assertRaises(accounts.AccountError):
+                    accounts.hosted_origin()
+
+
 class AccountTests(unittest.TestCase):
     def setUp(self):
         self.db = mongomock.MongoClient().jobbot

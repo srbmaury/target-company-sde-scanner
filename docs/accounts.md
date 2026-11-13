@@ -9,11 +9,14 @@ Normal local Jobbot mode is unchanged when `JOBBOT_MONGODB_URI` is unset.
 
 1. Create a MongoDB database and a database user with read/write access to that database. Use a
    TLS-enabled connection and restrict database network access to the machines that need it.
-2. Choose a stable HTTPS dashboard URL. In Google Cloud, enable the Gmail API and create a
-   **Web application** OAuth client. Register the exact redirect URI, for example
-   `https://jobbot.example.com/auth/google/callback`. The existing Desktop app JSON is still for
-   local CLI sign-in and cannot be used for this callback. Configure your account as an allowed
-   test user if the OAuth app is in Testing.
+2. Run the dashboard on a Render Web Service or in GitHub Codespaces. Jobbot uses Render's
+   built-in `RENDER_EXTERNAL_URL` or the HTTPS URL for the Codespace's forwarded dashboard port.
+   On Render, use the service's default `onrender.com` URL. In a Codespace, keep the port private
+   and use its GitHub forwarded HTTPS URL. In Google Cloud, enable the Gmail API and create a
+   **Web application** OAuth client. Register the exact dashboard URL plus
+   `/auth/google/callback` as the redirect URI. If you replace the Codespace or change its port,
+   update that URI in Google Cloud. The Desktop app JSON is only for local CLI sign-in.
+   Add your account as a test user if your OAuth app is in Testing.
 3. Set these variables on the host. See [the environment template](../.env.example) for the variable names. Keep the URI, OAuth client secret, and data key in the host's
    secret settings. Never put them in the repository or your candidate profile.
 
@@ -23,7 +26,6 @@ Normal local Jobbot mode is unchanged when `JOBBOT_MONGODB_URI` is unset.
    | `JOBBOT_MONGODB_DB` | Database name, defaults to `jobbot` |
    | `JOBBOT_DATA_KEY` | A Fernet key. Generate once with the command below and keep a secure backup |
    | `JOBBOT_ACCOUNT_EMAIL` | The one verified Google email allowed to sign in and connect Gmail |
-   | `JOBBOT_PUBLIC_URL` | The HTTPS dashboard origin, with no subpath |
    | `JOBBOT_GOOGLE_CLIENT_ID` | Web application OAuth client ID |
    | `JOBBOT_GOOGLE_CLIENT_SECRET` | Web application OAuth client secret |
    | `JOBBOT_BIND` | Set to `0.0.0.0` behind your HTTPS hosting proxy |

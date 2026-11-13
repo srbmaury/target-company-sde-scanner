@@ -136,19 +136,32 @@ class Account:
         return self.new_session()
 
 
-@lru_cache(maxsize=1)
-def current():
+def hosted_origin(port=None):
+    """Build the canonical origin from platform configuration, not request headers."""
+    origin = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if not origin and os.getenv("CODESPACES") == "true":
+        name = os.getenv("CODESPACE_NAME")
+        domain = os.getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN")
+        if name and domain:
+            origin = f"https://{name}-{port or os.getenv('PORT', '8765')}.{domain}"
+    if not origin:
+        raise AccountError("Hosted account mode needs a Render Web Service or a GitHub Codespace.")
+    parsed = urlsplit(origin)
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.path or parsed.query or parsed.fragment
+            or parsed.netloc != parsed.hostname):
+        raise AccountError("The hosting platform must supply a valid HTTPS dashboard origin.")
+    return origin
+
+
+@lru_cache(maxsize=2)
+def current(port=None):
     def required(name):
         value = os.getenv(name, "").strip()
         if not value:
             raise AccountError(f"Set {name} for hosted account mode.")
         return value
 
-    origin = required("JOBBOT_PUBLIC_URL").rstrip("/")
-    parsed = urlsplit(origin)
-    if (parsed.scheme != "https" or not parsed.hostname or parsed.path or parsed.query or parsed.fragment
-            or parsed.username or parsed.password or parsed.netloc != parsed.hostname):
-        raise AccountError("JOBBOT_PUBLIC_URL must be an HTTPS origin with no port or path.")
+    origin = hosted_origin(port)
     client = MongoClient(required("JOBBOT_MONGODB_URI"), serverSelectionTimeoutMS=5000)
     db = client[os.getenv("JOBBOT_MONGODB_DB", "jobbot")]
     try:
