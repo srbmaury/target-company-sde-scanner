@@ -87,11 +87,22 @@ export JOBBOT_LLM_PROVIDER=openai
 ./jobbot.sh doctor
 ```
 
-If you prefer a local `.env` file, exclude it from Git **before** saving the key
-(`printf '/.env\n' >> .git/info/exclude`). Put the variable assignments there, run
-`chmod 600 .env`, then load your trusted file with `set -a; source ./.env; set +a`.
-Jobbot does not load it automatically. Start `./jobbot.sh ui` from that same shell so its
-background workers inherit the settings.
+If you prefer a local `.env` file, copy the [template](.env.example), edit the settings you need,
+then load it in your shell. Leave the MongoDB settings commented for local mode.
+
+```bash
+cp -n .env.example .env
+chmod 600 .env
+# Edit .env before loading it.
+set -a
+source ./.env
+set +a
+./jobbot.sh doctor
+```
+
+Git ignores `.env`. Jobbot does not load it automatically. Start `./jobbot.sh ui` from the same
+shell so its background workers inherit the settings. On a hosted deployment, use your host's
+environment and secret settings instead of uploading a local `.env`.
 
 `doctor` checks whether the OpenAI key is configured, not whether it can make a successful
 request. After scanning and adding a resume, try `./jobbot.sh rank --limit 1` on an unranked job.
@@ -102,6 +113,13 @@ candidate facts, resume text, and relevant application questions or review value
 See [privacy and safety](docs/privacy.md).
 
 ## Scan, rank, apply, and track
+
+**Local filling** means Jobbot runs Playwright and opens Chrome on the computer running
+`./jobbot.sh apply` (or the local dashboard). For example, run it on your Mac to watch it open
+employer forms, fill fields, and attach the selected PDF. You don't have to type every answer
+yourself. The hosted MongoDB dashboard can scan, rank, sync Gmail, and track applications, but
+it doesn't start a browser on your Mac or fill forms remotely. Local browser sessions and the
+hosted tracker are separate.
 
 ```bash
 ./jobbot.sh scan

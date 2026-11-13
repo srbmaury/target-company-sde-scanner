@@ -14,7 +14,7 @@ Normal local Jobbot mode is unchanged when `JOBBOT_MONGODB_URI` is unset.
    `https://jobbot.example.com/auth/google/callback`. The existing Desktop app JSON is still for
    local CLI sign-in and cannot be used for this callback. Configure your account as an allowed
    test user if the OAuth app is in Testing.
-3. Set these variables on the host. Keep the URI, OAuth client secret, and data key in the host's
+3. Set these variables on the host. See [the environment template](../.env.example) for the variable names. Keep the URI, OAuth client secret, and data key in the host's
    secret settings. Never put them in the repository or your candidate profile.
 
    | Variable | What to set |

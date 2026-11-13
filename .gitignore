@@ -20,3 +20,8 @@ profile.yaml.*
 # Local virtualenv
 .venv/
 __pycache__/
+
+# Private environment variables. Only the template is tracked.
+.env
+.env.*
+!.env.example
