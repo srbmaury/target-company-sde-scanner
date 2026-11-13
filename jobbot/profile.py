@@ -10,6 +10,14 @@ import yaml
 from . import paths
 
 
+# New hosted accounts start empty, never with the sample candidate's data.
+ACCOUNT_PROFILE = b"""# Add your candidate details and save. Upload PDFs by resume key below.
+personal: {}
+preferences: {}
+resumes: {}
+"""
+
+
 class ProfileError(Exception):
     pass
 
@@ -114,7 +122,7 @@ def load(path=None):
     from .accounts import current, enabled
     if enabled():
         raw, _ = current().read("profile")
-        return Profile(yaml.safe_load(raw if raw is not None else paths.EXAMPLE_PROFILE.read_bytes()), paths.PROFILE)
+        return Profile(yaml.safe_load(raw if raw is not None else ACCOUNT_PROFILE), paths.PROFILE)
     path = Path(path or paths.PROFILE)
     if not path.exists() and path == paths.PROFILE and paths.LEGACY_PROFILE.exists():
         path = paths.LEGACY_PROFILE

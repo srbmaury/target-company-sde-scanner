@@ -432,17 +432,6 @@ def cmd_password(args):
           + (f", plus one for {site}." if site else "."))
 
 
-def cmd_account_import(_args):
-    from .accounts import enabled, import_local
-
-    if not enabled():
-        sys.exit("Set JOBBOT_MONGODB_URI and the hosted account configuration before importing.")
-    imported, skipped = import_local()
-    print("Imported: " + (", ".join(imported) or "nothing"))
-    if skipped:
-        print("Kept existing hosted data: " + ", ".join(skipped))
-
-
 def cmd_ui(args):
     from .ui.server import serve
 
@@ -538,9 +527,6 @@ def build_parser():
     sp.add_argument("--port", type=int, help="listen port (default: PORT or 8765)")
     sp.add_argument("--no-open", action="store_true", help="do not open a browser tab")
     sp.set_defaults(fn=cmd_ui)
-
-    sp = sub.add_parser("account-import", help="copy local profile, PDFs and tracker to an empty hosted account")
-    sp.set_defaults(fn=cmd_account_import)
 
     sp = sub.add_parser("resumes", help="read every resume now and list the skills each one shows")
     sp.set_defaults(fn=cmd_resumes)

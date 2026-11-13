@@ -191,14 +191,13 @@ rank, track, and import Gmail. It does not host the browser used to fill applica
    **Actions → Connect Gmail** to grant read-only access separately. This flow needs no local
    port forward. External Google OAuth apps in Testing issue Gmail refresh tokens that expire after
    seven days, so you'll need to reconnect.
-5. Save your resume keys under **Profile**, then upload a PDF for each key. Hosted mode uses the
-   uploaded files and ignores your local resume paths. To migrate an existing setup, run
-   `./jobbot.sh account-import` from the machine holding your local data with the hosted variables
-   temporarily loaded. It seeds empty records only and does not copy Gmail tokens, browser
-   sessions, or passwords.
+5. Open **Profile** to fill in your details. Save a key for each resume, then upload its PDF
+   using that key. A new account starts blank. Hosted mode uses those uploads, not local paths.
 
-See the [hosted account guide](docs/accounts.md) for limits, migration details, and what
-persists. Local and hosted trackers don't continuously sync.
+The sign-in page appears at the configured HTTPS URL. If you only see the local dashboard,
+check that the process was started with the hosted environment variables.
+See the [hosted account guide](docs/accounts.md) for storage limits and configuration details.
+Local browser runs and the local tracker remain separate.
 
 ## Documentation
 
@@ -207,7 +206,7 @@ persists. Local and hosted trackers don't continuously sync.
 | [Finding and ranking jobs](docs/finding-jobs.md) | Sources, filters, ranking, choosing roles |
 | [Applying](docs/apply.md) | Form filling, review checks, dry runs, supported sites |
 | [Dashboard](docs/dashboard.md) | Jobs, Runs, Applications, Actions, Profile |
-| [Hosted accounts](docs/accounts.md) | MongoDB, Google sign-in, deployment, migration |
+| [Hosted accounts](docs/accounts.md) | MongoDB, Google sign-in, deployment |
 | [Candidate profile](docs/profile.md) | Resume variants, rules, preferences, learned answers |
 | [Tracking and Gmail](docs/tracking.md) | Status history, duplicates, email imports |
 | [Command reference](docs/commands.md) | CLI commands and options |

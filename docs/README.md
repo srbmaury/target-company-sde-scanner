@@ -5,7 +5,7 @@
 | [Finding and ranking jobs](finding-jobs.md) | Where `scan` reads jobs from, how `rank` scores them, `jobs`, choosing roles for `apply` |
 | [How `apply` works](apply.md) | Filling, review rounds, multi-page forms, the final step, unattended mode, dry run, supported sites |
 | [Dashboard](dashboard.md) | Every tab, applying from the browser, Refresh jobs |
-| [Hosted accounts](accounts.md) | Private Google sign-in, MongoDB storage, Gmail and migration |
+| [Hosted accounts](accounts.md) | Private Google sign-in, MongoDB storage, and Gmail |
 | [Your profile](profile.md) | Every section of `profile.yaml`, learned answers, your own rules |
 | [Tracking applications](tracking.md) | The tracker, duplicate detection, Gmail sync setup |
 | [Command reference](commands.md) | Every command and option; running only the scanner |

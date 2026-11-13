@@ -112,26 +112,24 @@ class AccountTests(unittest.TestCase):
         self.assertEqual([row["company"] for row in tracker.list_applications(reopened)], ["Acme"])
         self.assertEqual(len(tracker.events_for(reopened, app["id"])), 1)
 
-    def test_local_import_keeps_existing_hosted_data_and_excludes_gmail_token(self):
+    def test_fresh_account_starts_empty_and_uses_uploaded_resumes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            pdf = root / "resume.pdf"
-            pdf.write_bytes(b"%PDF-1.4\nfixture")
             local_profile = root / "profile.yaml"
-            local_profile.write_text("personal: {first_name: Test}\nresumes: {backend: {path: resume.pdf}}\n")
-            local_db = root / "tracker.db"
+            local_profile.write_text("personal: {first_name: LocalOnly}\n")
             with patch.object(paths, "HOME", root), patch.object(paths, "CACHE", root / "cache"), patch.object(
-                    paths, "PROFILE", local_profile), patch.object(paths, "DB", local_db):
-                local = tracker.connect(local_db)
-                tracker.add_application(local, "Old company", "Developer")
-                local.close()
-                (root / "gmail_token.json").write_text('{"access_token":"local secret"}')
-                imported, skipped = accounts.import_local()
-                self.assertEqual(imported, ["resume:backend", "profile", "tracker"])
-                self.assertEqual(skipped, [])
-                self.assertEqual(accounts.import_local()[1], imported)
-                self.assertEqual(profile.load().resumes()["backend"]["path"].read_bytes(), pdf.read_bytes())
+                    paths, "PROFILE", local_profile):
+                fresh = profile.load()
+                self.assertEqual(fresh.get("personal"), {})
+                self.assertEqual(fresh.resumes(), {})
                 self.assertIsNone(self.account.get_json("gmail"))
+                self.account.write("profile", b"personal: {first_name: Owner}\nresumes: {backend: {focus: Java}}\n")
+                pdf = b"%PDF-1.4\nfixture"
+                self.account.write("resume:backend", pdf)
+                updated = profile.load()
+                self.assertEqual(updated.full_name, "Owner")
+                self.assertEqual(updated.resumes()["backend"]["path"].read_bytes(), pdf)
+                self.assertEqual(local_profile.read_text(), "personal: {first_name: LocalOnly}\n")
 
     def test_http_session_host_origin_and_resume_upload(self):
         httpd = server.make_server(0, self.account)
@@ -159,6 +157,9 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(request("/api/profile")[0], 401)
         self.assertEqual(request("/api/profile", cookie=session, host="wrong.example.com")[0], 403)
         self.assertEqual(request("/api/profile", {}, cookie=session, origin="https://wrong.example.com")[0], 403)
+        status, body, _ = request("/api/profile", cookie=session)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["text"], profile.ACCOUNT_PROFILE.decode())
         self.assertEqual(request("/api/profile", {"text": "personal: {}\n", "mtime": ""}, cookie=session)[0], 200)
         self.assertEqual(request("/api/profile", {"text": "personal: {}\n", "mtime": ""}, cookie=session)[0], 409)
         pdf = base64.b64encode(b"%PDF-1.4\nfixture").decode()

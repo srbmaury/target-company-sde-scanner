@@ -332,7 +332,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.account and parts == ["profile"]:
             raw, version = self.account.read("profile")
             if raw is None:
-                raw = paths.EXAMPLE_PROFILE.read_bytes()
+                raw = profile_mod.ACCOUNT_PROFILE
             return self._send(200, {"path": "MongoDB account profile", "text": raw.decode(), "mtime": version})
         if self.account and parts == ["apply"]:
             return self._send(200, {"status": "idle"})

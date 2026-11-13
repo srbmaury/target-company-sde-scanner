@@ -46,7 +46,7 @@ Normal local Jobbot mode is unchanged when `JOBBOT_MONGODB_URI` is unset.
    access. There is no localhost callback or port forwarding in hosted mode. If Google expires
    or revokes the authorization, reconnect from the dashboard. For External OAuth apps in
    **Testing**, Google expires Gmail refresh tokens after seven days.
-5. Edit your profile under **Profile**. To add a resume, save its key under `resumes:`, then upload
+5. Fill in your details under **Profile**. New accounts start with a blank profile. To add a resume, save its key under `resumes:`, then upload
    the PDF using that key. Hosted mode ignores local YAML file paths. For example:
 
    ```yaml
@@ -55,20 +55,12 @@ Normal local Jobbot mode is unchanged when `JOBBOT_MONGODB_URI` is unset.
        focus: Java, Spring Boot, distributed systems
    ```
 
-## Bring existing data along
-
-From the machine or Codespace that holds your current profile, PDFs, and local tracker, configure
-the same account variables temporarily and run `./jobbot.sh account-import`. It copies the files
-and tracker into empty account records only, leaving local files and existing hosted records alone.
-It does not upload the Desktop OAuth client, Gmail token, saved browser sessions, or passwords.
-You can also start fresh and upload resumes in the dashboard.
-
 ## What's local and what's hosted
 
 Hosted Jobbot can scan, rank, import Gmail, and track applications. Browser-based application
 filling, local Chrome profiles and sign-ins, and browser run history are not hosted. Use your local
-Jobbot setup for those. Local and hosted trackers are separate after a one-time import. If you
-start the CLI with the hosted environment variables, it reads the hosted profile and tracker.
+Jobbot setup for those. Local and hosted trackers are separate. If you start the CLI with the hosted environment
+variables, scan, rank, and track use the hosted profile and tracker.
 
 MongoDB stores encrypted account data and refresh tokens. The app keeps the key outside MongoDB.
 Session IDs are stored as hashes and expire after seven days. Signing out ends that browser session.
