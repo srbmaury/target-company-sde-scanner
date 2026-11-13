@@ -661,16 +661,89 @@ async function loadProfile() {
   $("#profile-text").value = p.text;
   $("#profile-msg").textContent = "";
   state.profileMtime = p.mtime;
+  state.savedProfile = p.text;
+  state.resumeKeys = p.resume_keys || [];
+  if (p.resume_keys) await loadResumeKeys();
 }
 
 async function saveProfile() {
   const msg = $("#profile-msg");
   try {
-    const r = await api("profile", { text: $("#profile-text").value, mtime: state.profileMtime });
+    const text = $("#profile-text").value;
+    const r = await api("profile", { text, mtime: state.profileMtime });
     state.profileMtime = r.mtime;
+    state.savedProfile = text;
+    if (r.resume_keys) {
+      state.resumeKeys = r.resume_keys;
+      renderResumeKeys();
+    }
     msg.textContent = "Saved."; msg.style.color = "var(--good)";
   } catch (e) {
     msg.textContent = e.message; msg.style.color = "var(--bad)";
+  }
+}
+
+async function loadResumeKeys() {
+  try {
+    const r = await api("account/resumes");
+    state.uploadedResumes = r.keys;
+    renderResumeKeys();
+  } catch (e) {
+    $("#resume-list-msg").textContent = e.message;
+  }
+}
+
+function renderResumeKeys() {
+  const uploaded = state.uploadedResumes || [];
+  const configured = state.resumeKeys || [];
+  const keys = [...new Set([...uploaded, ...configured])].sort();
+  $("#resume-list").innerHTML = keys.length ? keys.map((key) => {
+    const saved = configured.includes(key), exists = uploaded.includes(key);
+    const button = saved ? '<button type="button" data-action="remove">Remove from profile</button>'
+      : '<button type="button" data-action="add">Add to profile</button>';
+    return `<li data-key="${esc(key)}"><code>${esc(key)}</code>
+      <span class="muted">${saved ? (exists ? "In profile" : "No PDF uploaded") : "Uploaded only"}</span>
+      ${button}${exists ? ' <button type="button" data-action="copy">Copy to new key</button>' : ""}</li>`;
+  }).join("") : '<li class="muted">No resumes uploaded or configured yet.</li>';
+}
+
+async function changeResume(event) {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const key = button.closest("[data-key]").dataset.key;
+  const action = button.dataset.action, msg = $("#resume-list-msg"), editor = $("#profile-text");
+  if (action !== "copy" && editor.value !== state.savedProfile) {
+    msg.textContent = "Save your YAML edits before changing resume keys.";
+    return;
+  }
+  button.disabled = true;
+  try {
+    if (action === "copy") {
+      const target = prompt("Copy this PDF to a new resume key:", key);
+      if (target === null || target.trim() === key) return;
+      await api("account/resume/copy", { source: key, key: target.trim() });
+      await loadResumeKeys();
+      msg.textContent = "PDF copied. Choose Add to profile next to the new key.";
+      return;
+    }
+    const before = editor.value;
+    const r = await api("account/resume/profile", { action, key, mtime: state.profileMtime });
+    state.profileMtime = r.mtime;
+    state.savedProfile = r.text;
+    state.resumeKeys = r.resume_keys;
+    if (editor.value === before) {
+      editor.value = r.text;
+      msg.textContent = action === "add" ? "Added. You can edit its focus in the YAML." : "Removed from YAML. The PDF is still uploaded.";
+    } else {
+      msg.textContent = "Profile changed while you were editing. Copy your edits and reload Profile before saving.";
+      // Keep the stale editor version so a later Save cannot overwrite the change.
+      state.profileMtime = null;
+    }
+    renderResumeKeys();
+  } catch (e) {
+    msg.textContent = e.message;
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -770,6 +843,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     try { await api("account/gmail/disconnect", {}); await loadSummary(); }
     catch (e) { alertInline($("#gmail-text"), e.message); }
   });
+  $("#resume-list").addEventListener("click", changeResume);
   $("#resume-upload").addEventListener("submit", async (event) => {
     event.preventDefault();
     const msg = $("#resume-msg"), file = $("#resume-file").files[0];
@@ -779,7 +853,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       const chunks = [];
       for (let i = 0; i < bytes.length; i += 8192) chunks.push(String.fromCharCode(...bytes.subarray(i, i + 8192)));
       await api("account/resume", { key: $("#resume-key").value, pdf: btoa(chunks.join("")) });
-      msg.textContent = "Uploaded. Make sure this key is saved under resumes in your profile.";
+      await loadResumeKeys();
+      msg.textContent = "Uploaded. Use Add to profile if the key is not already in your YAML.";
     } catch (e) { msg.textContent = e.message; }
   });
   $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
