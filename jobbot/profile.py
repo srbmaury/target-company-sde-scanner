@@ -33,10 +33,28 @@ class Profile:
 
     def resumes(self):
         """{key: {"path": Path, "focus": str}} for every resume that exists on disk."""
+        from .accounts import current, enabled
+
         out = {}
+        account = current() if enabled() else None
         for key, spec in (self.get("resumes") or {}).items():
             spec = spec if isinstance(spec, dict) else {"path": spec}
-            p = Path(os.path.expanduser(str(spec.get("path", ""))))
+            if account:
+                if not valid_resume_key(key):
+                    continue
+                data, version = account.read("resume:" + key)
+                if data is None:
+                    continue
+                # Only account-uploaded PDFs are resolved in hosted mode. Ignore YAML paths.
+                paths.ensure_home()
+                p = paths.CACHE / f"account-{account.owner[:16]}-{key}-{version}.pdf"
+                if not p.exists():
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(dir=paths.CACHE, delete=False) as tmp:
+                        tmp.write(data)
+                    os.replace(tmp.name, p)
+            else:
+                p = Path(os.path.expanduser(str(spec.get("path", ""))))
             if p.is_file():
                 out[key] = {"path": p, "focus": spec.get("focus", "")}
         return out
@@ -87,7 +105,16 @@ class Profile:
         return "\n".join(lines)
 
 
+def valid_resume_key(key):
+    import re
+    return isinstance(key, str) and bool(re.fullmatch(r"[A-Za-z0-9_-]{1,48}", key))
+
+
 def load(path=None):
+    from .accounts import current, enabled
+    if enabled():
+        raw, _ = current().read("profile")
+        return Profile(yaml.safe_load(raw if raw is not None else paths.EXAMPLE_PROFILE.read_bytes()), paths.PROFILE)
     path = Path(path or paths.PROFILE)
     if not path.exists() and path == paths.PROFILE and paths.LEGACY_PROFILE.exists():
         path = paths.LEGACY_PROFILE

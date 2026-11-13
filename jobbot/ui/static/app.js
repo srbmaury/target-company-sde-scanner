@@ -20,6 +20,10 @@ async function api(path, body) {
     throw e;
   }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    location.replace("/");
+    throw new Error("Sign in to Jobbot.");
+  }
   if (res.status === 403 && /token/.test(data.error || "")) {
     // A page left open across a restart holds the old access token: every call fails until it reloads.
     connection("jobbot was restarted, so this page is out of date.", true);
@@ -75,7 +79,17 @@ async function loadSummary() {
     <span>${dot(s.llm_available)}${esc(s.llm_provider === "openai" ? "OpenAI API" : "Ollama")} ${s.llm_available ? (s.llm_provider === "openai" ? "key configured" : "running") : "unavailable"}</span>`;
   $("#gmail-text").textContent = s.gmail
     ? "Import application emails, and read verification codes and links for sign-ups."
-    : "Connect Gmail (read-only) to import your applications. Needs the one-time OAuth client from the README.";
+    : s.account ? "Connect your Google account to import application emails with read-only access."
+      : "Connect Gmail to import your applications. Needs the one-time OAuth client from the README.";
+  $("#account-signout").hidden = !s.account;
+  $("#gmail-disconnect").hidden = !(s.account && s.gmail);
+  $("#gmail-login").hidden = !!(s.account && s.gmail);
+  $("#account-resume").hidden = !s.account;
+  $("#local-profile-hint").hidden = !!s.account;
+  if (s.account) {
+    $("#apply-selected").title = $("#dry-selected").title = "Run browser applications from local Jobbot.";
+  }
+  $("#apply-selected").disabled = $("#dry-selected").disabled = !state.selected.size || !!s.account;
   $("#gmail-sync").disabled = !s.gmail;
   const sel = $("#apps-status");
   if (sel.options.length === 1) s.statuses.forEach((st) => sel.add(new Option(st, st)));
@@ -181,7 +195,7 @@ function updateSelection() {
   $("#notdup-selected").hidden = state.view !== "possible";
   $("#notdup-selected").disabled = !n;
   $("#sel-count").textContent = n ? `${n} selected` : "None selected";
-  $("#apply-selected").disabled = $("#dry-selected").disabled = !n;
+  $("#apply-selected").disabled = $("#dry-selected").disabled = !n || !!state.summary?.account;
   $("#sel-clear").classList.toggle("invisible", !n);   // keeps its space: buttons never shift under the cursor
   const keys = selectable(), picked = keys.filter((k) => state.selected.has(k)).length;
   const all = keys.length > 0 && picked === keys.length;
@@ -573,7 +587,14 @@ function alertInline(root, msg) {
 
 // ---------- actions / tasks ----------
 async function startTask(name) {
-  try { await api("tasks/" + name, {}); } catch (e) { alertInline($(`[data-task="${name}"]`).closest(".card"), e.message); }
+  try {
+    if (name === "gmail-login" && state.summary?.account) {
+      const r = await api("account/gmail/connect", {});
+      location.assign(r.url);
+      return;
+    }
+    await api("tasks/" + name, {});
+  } catch (e) { alertInline($(`[data-task="${name}"]`)?.closest(".card") || $("#tasks"), e.message); }
   loadTasks();
 }
 
@@ -743,6 +764,27 @@ async function loadDocs(name = state.doc || "README", anchor = "") {
 
 // ---------- wiring ----------
 document.addEventListener("DOMContentLoaded", async () => {
+  $("#account-signout").addEventListener("click", async () => {
+    try { await api("account/logout", {}); location.replace("/"); }
+    catch (e) { alertInline($("#status"), e.message); }
+  });
+  $("#gmail-disconnect").addEventListener("click", async () => {
+    if (!confirm("Disconnect Gmail and revoke Jobbot’s access?")) return;
+    try { await api("account/gmail/disconnect", {}); await loadSummary(); }
+    catch (e) { alertInline($("#gmail-text"), e.message); }
+  });
+  $("#resume-upload").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const msg = $("#resume-msg"), file = $("#resume-file").files[0];
+    if (!file || file.size > 5 * 1024 * 1024) { msg.textContent = "Choose a PDF up to 5 MiB."; return; }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const chunks = [];
+      for (let i = 0; i < bytes.length; i += 8192) chunks.push(String.fromCharCode(...bytes.subarray(i, i + 8192)));
+      await api("account/resume", { key: $("#resume-key").value, pdf: btoa(chunks.join("")) });
+      msg.textContent = "Uploaded. Make sure this key is saved under resumes in your profile.";
+    } catch (e) { msg.textContent = e.message; }
+  });
   $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
   const reloadJobs = debounce(loadJobs);
   ["#jobs-q", "#jobs-min"].forEach((s) => $(s).addEventListener("input", reloadJobs));

@@ -65,9 +65,41 @@ def today():
     return dt.date.today().isoformat()
 
 
+class AccountConnection(sqlite3.Connection):
+    """Run existing tracker queries locally, publishing consistent snapshots to MongoDB.
+
+    CAS prevents a stale writer (including background jobs) from overwriting another
+    request's changes. A rejected write has not been persisted and must be retried.
+    """
+    def commit(self):
+        changed = self.total_changes != self.synced_changes
+        super().commit()
+        if changed:
+            from .accounts import AccountError, MAX_TRACKER
+            snapshot = self.serialize()
+            if len(snapshot) > MAX_TRACKER:
+                raise AccountError("The account tracker has reached its storage limit.")
+            self.version = self.account.write("tracker", snapshot, expected=self.version)
+            self.synced_changes = self.total_changes
+
+
 def connect(path=None):
+    if path is None:
+        from .accounts import current, enabled
+        if enabled():
+            account = current()
+            snapshot, version = account.read("tracker")
+            conn = sqlite3.connect(":memory:", factory=AccountConnection)
+            conn.account, conn.version, conn.synced_changes = account, version, 0
+            if snapshot is not None:
+                conn.deserialize(snapshot)
+            return _prepare(conn)
+
     paths.ensure_home()
-    conn = sqlite3.connect(path or paths.DB)
+    return _prepare(sqlite3.connect(path or paths.DB))
+
+
+def _prepare(conn):
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}

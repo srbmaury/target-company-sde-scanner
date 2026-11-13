@@ -22,6 +22,7 @@
       <button role="tab" data-tab="docs">Docs</button>
     </nav>
     <div class="status" id="status"></div>
+    <button id="account-signout" hidden>Sign out</button>
   </header>
 
   <main>
@@ -120,7 +121,8 @@
           <button class="primary" data-task="resumes">Parse resumes</button></div>
         <div class="card"><h3>Gmail</h3><p id="gmail-text">Import application emails, and read verification codes and links for sign-ups.</p>
           <button class="primary" data-task="sync-gmail" id="gmail-sync">Sync Gmail</button>
-          <button data-task="gmail-login" id="gmail-login">Connect Gmail</button></div>
+          <button data-task="gmail-login" id="gmail-login">Connect Gmail</button>
+          <button id="gmail-disconnect" hidden>Disconnect Gmail</button></div>
       </div>
       <h3 class="section-title">Recent runs</h3>
       <div id="tasks"></div>
@@ -142,7 +144,17 @@
       <div class="toolbar"><span class="muted" id="profile-path"></span>
         <button class="primary" id="profile-save">Save</button><span id="profile-msg"></span></div>
       <textarea id="profile-text" spellcheck="false"></textarea>
-      <p class="hint">Your profile is git-ignored and never committed. Saving keeps a backup next to it (<code>profile.yaml.bak</code>).</p>
+      <p class="hint" id="local-profile-hint">Your profile is git-ignored and never committed. Saving keeps a backup next to it (<code>profile.yaml.bak</code>).</p>
+      <div class="card" id="account-resume" hidden>
+        <h3>Upload an account resume</h3>
+        <p>Use a key from the YAML <code>resumes:</code> section. Hosted Jobbot uses your uploaded PDF, not a path from your computer.</p>
+        <form id="resume-upload">
+          <label>Resume key <input id="resume-key" required maxlength="48" pattern="[A-Za-z0-9_\-]{1,48}" placeholder="backend"></label>
+          <label>PDF <input id="resume-file" type="file" accept=".pdf,application/pdf" required></label>
+          <button class="primary">Upload PDF</button>
+          <span id="resume-msg" role="status"></span>
+        </form>
+      </div>
     </section>
   </main>
 

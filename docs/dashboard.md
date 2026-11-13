@@ -55,3 +55,8 @@ The **Docs** tab shows these pages.
 ---
 
 [← Docs index](README.md) · [Project README](../README.md)
+
+## Use the same account from multiple machines
+
+See [Private Jobbot account with MongoDB](accounts.md) for a hosted dashboard with Google sign-in,
+persistent profile and resumes, application tracking, and Gmail OAuth without port forwarding.

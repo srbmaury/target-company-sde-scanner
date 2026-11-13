@@ -15,6 +15,7 @@
 """
 
 import argparse
+import os
 import re
 import sys
 import textwrap
@@ -179,6 +180,10 @@ def cmd_rank(args):
 
 
 def cmd_apply(args):
+    from .accounts import enabled
+    if enabled():
+        sys.exit("Browser applications run in local mode. Unset JOBBOT_MONGODB_URI to use your local setup.")
+
     from .apply.engine import Session
     from .apply.runner import review_ready, run_jobs, select_targets
     from .apply.ui import TerminalUI
@@ -425,10 +430,21 @@ def cmd_password(args):
           + (f", plus one for {site}." if site else "."))
 
 
+def cmd_account_import(_args):
+    from .accounts import enabled, import_local
+
+    if not enabled():
+        sys.exit("Set JOBBOT_MONGODB_URI and the hosted account configuration before importing.")
+    imported, skipped = import_local()
+    print("Imported: " + (", ".join(imported) or "nothing"))
+    if skipped:
+        print("Kept existing hosted data: " + ", ".join(skipped))
+
+
 def cmd_ui(args):
     from .ui.server import serve
 
-    serve(port=args.port, open_browser=not args.no_open)
+    serve(port=args.port or int(os.getenv("PORT", "8765")), open_browser=not args.no_open)
 
 
 def cmd_logs(args):
@@ -517,9 +533,12 @@ def build_parser():
     sp.set_defaults(fn=cmd_answers)
 
     sp = sub.add_parser("ui", help="open the local dashboard in your browser")
-    sp.add_argument("--port", type=int, default=8765)
+    sp.add_argument("--port", type=int, help="listen port (default: PORT or 8765)")
     sp.add_argument("--no-open", action="store_true", help="do not open a browser tab")
     sp.set_defaults(fn=cmd_ui)
+
+    sp = sub.add_parser("account-import", help="copy local profile, PDFs and tracker to an empty hosted account")
+    sp.set_defaults(fn=cmd_account_import)
 
     sp = sub.add_parser("resumes", help="read every resume now and list the skills each one shows")
     sp.set_defaults(fn=cmd_resumes)
@@ -574,7 +593,15 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    args.fn(args)
+    from .accounts import AccountError
+    from pymongo.errors import PyMongoError
+
+    try:
+        args.fn(args)
+    except AccountError as exc:
+        sys.exit(str(exc))
+    except PyMongoError:
+        sys.exit("Could not access MongoDB. Check the account database configuration.")
 
 
 if __name__ == "__main__":

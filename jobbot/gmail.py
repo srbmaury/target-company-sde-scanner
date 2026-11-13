@@ -33,6 +33,7 @@ from pathlib import Path
 
 from . import paths
 
+READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 SCOPE = "https://mail.google.com/"   # full mailbox: the inbox is for job hunting only (see the module note)
 MODIFY_SCOPES = ("https://mail.google.com/", "https://www.googleapis.com/auth/gmail.modify")
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -73,6 +74,9 @@ def _post(url, data):
 
 
 def load_client(path=None):
+    from .accounts import current, enabled
+    if enabled():
+        return current().oauth_client
     path = Path(path or client_path())
     if not path.exists():
         raise GmailError(
@@ -86,6 +90,10 @@ def load_client(path=None):
 
 
 def _save_token(token):
+    from .accounts import current, enabled
+    if enabled():
+        current().put_json("gmail", token)
+        return
     paths.ensure_home()
     path = token_path()
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # never readable by others, even briefly
@@ -94,16 +102,31 @@ def _save_token(token):
     os.chmod(path, 0o600)
 
 
+def _load_token():
+    from .accounts import current, enabled
+    if enabled():
+        return current().get_json("gmail")
+    try:
+        return json.loads(token_path().read_text())
+    except FileNotFoundError:
+        return None
+
+
 def is_connected():
-    return token_path().exists()
+    return _load_token() is not None
 
 
-def auth_url(client, redirect_uri, challenge, state):
-    return AUTH_URL + "?" + urllib.parse.urlencode({
-        "client_id": client["client_id"], "redirect_uri": redirect_uri, "response_type": "code", "scope": SCOPE,
-        "access_type": "offline", "prompt": "consent", "code_challenge": challenge,
+def auth_url(client, redirect_uri, challenge, state, scope=SCOPE, offline=True):
+    params = {
+        "client_id": client["client_id"], "redirect_uri": redirect_uri, "response_type": "code", "scope": scope,
+        "code_challenge": challenge,
         "code_challenge_method": "S256", "state": state,
-    })
+    }
+    if offline:
+        params.update(access_type="offline", prompt="consent")
+    else:
+        params["prompt"] = "select_account"
+    return AUTH_URL + "?" + urllib.parse.urlencode(params)
 
 
 def pkce_pair():
@@ -112,8 +135,27 @@ def pkce_pair():
     return verifier, challenge
 
 
+def exchange(client, redirect_uri, verifier, code):
+    token = _post(TOKEN_URL, {
+        "client_id": client["client_id"], "client_secret": client["client_secret"], "code": code,
+        "code_verifier": verifier, "grant_type": "authorization_code", "redirect_uri": redirect_uri,
+    })
+    token["expires_at"] = time.time() + int(token.get("expires_in", 3600)) - 60
+    return token
+
+
+def google_identity(access):
+    req = urllib.request.Request("https://openidconnect.googleapis.com/v1/userinfo",
+                                 headers={"Authorization": f"Bearer {access}"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.load(resp)
+
+
 def login(client_file=None, open_browser=True, timeout=300):
-    """Run Google's sign-in in the browser and store a read-only refresh token."""
+    """Run the desktop Google sign-in flow and save the refresh token."""
+    from .accounts import enabled
+    if enabled():
+        raise GmailError("In hosted account mode, connect Gmail from the dashboard.")
     client = load_client(client_file)
     if client_file:
         paths.ensure_home()
@@ -154,29 +196,44 @@ def login(client_file=None, open_browser=True, timeout=300):
     server.server_close()
     if "code" not in result:
         raise GmailError(f"Sign-in did not complete ({result.get('error', 'timed out')}).")
-    token = _post(TOKEN_URL, {
-        "client_id": client["client_id"], "client_secret": client["client_secret"], "code": result["code"],
-        "code_verifier": verifier, "grant_type": "authorization_code", "redirect_uri": redirect_uri,
-    })
+    token = exchange(client, redirect_uri, verifier, result["code"])
     if "refresh_token" not in token:
         raise GmailError("Google did not return a refresh token; run `jobbot gmail logout` and log in again.")
-    token["expires_at"] = time.time() + int(token.get("expires_in", 3600)) - 60
     _save_token(token)
     return profile_email()
 
 
 def access_token():
-    if not token_path().exists():
-        raise GmailError("Gmail is not connected. Run `jobbot gmail login`.")
-    token = json.loads(token_path().read_text())
+    from .accounts import AccountError, current, enabled
+
+    account = current() if enabled() else None
+    raw, version = account.read("gmail") if account else (None, "")
+    token = (json.loads(raw) if raw is not None else None) if account else _load_token()
+    if token is None:
+        raise GmailError("Gmail is not connected.")
     if token.get("expires_at", 0) > time.time():
         return token["access_token"]
     client = load_client()
-    fresh = _post(TOKEN_URL, {"client_id": client["client_id"], "client_secret": client["client_secret"],
-                              "refresh_token": token["refresh_token"], "grant_type": "refresh_token"})
+    try:
+        fresh = _post(TOKEN_URL, {"client_id": client["client_id"], "client_secret": client["client_secret"],
+                                  "refresh_token": token["refresh_token"], "grant_type": "refresh_token"})
+    except GmailError as exc:
+        if account and '"invalid_grant"' in str(exc):
+            account.remove("gmail", expected=version)
+            raise GmailError("Google authorization expired or was revoked. Reconnect Gmail from the dashboard.") from None
+        raise
     token.update(fresh)
     token["expires_at"] = time.time() + int(fresh.get("expires_in", 3600)) - 60
-    _save_token(token)
+    if account:
+        try:
+            account.write("gmail", json.dumps(token).encode(), expected=version)
+        except AccountError:
+            latest = account.get_json("gmail")
+            if latest and latest.get("expires_at", 0) > time.time():
+                return latest["access_token"]
+            raise GmailError("The Gmail connection changed. Retry or reconnect in the dashboard.") from None
+    else:
+        _save_token(token)
     return token["access_token"]
 
 
@@ -197,7 +254,7 @@ def _get(path, params=None):
 def can_modify():
     """True when the stored token may label messages (connected with full or modify access)."""
     try:
-        scopes = json.loads(token_path().read_text()).get("scope", "")
+        scopes = (_load_token() or {}).get("scope", "")
     except (OSError, ValueError):
         return False
     return any(sc in scopes.split() for sc in MODIFY_SCOPES)
@@ -372,12 +429,21 @@ def _latest_code(since, hint="", wait=90, poll=5):
 
 
 def logout():
-    if not token_path().exists():
+    from .accounts import current, enabled
+
+    account = current() if enabled() else None
+    raw, version = account.read("gmail") if account else (None, "")
+    token = (json.loads(raw) if raw is not None else None) if account else _load_token()
+    if token is None:
         return False
-    token = json.loads(token_path().read_text())
+    if account:
+        # Prevent an in-flight refresh from recreating the token after disconnection.
+        if not account.remove("gmail", expected=version):
+            raise GmailError("The Gmail connection changed. Retry disconnecting.")
     try:
         _post(REVOKE_URL, {"token": token.get("refresh_token") or token.get("access_token", "")})
-    except GmailError:
-        pass  # already revoked or expired; delete locally anyway
-    token_path().unlink()
+    except (GmailError, OSError):
+        pass  # expired or unavailable; the local connection is still removed
+    if not account:
+        token_path().unlink(missing_ok=True)
     return True

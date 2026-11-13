@@ -64,6 +64,11 @@ brew install ollama && brew services start ollama && ollama pull qwen2.5:7b
 ✓ tracker: /Users/you/.jobbot/applications.db (0 applications)
 ```
 
+### Optional private hosted account
+
+Use the [MongoDB account setup](docs/accounts.md) to keep one dashboard, profile, resume library,
+Gmail connection, and tracker across devices. Local mode remains the default.
+
 ### Optional OpenAI API instead of Ollama
 
 Ollama is still the default; there is **no automatic switch to a paid provider**. To use OpenAI without downloading a local model, configure the following environment variables for the terminal or deployment process:
