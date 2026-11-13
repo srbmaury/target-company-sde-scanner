@@ -12,6 +12,7 @@ page polls their output.
 import base64
 import binascii
 import datetime as dt
+import errno
 import json
 import mimetypes
 import os
@@ -22,7 +23,6 @@ import subprocess
 import sys
 import threading
 import urllib.parse
-import webbrowser
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -263,8 +263,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 token = self.account.finish(get("state"), self._cookie(self.flow_cookie), get("code"), self._session())
             except (accounts.AccountError, gmail.GmailError, OSError, ValueError, KeyError):
-                return self._send(400, "Google sign-in or Gmail consent failed. Return to Jobbot and try again.",
-                                  "text/plain; charset=utf-8", [self._set_cookie(self.flow_cookie, "", 0)])
+                return self._static("/auth-error.html", status=400,
+                                    headers=[self._set_cookie(self.flow_cookie, "", 0)])
             headers = [self._set_cookie(self.flow_cookie, "", 0)]
             if token:
                 headers.append(self._set_cookie(self.session_cookie, token, 7 * 86400))
@@ -505,8 +505,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._auth_get(url)
         if self.account and not self.account.session(self._session()):
             if url.path in ("/", "/index.html"):
-                return self._static("/login.html")
-            if url.path == "/style.css":
+                expired = urllib.parse.parse_qs(url.query).get("session") == ["expired"]
+                return self._static("/login.html", expired=expired)
+            if url.path in ("/style.css", "/favicon.svg"):
                 return self._static(url.path)
             return self._send(401, {"error": "Sign in to Jobbot."})
         if self.account and url.path.startswith("/resume-file/"):
@@ -544,14 +545,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"path": "MongoDB account profile", "text": raw.decode(), "mtime": version,
                                     "resume_keys": [key for key in resumes if profile_mod.valid_resume_key(key)]
                                     if isinstance(resumes, dict) else []})
-        if self.account and parts == ["apply"]:
-            return self._send(200, {"status": "idle"})
-        if self.account and parts == ["runs"]:
-            return self._send(200, [])
         if self.account and parts == ["logs"]:
             return self._send(200, {"dates": [], "date": "", "lines": []})
-        if self.account and parts[:1] == ["runs"]:
-            return self._send(404, {"error": "Local browser runs are not stored in the hosted account."})
         conn = tracker.connect()
         try:
             if parts == ["summary"]:
@@ -586,15 +581,15 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["tasks"]:
                 return self._send(200, sorted(TASKS.values(), key=lambda t: t["started"], reverse=True)[:20])
             if parts == ["apply"]:
-                run = bridge.current()
+                run = bridge.current(self.account)
                 if run:
                     return self._send(200, run.snapshot())
-                last = bridge.history()
-                return self._send(200, {**bridge.saved_run(last[0]["id"]), "history": True} if last else {"status": "idle"})
+                last = bridge.history(self.account)
+                return self._send(200, {**bridge.saved_run(last[0]["id"], self.account), "history": True} if last else {"status": "idle"})
             if parts == ["runs"]:
-                return self._send(200, bridge.history())
+                return self._send(200, bridge.history(self.account))
             if len(parts) == 2 and parts[0] == "runs":
-                saved = bridge.saved_run(parts[1])
+                saved = bridge.saved_run(parts[1], self.account)
                 return self._send(200, {**saved, "history": True}) if saved else self._send(404, {"error": "no such run"})
             if len(parts) == 2 and parts[0] == "tasks":
                 task = TASKS.get(parts[1])
@@ -621,8 +616,13 @@ class Handler(BaseHTTPRequestHandler):
         parts = urllib.parse.urlparse(self.path).path.strip("/").split("/")[1:]
         if self.account and parts[:1] == ["account"]:
             return self._account_post(parts, self._json_body(7_000_000 if parts == ["account", "resume"] else 2_000_000))
-        if self.account and (parts[:1] == ["apply"] or parts == ["tasks", "gmail-login"]):
-            return self._send(400, {"error": "Use the hosted Connect Gmail button or run browser applications locally."})
+        if self.account and parts == ["tasks", "gmail-login"]:
+            return self._send(400, {"error": "Connect Gmail from the Actions tab."})
+        if parts == ["apply", "preview"]:
+            run = bridge.current(self.account) if self.account else None
+            if not run:
+                return self._send(404, {"error": "No hosted browser run."})
+            return self._send(200, run.control(self._json_body(48_000)))
         conn = tracker.connect()
         try:
             body = self._json_body()
@@ -695,16 +695,17 @@ class Handler(BaseHTTPRequestHandler):
                 run = bridge.start(keys, dry_run=bool(body.get("dry_run")), auto_next=body.get("auto_next", True),
                                    resume=body.get("resume") or None, use_llm=body.get("llm", True) is not False,
                                    force=bool(body.get("force")), unattended=bool(body.get("unattended")),
-                                   validation=bool(body.get("validation")), auto_submit=bool(body.get("auto_submit")))
+                                   validation=bool(body.get("validation")), auto_submit=bool(body.get("auto_submit")),
+                                   account=self.account)
                 return self._send(200, run.snapshot())
             if parts == ["apply", "answer"]:
-                run = bridge.current()
+                run = bridge.current(self.account)
                 if not run:
                     return self._send(400, {"error": "No apply run."})
                 run.answer(body.get("prompt_id"), body.get("value"))
                 return self._send(200, {"ok": True})
             if parts == ["apply", "stop"]:
-                run = bridge.current()
+                run = bridge.current(self.account)
                 if run:
                     run.stop()
                 return self._send(200, {"ok": True})
@@ -714,7 +715,7 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             conn.close()
 
-    def _static(self, path):
+    def _static(self, path, *, status=200, headers=(), expired=False):
         name = "index.html" if path in ("/", "") else path.lstrip("/")
         file = (STATIC / name).resolve()
         if STATIC not in file.parents or not file.is_file():
@@ -722,10 +723,14 @@ class Handler(BaseHTTPRequestHandler):
         body = file.read_bytes()
         if name == "index.html":
             body = body.replace(b"__JOBBOT_TOKEN__", self.token.encode())
+        if name == "login.html" and expired:
+            body = body.replace(b"Sign in to Jobbot", b"Sign in to Jobbot again").replace(
+                b"Use the Google account configured for this dashboard.",
+                b"Your Jobbot session expired. Sign in to return to the dashboard.")
         ctype = mimetypes.guess_type(str(file))[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype.endswith("javascript"):
             ctype += "; charset=utf-8"
-        return self._send(200, body, ctype)
+        return self._send(status, body, ctype, headers)
 
 
 def make_server(port=0, account=None, bind="127.0.0.1"):
@@ -737,24 +742,22 @@ def make_server(port=0, account=None, bind="127.0.0.1"):
     return server
 
 
-def serve(port=8765, open_browser=True):
+def serve(port=8765):
+    if not accounts.enabled():
+        raise accounts.AccountError(
+            "The dashboard requires a hosted account. Set JOBBOT_MONGODB_URI and the account settings "
+            "in .env or the deployment environment. See docs/accounts.md.")
     paths.ensure_home()
-    account = accounts.current(port) if accounts.enabled() else None
-    if account:
-        account.initialize()
+    account = accounts.current(port)
+    account.initialize()
+    try:
         server = make_server(port, account, os.getenv("JOBBOT_BIND", "127.0.0.1"))
-        print(f"jobbot account dashboard: {account.origin} (Ctrl+C to stop)")
-        open_browser = False
-    else:
-        try:
-            server = make_server(port)
-        except OSError:
-            server = make_server(0)   # the preferred port is busy; take any free one
-    url = f"http://127.0.0.1:{server.server_port}/"
-    if not account:
-        print(f"jobbot dashboard: {url}  (Ctrl+C to stop)")
-    if open_browser:
-        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    except OSError as exc:
+        if exc.errno != errno.EADDRINUSE:
+            raise
+        raise accounts.AccountError(
+            f"Port {port} is already in use. Stop the existing dashboard and try again.") from exc
+    print(f"jobbot account dashboard: {account.origin} (Ctrl+C to stop)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

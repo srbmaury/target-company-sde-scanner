@@ -321,6 +321,9 @@ def ensure_signed_in(self, page, attempts=4):
     for _ in range(attempts):
         if not needs_account(page):
             return True
+        if getattr(self, "hosted", False):
+            self._wait_for_user(page, "The employer site requires sign-in. Take control to sign in.")
+            continue
         if check_page(page, [], [], []).captcha:
             raise NeedsYou("Sign-in CAPTCHA requires your action; credentials were not retried.")
         if self._email_login_step(page):

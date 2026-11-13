@@ -151,6 +151,50 @@ class AccountTests(unittest.TestCase):
                 self.assertEqual(updated.resumes()["backend"]["path"].read_bytes(), pdf)
                 self.assertEqual(local_profile.read_text(), "personal: {first_name: LocalOnly}\n")
 
+    def test_hosted_worker_uses_account_resume_and_tracks_confirmed_result(self):
+        from jobbot.ui import bridge
+
+        self.account.write("profile", b"personal: {first_name: Owner}\nresumes: {backend: {focus: Java}}\n")
+        pdf = b"%PDF-1.4\nfixture"
+        self.account.write("resume:backend", pdf)
+        job = {"url": "https://example.com/job/1", "company": "Acme", "title": "Engineer",
+               "location": "Bengaluru", "experience": "", "evidence": ""}
+        conn = tracker.connect()
+        self.addCleanup(conn.close)
+        tracker.upsert_jobs(conn, [job])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(paths, "HOME", root), patch.object(paths, "CACHE", root / "cache"), patch(
+                    "jobbot.apply.engine.Session") as factory, patch("jobbot.resumes.parse_all"):
+                session = factory.return_value.__enter__.return_value
+                session.apply.return_value = (None, "dry run: not submitted")
+                for dry in (True, False):
+                    if not dry:
+                        session.apply.return_value = ("applied", "Receipt found")
+                    run = bridge.ApplyRun(self.account)
+                    run.dry_run = dry
+                    bridge._work(run, ["1"], dry, True, None, False, False, validation=dry)
+                    self.assertEqual(run.status, "done", run.events)
+                    self.assertEqual(session.apply.call_args.args[1], "backend")
+                    candidate = factory.call_args.args[0]
+                    self.assertEqual(candidate.full_name, "Owner")
+                    self.assertEqual(candidate.resumes()["backend"]["path"].read_bytes(), pdf)
+                    self.assertTrue(factory.call_args.kwargs["hosted"])
+                    self.assertFalse(factory.call_args.kwargs["browser_dir"].exists())
+                    saved = bridge.saved_run(run.id, self.account)
+                    self.assertEqual(saved["events"], [])
+                    self.assertEqual(saved["results"][job["url"]]["status"], "not submitted" if dry else "applied")
+                    fresh = tracker.connect()
+                    try:
+                        recorded = tracker.find_application(fresh, job["url"])
+                        if dry:
+                            self.assertIsNone(recorded)
+                        else:
+                            self.assertEqual(recorded["resume"], "backend")
+                    finally:
+                        fresh.close()
+
     def test_http_session_host_origin_and_resume_upload(self):
         httpd = server.make_server(0, self.account)
         worker = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -174,6 +218,13 @@ class AccountTests(unittest.TestCase):
             return result
 
         self.assertIn(b"Continue with Google", request("/")[1])
+        self.assertIn(b"Your Jobbot session expired.", request("/?session=expired")[1])
+        self.assertEqual(request("/favicon.svg")[0], 200)
+        status, error_page, headers = request("/auth/google/callback?code=invalid")
+        self.assertEqual(status, 400)
+        self.assertIn(b"Google connection failed", error_page)
+        self.assertIn("text/html", headers["Content-Type"])
+        self.assertIn("Max-Age=0", headers["Set-Cookie"])
         self.assertEqual(request("/api/profile")[0], 401)
         self.assertEqual(request("/api/profile", cookie=session, host="wrong.example.com")[0], 403)
         self.assertEqual(request("/api/profile", {}, cookie=session, origin="https://wrong.example.com")[0], 403)
@@ -278,7 +329,25 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(json.loads(raw)["resume_keys"], ["fullstack"])
         self.assertIsNone(self.account.read("resume:platform")[0])
 
-        self.assertEqual(request("/api/apply", {"jobs": ["1"]}, cookie=session)[0], 400)
+        from jobbot.ui import bridge
+        self.assertEqual(request("/api/apply", {"jobs": ["1"]})[0], 401)
+        self.assertEqual(request("/api/apply/preview", {"action": "open"})[0], 401)
+        self.assertEqual(request("/api/apply/preview", {"action": "open"}, cookie=session,
+                                 origin="https://wrong.example.com")[0], 403)
+        self.assertEqual(request("/api/apply", {"jobs": ["1"]}, cookie=session,
+                                 origin="https://wrong.example.com")[0], 403)
+        self.assertEqual(request("/api/apply", {"jobs": ["1"], "auto_submit": True}, cookie=session)[0], 400)
+        with patch.object(bridge, "Thread"), patch.dict(bridge.CURRENT, clear=True):
+            started = request("/api/apply", {"jobs": ["1"], "dry_run": True}, cookie=session)
+            self.assertEqual(started[0], 200)
+            run = bridge.current(self.account)
+            self.assertIsNone(bridge.current())
+            self.assertTrue(run.dry_run)
+            self.assertEqual(json.loads(request("/api/apply", cookie=session)[1])["id"], run.id)
+            run.prompt = {"id": "review", "kind": "action", "choices": ["quit"]}
+            self.assertEqual(request("/api/apply/answer", {"prompt_id": "review", "value": "submit"}, cookie=session)[0], 400)
+            self.assertEqual(request("/api/apply/stop", {}, cookie=session)[0], 200)
+            self.assertTrue(run.stop_requested)
         redirect = request("/auth/google")
         self.assertEqual(redirect[0], 303)
         self.assertIn("Secure; HttpOnly; SameSite=Lax", redirect[2]["Set-Cookie"])

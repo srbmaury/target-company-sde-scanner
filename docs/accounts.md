@@ -1,9 +1,9 @@
 # Private Jobbot account with MongoDB
 
-Hosted account mode is optional. It supports one configured owner per deployment. Open the same
+The dashboard requires a hosted account. It supports one configured owner per deployment. Open the same
 HTTPS dashboard from any browser and sign in with Google. Your profile, uploaded resume PDFs,
 Gmail authorization, job list, and application tracker survive host restarts and replacement.
-Normal local Jobbot mode is unchanged when `JOBBOT_MONGODB_URI` is unset.
+Local CLI commands are still available without hosted settings.
 
 ## Set up the hosted dashboard
 
@@ -34,9 +34,11 @@ Normal local Jobbot mode is unchanged when `JOBBOT_MONGODB_URI` is unset.
    ```bash
    python -m pip install -r requirements.txt
    python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
-   ./jobbot.sh ui --no-open
+   ./jobbot.sh ui
    ```
 
+   In a Codespace, `./jobbot.sh ui` can load the repository's Git-ignored `.env` when
+   `JOBBOT_MONGODB_URI` is not already exported. With an exported URI, it uses the deployment environment.
    Run with Python 3.11 or newer. The app listens on the host's `PORT` variable when set, or
    `8765` otherwise. Use an HTTPS reverse proxy that preserves the dashboard's public Host
    header. Don't expose the backend port directly. Redeploy with the **same data key and owner
@@ -68,10 +70,28 @@ ranking if necessary, without changing past applications. YAML remains under **A
 
 ## What's local and what's hosted
 
-Hosted Jobbot can scan, rank, import Gmail, and track applications. Browser-based application
-filling, local Chrome profiles and sign-ins, and browser run history are not hosted. Use your local
-Jobbot setup for those. Local and hosted trackers are separate. If you start the CLI with the hosted environment
-variables, scan, rank, and track use the hosted profile and tracker.
+Hosted Jobbot can scan, rank, import Gmail, track applications, and fill forms using the
+account's profile and uploaded resumes. Install the browser in the Codespace or deployment:
+
+```bash
+.venv/bin/python -m playwright install --with-deps chromium
+./jobbot.sh ui
+```
+
+Select a role in **Jobs** and choose **Dry run** or **Fill for review**. Follow the page preview,
+filled answers, and prompts in **Runs**. Dry runs never submit. Live runs require manual approval
+before Jobbot submits. In a live run, **Take control** opens the current Chromium page when
+Jobbot pauses for review, sign-in, or CAPTCHA. Click, scroll, or type in the view. **Return control
+and recheck** reads the current page without overwriting manual edits. During takeover you are
+operating the employer page directly, so actions you take there can send data to the employer.
+Dry runs provide a read-only live view and cannot send clicks or keystrokes to the employer page.
+If the employer blocks the hosted browser or requires an unsupported interaction, finish on the
+employer site.
+
+Browser sessions are temporary. MongoDB keeps run outcomes, but not screenshots or field audit
+history. Learned answers from hosted runs are not saved back to the profile. The **Logs** tab is
+for local browser logs. Use **Runs** for hosted browser progress and **Actions** for task output.
+The local tracker remains separate, and hosted browser runs start from the dashboard.
 
 MongoDB stores encrypted account data and refresh tokens. The app keeps the key outside MongoDB.
 Session IDs are stored as hashes and expire after seven days. Signing out ends that browser session.

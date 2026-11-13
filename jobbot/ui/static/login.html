@@ -4,14 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in to Jobbot</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
 </head>
-<body>
+<body class="account-page">
   <main>
-    <section class="card">
-      <h1>Sign in to Jobbot</h1>
-      <p>Use the Google account configured for this private dashboard.</p>
-      <p><a href="/auth/google">Continue with Google</a></p>
+    <section class="account-card" aria-labelledby="account-heading">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">J</span> Jobbot</div>
+      <p class="eyebrow">Private workspace</p>
+      <h1 id="account-heading">Sign in to Jobbot</h1>
+      <p>Use the Google account configured for this dashboard.</p>
+      <a class="primary-link" href="/auth/google">Continue with Google</a>
     </section>
   </main>
 </body>

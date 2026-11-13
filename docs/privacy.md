@@ -1,8 +1,11 @@
 # Privacy and safety
 
-- **Everything runs on your machine.** Your profile (`profile.yaml`, git-ignored) lives in the
+- **Local mode runs on your machine.** Your profile (`profile.yaml`, git-ignored) lives in the
   repository folder. The tracker database (`applications.db`) and browser profile live in
   `~/.jobbot/`. With the default Ollama provider, model requests stay local; network traffic also goes to job boards and to Google's Gmail API if enabled. If you opt into OpenAI (`JOBBOT_LLM_PROVIDER=openai`), application questions, profile facts, resume text, job descriptions, and reviewed form values are sent to the OpenAI API for model inference. Do not use the OpenAI provider if this disclosure is unacceptable.
+- **Hosted mode runs the browser on your server.** It uses a temporary Chromium profile.
+  Live form previews and audits are visible in the signed-in dashboard. MongoDB stores encrypted
+  run outcomes without screenshots or field audits. Hosted submissions require manual approval.
 - **Your data folder is private.** `~/.jobbot` (tracker, logs with the values filled into forms, Gmail token,
   browser profile) is readable by your user account only.
 - **Reviewed automatic submits.** Automatic mode requires explicit configured-LLM approval before every Next and Submit. Use `--no-auto-submit` or uncheck automatic submission in the dashboard for manual review.
