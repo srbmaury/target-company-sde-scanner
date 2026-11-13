@@ -10,10 +10,11 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
     `confirmed` are fields the profile check (consistency.py) proved match your profile: they count as
     reviewed, and a model complaint about one of them is a false flag, not a block."""
     fields = self.audit_fields(page, report)
-    self.ui.info(f"Ollama is reviewing every field on page {step} before any Next or Submit.")
+    provider = getattr(self.llm, "provider", "Ollama") if self.llm else "LLM"
+    self.ui.info(f"{provider} is reviewing every field on page {step} before any Next or Submit.")
     try:
         if not self.llm or not self.llm.enabled:
-            raise RuntimeError("Ollama is unavailable")
+            raise RuntimeError("LLM is unavailable")
         page_text = page.inner_text("body")[:18000]
         final = bool(re.search(r"\bsubmit\b", page_text, re.I))   # the last page before the application goes out
         facts = self.profile.facts()
@@ -55,13 +56,13 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
         ids = {f["id"] for f in fields}
         covered |= set(confirmed)   # a field the model skipped but the profile check decided is reviewed
         if ids <= covered and not issues and not rejected:
-            self.ui.info(f"Ollama reviewed all {len(fields)} fields on page {step}: approved.")
+            self.ui.info(f"LLM reviewed all {len(fields)} fields on page {step}: approved.")
             return
         if not ids <= covered:
-            check.errors.append("Ollama review did not cover every field.")
+            check.errors.append("LLM review did not cover every field.")
         if rejected:
-            check.errors.append("Ollama did not approve this step.")
-        check.errors += [f"Ollama: {r[:160]}" for r in page_problems]
+            check.errors.append("LLM did not approve this step.")
+        check.errors += [f"LLM: {r[:160]}" for r in page_problems]
         by_id = {f["id"]: f for f in fields}
         for issue in issues:
             f = by_id.get(issue.get("field_id"))
@@ -72,6 +73,6 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
                 check.mismatches.append((f["label"], str(expected.value), f.get("actual", "")))
             else:
                 check.errors.append(f"Ollama: {f['label']}: {issue.get('reason', 'needs review')}")
-        self.ui.warn(f"Ollama blocked page {step}: " + "; ".join(check.lines()[-4:]))
+        self.ui.warn(f"LLM blocked page {step}: " + "; ".join(check.lines()[-4:]))
     except Exception as exc:
-        check.errors.append(f"Required Ollama review failed ({type(exc).__name__}); step is blocked.")
+        check.errors.append(f"Required LLM review failed ({type(exc).__name__}); step is blocked.")
