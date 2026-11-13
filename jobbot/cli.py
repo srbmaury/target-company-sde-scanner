@@ -32,13 +32,15 @@ def _profile():
 
 
 def _llm(args):
-    if getattr(args, "llm", "ollama") == "none":
+    provider = getattr(args, "llm", None) or llm_mod.DEFAULT_PROVIDER
+    if provider == "none":
         return llm_mod.LLM(enabled=False)
-    model = llm_mod.LLM(model=args.model)
+    model = llm_mod.LLM(model=args.model, provider=provider)
     if not model.enabled:
-        print("Ollama is not running; continuing without the local model (`ollama serve` to enable).")
+        hint = "Set OPENAI_API_KEY" if provider == "openai" else "Start `ollama serve`"
+        print(f"{provider} is unavailable ({hint}); continuing without model assistance.")
     elif not model.has_model():
-        print(f"Model {args.model} is not pulled; run `ollama pull {args.model}`. Continuing without it.")
+        print(f"Model {model.model} is not pulled; run `ollama pull {model.model}`. Continuing without it.")
         model.enabled = False
     return model
 
@@ -93,11 +95,13 @@ def cmd_doctor(args):
     else:
         ok = False
         print("✗ playwright missing: pip install -r requirements.txt")
-    model = llm_mod.LLM(model=args.model)
+    model = llm_mod.LLM(model=args.model, provider=args.llm)
     if model.enabled:
-        print(f"✓ ollama running; model {args.model}: {'ready' if model.has_model() else 'not pulled'}")
+        state = "configured (API access checked on first request)" if model.provider == "openai" else ("ready" if model.has_model() else "not pulled")
+        print(f"✓ {model.provider}: {model.model}: {state}")
     else:
-        print("- ollama not running (optional): brew install ollama && brew services start ollama")
+        hint = "set OPENAI_API_KEY" if model.provider == "openai" else "start ollama serve"
+        print(f"- {model.provider} unavailable (optional): {hint}")
     conn = tracker.connect()
     print(f"✓ tracker: {paths.DB} ({sum(tracker.stats(conn).values())} applications)")
     from . import gmail
@@ -164,7 +168,7 @@ def cmd_rank(args):
     from .rank import rank_jobs
 
     p, conn, model = _profile(), tracker.connect(), _llm(args)
-    how = f"local model {model.model}" if model.enabled else "keyword matching"
+    how = f"{model.provider} model {model.model}" if model.enabled else "keyword matching"
     print(f"Ranking with {how}…")
 
     def progress(i, total, job, score):
@@ -183,7 +187,7 @@ def cmd_apply(args):
     automatic = args.auto_submit and not args.dry_run
     unattended = args.unattended or args.auto_submit
     if args.auto_submit and not model.enabled:
-        sys.exit("Automatic applications require a running Ollama model for review.")
+        sys.exit(f"Automatic applications require a configured {model.provider} model for review.")
     if args.top and not tracker.list_jobs(conn, limit=args.top):
         sys.exit("No tracked roles. Run `jobbot scan` first.")
 
@@ -446,15 +450,16 @@ def build_parser():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def with_llm(sp):
-        sp.add_argument("--llm", choices=("ollama", "none"), default="ollama")
-        sp.add_argument("--model", default=llm_mod.DEFAULT_MODEL)
+        sp.add_argument("--llm", choices=("ollama", "openai", "none"), default=llm_mod.DEFAULT_PROVIDER)
+        sp.add_argument("--model", default=None, help="model ID (default depends on provider)")
 
     sp = sub.add_parser("init", help="create profile.yaml in the repo folder (git-ignored)")
     sp.add_argument("--force", action="store_true", help="overwrite an existing profile")
     sp.set_defaults(fn=cmd_init)
 
     sp = sub.add_parser("doctor", help="check setup")
-    sp.add_argument("--model", default=llm_mod.DEFAULT_MODEL)
+    sp.add_argument("--llm", choices=("ollama", "openai"), default=llm_mod.DEFAULT_PROVIDER)
+    sp.add_argument("--model", default=None)
     sp.set_defaults(fn=cmd_doctor)
 
     sp = sub.add_parser("scan", help="find matching roles")
@@ -500,7 +505,7 @@ def build_parser():
                     help="never stop: jobs that need you are listed at the end, and each finished application waits "
                          "in its own tab for your Submit")
     sp.add_argument("--auto-submit", action=argparse.BooleanOptionalAction, default=True,
-                    help="apply without prompts; require Ollama approval before each Next and Submit (default)")
+                    help="apply without prompts; require configured LLM approval before each Next and Submit (default)")
     sp.set_defaults(fn=cmd_apply)
 
     sp = sub.add_parser("answers", help="review the local model's answers and correct wrong ones")
