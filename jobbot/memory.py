@@ -25,6 +25,23 @@ def _tokens(text):
     return {w for w in re.findall(r"[a-z0-9+#]+", (text or "").lower()) if w not in STOP}
 
 
+NEGATIONS = {"not", "no", "never", "without", "none", "nor", "cannot", "dont", "doesnt", "isnt", "arent", "wont", "didnt"}
+
+
+def _guards(text):
+    """What must be identical for an answer to carry over: negations ("not willing" vs "willing"), numbers
+    ("3 years", "45 miles") and place or company names ("relocate to Bangalore" vs "to Pune")."""
+    raw = re.sub(r"[’']", "", text or "")
+    words = re.findall(r"[A-Za-z0-9]+", raw)
+    negs = {w.lower() for w in words if w.lower() in NEGATIONS or w.lower().endswith("nt") and w.lower()[:-2] in
+            ("don", "doesn", "isn", "aren", "won", "didn", "can")}
+    nums = set(re.findall(r"\d+", raw))
+    caps = [w for w in words[1:] if w[:1].isupper()]
+    title_case = len(caps) > len(words[1:]) / 2   # "How Did You Hear About Us?": capitals mark nothing here
+    names = set() if title_case else {w.lower() for w in caps if not w.isupper() and w.lower() not in STOP}
+    return negs, nums, names
+
+
 _SAVE_LOCK = threading.Lock()
 
 
@@ -51,6 +68,8 @@ class Memory:
                     best, best_score = item, score
         if not best or best_score < 0.8:
             return None
+        if _guards(question) != _guards(best.get("question")):
+            return None   # similar words, different meaning: "not", another number, another place
         if options and not any(o.strip().lower() == str(best["answer"]).strip().lower() for o in options):
             return None
         return best["answer"]

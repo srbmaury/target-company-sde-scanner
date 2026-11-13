@@ -98,7 +98,9 @@ def wait_rendered(page, timeout_ms=10000):
     while waited < timeout_ms:
         try:
             text = page.inner_text("body").strip()
-            loading = page.locator("[data-automation-id='loading']").count()
+            # a header alone ("Careers", "Search for Jobs") is not a rendered page while a spinner still shows
+            loading = page.locator("[data-automation-id='loading']:visible, [role='progressbar']:visible, "
+                                   "[aria-busy='true']:visible").count()
         except Exception:
             text, loading = "", 0
         if len(text) > 40 and not loading:

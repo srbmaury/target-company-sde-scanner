@@ -93,6 +93,8 @@ def fill_dropdown(self, page, f, resolver, note):
                         loc.press("ArrowDown")
                     loc.press("Enter")
                     page.wait_for_timeout(900)
+                else:
+                    page.keyboard.press("Escape")
             except Exception:
                 pass
         after = self._visible_options(page)
