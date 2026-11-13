@@ -182,6 +182,20 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(json.loads(body)["text"], profile.ACCOUNT_PROFILE.decode())
         self.assertEqual(request("/api/profile", {"text": "personal: {}\n", "mtime": ""}, cookie=session)[0], 200)
         self.assertEqual(request("/api/profile", {"text": "personal: {}\n", "mtime": ""}, cookie=session)[0], 409)
+        # GitHub's proxy may rewrite the HTTP headers to the internal target,
+        # but the Google callback must always use the canonical public HTTPS URL.
+        local = f"localhost:{httpd.server_port}"
+        with patch.dict(os.environ, {"CODESPACES": "true", "RENDER_EXTERNAL_URL": ""}):
+            self.assertEqual(request("/", host="localhost")[0], 200)
+            self.assertEqual(request("/api/profile", host=local, cookie=session)[0], 200)
+            redirect = request("/auth/google", host=local)
+            query = parse_qs(urlsplit(redirect[2]["Location"]).query)
+            self.assertEqual(query["redirect_uri"], [self.account.callback])
+            body = {"text": "personal: {}\n", "mtime": "stale"}
+            self.assertEqual(request("/api/profile", body, host=local, origin="http://" + local, cookie=session)[0], 409)
+            self.assertEqual(request("/api/profile", body, host=local, origin="https://evil.example", cookie=session)[0], 403)
+            self.assertEqual(request("/api/profile", host="evil.example", cookie=session)[0], 403)
+            self.assertEqual(request("/api/profile", host=local)[0], 401)
         pdf = base64.b64encode(b"%PDF-1.4\nfixture").decode()
         self.assertEqual(request("/api/account/resume", {"key": "../bad", "pdf": pdf}, cookie=session)[0], 400)
         self.assertEqual(request("/api/account/resume", {"key": "backend", "pdf": pdf}, cookie=session)[0], 200)
