@@ -922,7 +922,14 @@ class Session:
         hits = self._buttons(page, pattern)
         if not hits:
             return False
-        page.locator(f'[data-jobbot-btn="{hits[-1]["id"]}"]').click()
+        target = page.locator(f'[data-jobbot-btn="{hits[-1]["id"]}"]')
+        try:
+            target.click(timeout=8000)
+        except Exception as exc:
+            from playwright.sync_api import TimeoutError
+            if pattern != NEXT_RE or not isinstance(exc, TimeoutError):
+                raise
+            target.click(force=True, timeout=8000)   # an overlay can block Next, never force Submit
         if wait:
             page.wait_for_timeout(wait)
         return True
