@@ -102,7 +102,7 @@ class FormTests(unittest.TestCase):
         session = self.session(RecordingUI())
         page = session.ctx.pages[0]
         page.goto(self.base + "/context.html")
-        model = Mock(enabled=True)
+        model = Mock(enabled=True, last_reasoning="Grounded fixture answer")
         model.answer.side_effect = lambda question, *a, **kw: {
             "fits": False, "basis": "fact", "answer": {
                 "Experience summary": "I built backend services.",
