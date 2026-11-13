@@ -73,6 +73,11 @@ class Account:
             self.db.account_data.replace_one({"_id": key}, row, upsert=True)
         return version
 
+    def resume_keys(self):
+        prefix = self.owner + ":resume:"
+        rows = self.db.account_data.find({"_id": {"$regex": "^" + prefix}}, {"_id": 1})
+        return sorted(row["_id"][len(prefix):] for row in rows)
+
     def remove(self, name, expected=None):
         query = {"_id": self.owner + ":" + name}
         if expected is not None:

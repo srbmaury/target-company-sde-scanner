@@ -287,6 +287,17 @@ class Handler(BaseHTTPRequestHandler):
             except gmail.GmailError as exc:
                 return self._send(409, {"error": str(exc)})
             return self._send(200, {"ok": True})
+        if parts == ["account", "resume", "copy"]:
+            source, key = body.get("source"), body.get("key")
+            if not all(profile_mod.valid_resume_key(value) for value in (source, key)):
+                return self._send(400, {"error": "Use a resume key of 1–48 letters, numbers, underscores or dashes."})
+            data, _ = self.account.read("resume:" + source)
+            if data is None:
+                return self._send(404, {"error": "That uploaded PDF was not found."})
+            self.account.write("resume:" + key, data, expected="")
+            return self._send(200, {"ok": True})
+        if parts == ["account", "resume", "profile"]:
+            return self._edit_resume_profile(body)
         if parts == ["account", "resume"]:
             key = body.get("key")
             if not profile_mod.valid_resume_key(key):
@@ -301,6 +312,48 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
         return self._send(404, {"error": "not found"})
 
+
+    def _edit_resume_profile(self, body):
+        from io import StringIO
+
+        from ruamel.yaml import YAML
+        from ruamel.yaml.error import YAMLError
+
+        key, action, expected = body.get("key"), body.get("action"), body.get("mtime")
+        if not profile_mod.valid_resume_key(key) or action not in ("add", "remove") or not isinstance(expected, str):
+            return self._send(400, {"error": "Invalid resume profile change."})
+        raw, version = self.account.read("profile")
+        if expected != version:
+            return self._send(409, {"error": "Profile changed. Reload it before editing resume keys."})
+        editor = YAML()
+        editor.preserve_quotes = True
+        try:
+            data = editor.load((profile_mod.ACCOUNT_PROFILE if raw is None else raw).decode())
+            if not isinstance(data, dict) or "personal" not in data:
+                raise ValueError()
+            resumes = data.get("resumes")
+            if resumes is None:
+                resumes = data["resumes"] = {}
+            if not isinstance(resumes, dict):
+                raise ValueError()
+            if action == "add" and key not in resumes:
+                if key not in self.account.resume_keys():
+                    return self._send(404, {"error": "Upload a PDF under that key first."})
+                resumes[key] = {"focus": ""}
+            elif action == "remove" and key in resumes:
+                del resumes[key]
+            else:
+                return self._send(409, {"error": "That key is already in the requested state. Reload Profile."})
+            out = StringIO()
+            editor.dump(data, out)
+            text = out.getvalue()
+            if len(text.encode()) > 2_000_000:
+                raise ValueError()
+        except (YAMLError, ValueError):
+            return self._send(400, {"error": "Edit and save a valid profile with a resumes mapping first."})
+        version = self.account.write("profile", text.encode(), expected=version)
+        return self._send(200, {"text": text, "mtime": version,
+                                "resume_keys": [key for key in resumes if profile_mod.valid_resume_key(key)]})
 
     def _send(self, code, body, ctype="application/json; charset=utf-8", headers=()):
         data = body if isinstance(body, bytes) else (json.dumps(body, default=str) if ctype.startswith("application/json")
@@ -348,11 +401,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, {"error": "missing or wrong token"})
         params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
         parts = url.path.strip("/").split("/")[1:]
+        if self.account and parts == ["account", "resumes"]:
+            return self._send(200, {"keys": self.account.resume_keys()})
         if self.account and parts == ["profile"]:
             raw, version = self.account.read("profile")
             if raw is None:
                 raw = profile_mod.ACCOUNT_PROFILE
-            return self._send(200, {"path": "MongoDB account profile", "text": raw.decode(), "mtime": version})
+            data = yaml.safe_load(raw)
+            resumes = data.get("resumes") if isinstance(data, dict) else None
+            return self._send(200, {"path": "MongoDB account profile", "text": raw.decode(), "mtime": version,
+                                    "resume_keys": [key for key in resumes if profile_mod.valid_resume_key(key)]
+                                    if isinstance(resumes, dict) else []})
         if self.account and parts == ["apply"]:
             return self._send(200, {"status": "idle"})
         if self.account and parts == ["runs"]:
@@ -481,7 +540,10 @@ class Handler(BaseHTTPRequestHandler):
                     if not isinstance(body.get("mtime"), str):
                         return self._send(400, {"error": "Reload the account profile before saving."})
                     version = self.account.write("profile", text.encode(), expected=body["mtime"])
-                    return self._send(200, {"ok": True, "mtime": version})
+                    resumes = data.get("resumes")
+                    return self._send(200, {"ok": True, "mtime": version,
+                                            "resume_keys": [key for key in resumes if profile_mod.valid_resume_key(key)]
+                                            if isinstance(resumes, dict) else []})
                 if paths.PROFILE.exists() and body.get("mtime") and str(body["mtime"]) != str(paths.PROFILE.stat().st_mtime_ns):
                     # e.g. an apply run saved a learned answer since you opened the page: don't overwrite it.
                     # (sent as a string: nanosecond timestamps are too large for JavaScript numbers)

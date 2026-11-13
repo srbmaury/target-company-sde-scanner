@@ -200,6 +200,31 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(request("/api/account/resume", {"key": "../bad", "pdf": pdf}, cookie=session)[0], 400)
         self.assertEqual(request("/api/account/resume", {"key": "backend", "pdf": pdf}, cookie=session)[0], 200)
         self.assertEqual(self.new_account().read("resume:backend")[0], base64.b64decode(pdf))
+        self.new_account("other@example.com").write("resume:private", b"%PDF-1.4")
+        self.assertEqual(request("/api/account/resumes")[0], 401)
+        self.assertEqual(json.loads(request("/api/account/resumes", cookie=session)[1]), {"keys": ["backend"]})
+        copy_path = "/api/account/resume/copy"
+        self.assertEqual(request(copy_path, {"source": "private", "key": "new"}, cookie=session)[0], 404)
+        self.assertEqual(request(copy_path, {"source": "backend", "key": "corrected"}, cookie=session)[0], 200)
+        self.assertEqual(request(copy_path, {"source": "backend", "key": "corrected"}, cookie=session)[0], 409)
+        self.assertEqual(self.account.read("resume:corrected")[0], base64.b64decode(pdf))
+        original = "# keep this comment\npersonal: {first_name: 'Owner'}\nresumes: {other: {focus: Java}}\n"
+        version = self.account.write("profile", original.encode())
+        edit_path = "/api/account/resume/profile"
+        edit = {"key": "corrected", "action": "add", "mtime": version}
+        self.assertEqual(request(edit_path, {**edit, "key": "missing"}, cookie=session)[0], 404)
+        status, raw, _ = request(edit_path, edit, cookie=session)
+        self.assertEqual(status, 200)
+        changed = json.loads(raw)
+        self.assertEqual(changed["resume_keys"], ["other", "corrected"])
+        self.assertIn("# keep this comment", changed["text"])
+        self.assertIn("first_name: 'Owner'", changed["text"])
+        self.assertEqual(request(edit_path, {**edit, "action": "remove"}, cookie=session)[0], 409)
+        status, raw, _ = request(edit_path, {**edit, "action": "remove", "mtime": changed["mtime"]}, cookie=session)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(raw)["resume_keys"], ["other"])
+        self.assertEqual(self.account.read("resume:corrected")[0], base64.b64decode(pdf))
+
         self.assertEqual(request("/api/apply", {"jobs": ["1"]}, cookie=session)[0], 400)
         redirect = request("/auth/google")
         self.assertEqual(redirect[0], 303)

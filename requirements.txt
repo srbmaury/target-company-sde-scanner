@@ -4,3 +4,4 @@ pypdf>=4.0
 
 pymongo>=4.8,<5
 cryptography>=44
+ruamel.yaml>=0.18,<0.20

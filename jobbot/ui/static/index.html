@@ -146,8 +146,10 @@
       <textarea id="profile-text" spellcheck="false"></textarea>
       <p class="hint" id="local-profile-hint">Your profile is git-ignored and never committed. Saving keeps a backup next to it (<code>profile.yaml.bak</code>).</p>
       <div class="card" id="account-resume" hidden>
-        <h3>Upload an account resume</h3>
-        <p>Use a key from the YAML <code>resumes:</code> section. Hosted Jobbot uses your uploaded PDF, not a path from your computer.</p>
+        <h3>Account resumes</h3>
+        <p>Jobbot ranks with uploaded PDFs that are listed under <code>resumes:</code> in your profile.</p>
+        <ul id="resume-list"></ul>
+        <p id="resume-list-msg" role="status"></p>
         <form id="resume-upload">
           <label>Resume key <input id="resume-key" required maxlength="48" pattern="[A-Za-z0-9_\-]{1,48}" placeholder="backend"></label>
           <label>PDF <input id="resume-file" type="file" accept=".pdf,application/pdf" required></label>

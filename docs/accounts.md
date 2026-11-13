@@ -57,6 +57,13 @@ Normal local Jobbot mode is unchanged when `JOBBOT_MONGODB_URI` is unset.
        focus: Java, Spring Boot, distributed systems
    ```
 
+### Manage uploaded resumes
+
+In **Profile → Account resumes**, choose **Add to profile** to list an uploaded PDF under
+`resumes:`. **Remove from profile** removes the key from YAML but keeps the uploaded PDF.
+If you uploaded a PDF with the wrong key, choose **Copy to new key**, then **Add to profile**
+next to the new key. Save any YAML edits before changing keys from the list.
+
 ## What's local and what's hosted
 
 Hosted Jobbot can scan, rank, import Gmail, and track applications. Browser-based application
