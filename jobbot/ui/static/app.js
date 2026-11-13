@@ -498,9 +498,10 @@ function renderApps() {
       <td class="role">${a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>` : esc(a.title)}
         ${a.notes ? `<div class="reason">${esc(a.notes).slice(0, 140)}</div>` : ""}</td>
       <td><span class="pill ${esc(a.status)}">${esc(a.status)}</span></td>
+       <td>${a.resume ? esc(a.resume) : `<span class="muted" title="No resume recorded for this application">Not recorded</span>`}</td>
       <td class="num">${esc(a.applied_on || "")}</td><td class="num">${esc((a.updated_on || "").slice(0, 10))}</td>
       <td>${esc(a.source || "")}</td></tr>`).join("")
-    : `<tr><td colspan="7" class="empty">No applications yet.</td></tr>`;
+    : `<tr><td colspan="8" class="empty">No applications yet.</td></tr>`;
 }
 
 async function openApp(id) {
@@ -510,7 +511,8 @@ async function openApp(id) {
   openDialog(`<h2>${esc(a.company)} — ${esc(a.title)}</h2>
     <div class="muted">${esc(a.location || "")} ${a.applied_on ? "· applied " + esc(a.applied_on) : ""} · via ${esc(a.source || "?")}</div>
     ${a.url ? `<p><a href="${esc(a.url)}" target="_blank" rel="noopener">Open posting</a></p>` : ""}
-    <div class="row"><label>Company</label><input type="text" name="company" value="${esc(a.company)}"></div>
+    <div class="row"><label>Resume used</label><span>${a.resume ? esc(a.resume) : `<span class="muted">Not recorded</span>`}</span></div>
+     <div class="row"><label>Company</label><input type="text" name="company" value="${esc(a.company)}"></div>
     <div class="row"><label>Role${a.title.startsWith("(role not stated") ? " — naming it stops this application matching every role at the company" : ""}</label>
       <input type="text" name="title" value="${esc(a.title)}"></div>
     <div class="row"><label>Posting link (optional)</label><input type="text" name="url" value="${esc(a.url || "")}"></div>
