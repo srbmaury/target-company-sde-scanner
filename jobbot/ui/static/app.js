@@ -179,15 +179,50 @@ function markSorted(table, [key, dir]) {
   });
 }
 
-async function loadJobs() {
+async function loadTablePage(name, params, append, render) {
+  const current = state[name + "Page"];
+  if (append && (!current || current.next_offset == null || current.loading)) return;
+  const page = append ? current : {};
+  state[name + "Page"] = page;
+  page.loading = true;
+  const button = $("#" + name + "-more");
+  button.disabled = true;
+  if (!append) button.hidden = true;
+  $(".err", button.parentElement)?.remove();
+  button.textContent = append ? "Loading…" : "Load more";
+  params.set("offset", append ? page.next_offset : 0);
+  try {
+    const result = await api((name === "apps" ? "applications" : name) + "?" + params);
+    if (state[name + "Page"] !== page) return;
+    // Older servers still return the full list.
+    Object.assign(page, Array.isArray(result) ? {rows: result, total: result.length, next_offset: null} : result, {
+      paged: !Array.isArray(result),
+      rows: append ? [...new Map([...page.rows, ...result.rows].map((row) => [row.n ?? row.id, row])).values()] : result.rows || result,
+    });
+    button.hidden = page.next_offset == null;
+    render(page);
+  } finally {
+    if (state[name + "Page"] === page) {
+      page.loading = false;
+      button.disabled = false;
+      button.textContent = "Load more";
+    }
+  }
+}
+
+async function loadJobs(append = false) {
+  const [sort, dir] = state.jobSort;
   const params = new URLSearchParams({
     q: $("#jobs-q").value, min_fit: $("#jobs-min").value,
-    include_applied: "1", include_dismissed: "1",   // every role; the view buttons choose which to show
+    include_applied: "1", include_dismissed: "1", view: state.view || "new",
+    sort, direction: dir === 1 ? "asc" : "desc",
   });
-  state.allJobs = await api("jobs?" + params);
-  state.jobCatalog = state.jobCatalog || new Map();
-  state.allJobs.forEach((j) => state.jobCatalog.set(String(j.n), j));
-  renderJobs();
+  await loadTablePage("jobs", params, append, (page) => {
+    state.allJobs = page.rows;
+    state.jobCatalog = state.jobCatalog || new Map();
+    state.allJobs.forEach((j) => state.jobCatalog.set(String(j.n), j));
+    renderJobs();
+  });
 }
 
 function fitClass(f) { return f == null ? "" : f >= 80 ? "high" : f >= 60 ? "mid" : "low"; }
@@ -214,7 +249,7 @@ async function markNotDuplicates() {
 function renderViews() {
   const all = state.allJobs || [];
   $("#jobs-views").innerHTML = VIEWS.map(([key, label, test]) =>
-    `<button role="tab" data-view="${key}" aria-selected="${state.view === key}">${label} <span class="n">${all.filter(test).length}</span></button>`).join("");
+    `<button role="tab" data-view="${key}" aria-selected="${state.view === key}">${label} <span class="n">${state.jobsPage?.counts ? state.jobsPage.counts[key] || 0 : all.filter(test).length}</span></button>`).join("");
 }
 
 function renderJobs() {
@@ -222,9 +257,9 @@ function renderJobs() {
   renderViews();
   const test = VIEWS.find(([k]) => k === state.view)[2];
   state.jobs = (state.allJobs || []).filter(test);
-  const rows = sortRows(state.jobs, state.jobSort);
+  const rows = state.jobsPage?.counts ? state.jobs : sortRows(state.jobs, state.jobSort);
   markSorted($("#jobs-table"), state.jobSort);
-  $("#jobs-count").textContent = `${rows.length} role${rows.length === 1 ? "" : "s"}`;
+  $("#jobs-count").textContent = state.jobsPage?.next_offset != null ? `${rows.length} of ${state.jobsPage.total} roles` : `${rows.length} role${rows.length === 1 ? "" : "s"}`;
   $("#jobs-table tbody").innerHTML = rows.length ? rows.map((j) => {
     const applied = j.applied === "exact" || j.applied === "likely"
       ? `<span class="pill applied" title="${esc(j.applied_note)}">applied</span>`
@@ -289,7 +324,7 @@ function updateSelection() {
 function selectTop(n) {
   const ok = new Set(selectable());
   state.selected.clear();
-  sortRows(state.jobs, state.jobSort).map((j) => String(j.n)).filter((k) => ok.has(k)).slice(0, n)
+  (state.jobsPage?.counts ? state.jobs : sortRows(state.jobs, state.jobSort)).map((j) => String(j.n)).filter((k) => ok.has(k)).slice(0, n)
     .forEach((k) => state.selected.add(k));
   remember("topN", n);
   renderJobs();
@@ -873,16 +908,20 @@ async function answerPrompt(raw) {
 }
 
 // ---------- applications ----------
-async function loadApps() {
-  const params = new URLSearchParams({ q: $("#apps-q").value, status: $("#apps-status").value });
-  state.apps = await api("applications?" + params);
-  renderApps();
+async function loadApps(append = false) {
+  const [sort, dir] = state.appSort;
+  const params = new URLSearchParams({ q: $("#apps-q").value, status: $("#apps-status").value,
+    page: "1", sort, direction: dir === 1 ? "asc" : "desc" });
+  await loadTablePage("apps", params, append, (page) => {
+    state.apps = page.rows;
+    renderApps();
+  });
 }
 
 function renderApps() {
-  const rows = sortRows(state.apps, state.appSort);
+  const rows = state.appsPage?.paged ? state.apps : sortRows(state.apps, state.appSort);
   markSorted($("#apps-table"), state.appSort);
-  $("#apps-count").textContent = `${rows.length} application${rows.length === 1 ? "" : "s"}`;
+  $("#apps-count").textContent = state.appsPage?.next_offset != null ? `${rows.length} of ${state.appsPage.total} applications` : `${rows.length} application${rows.length === 1 ? "" : "s"}`;
   $("#apps-table tbody").innerHTML = rows.length ? rows.map((a) => `<tr class="clickable" data-app="${a.id}">
       <td class="num">${a.id}</td><td>${esc(a.company)}</td>
       <td class="role">${a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>` : esc(a.title)}
@@ -1479,12 +1518,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     showTab(link.dataset.go);
     tabs.find((tab) => tab.dataset.tab === link.dataset.go)?.focus();
   });
-  const reloadJobs = debounce(loadJobs);
+  const tableAction = (name, load) => load().catch((error) => alertInline($("#" + name + "-page-controls"), error.message));
+  const reloadJobs = debounce(() => tableAction("jobs", loadJobs));
+  $("#jobs-more").addEventListener("click", () => tableAction("jobs", () => loadJobs(true)));
+  $("#apps-more").addEventListener("click", () => tableAction("apps", () => loadApps(true)));
   ["#jobs-q", "#jobs-min"].forEach((s) => $(s).addEventListener("input", reloadJobs));
   $("#notdup-selected").addEventListener("click", markNotDuplicates);
   $("#jobs-views").addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-view]");
-    if (b) { state.view = b.dataset.view; renderJobs(); }
+    if (b) { state.view = b.dataset.view; tableAction("jobs", loadJobs); }
   });
   $("#jobs-table tbody").addEventListener("change", (ev) => {
     const cb = ev.target.closest("input[data-select]");
@@ -1550,19 +1592,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     await api(`jobs/${b.dataset.job}/${b.dataset.act}`, {});
     await Promise.all([loadJobs(), loadSummary()]);
   });
-  $("#apps-q").addEventListener("input", debounce(loadApps));
-  $("#apps-status").addEventListener("change", loadApps);
+  $("#apps-q").addEventListener("input", debounce(() => tableAction("apps", loadApps)));
+  $("#apps-status").addEventListener("change", () => tableAction("apps", loadApps));
   $("#apps-add").addEventListener("click", addApp);
   $("#apps-table tbody").addEventListener("click", (ev) => {
     if (ev.target.closest("a")) return;
     const tr = ev.target.closest("tr[data-app]");
     if (tr) openApp(tr.dataset.app);
   });
-  for (const [table, key, render] of [["#jobs-table", "jobSort", renderJobs], ["#apps-table", "appSort", renderApps]]) {
+  for (const [name, key, load] of [["jobs", "jobSort", loadJobs], ["apps", "appSort", loadApps]]) {
+    const table = "#" + name + "-table";
     $$(`${table} th[data-sort]`).forEach((th) => th.addEventListener("click", () => {
       const [cur, dir] = state[key];
       state[key] = [th.dataset.sort, cur === th.dataset.sort ? -dir : -1];
-      render();
+      tableAction(name, load);
     }));
   }
   $$("[data-task]").forEach((b) => b.addEventListener("click", () => startTask(b.dataset.task)));

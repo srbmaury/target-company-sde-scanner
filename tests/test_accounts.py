@@ -283,6 +283,18 @@ class AccountTests(unittest.TestCase):
         self.account.put_json("browser-runs", [
             {"id": "older", "status": "done"}, {"id": "newer", "status": "failed"},
         ])
+        with closing(tracker.connect()) as conn:
+            conn.executemany("INSERT INTO applications(company, title, status, updated_on) VALUES (?, ?, ?, ?)",
+                             ((f"Company {n:02}", "Engineer", "applied", "2026-11-01") for n in range(52)))
+            conn.commit()
+        query = "/api/applications?page=1&sort=company&direction=asc"
+        first_page = json.loads(request(query, cookie=session)[1])
+        self.assertEqual((len(first_page["rows"]), first_page["total"], first_page["next_offset"]), (50, 52, 50))
+        last_page = json.loads(request(query + "&offset=50", cookie=session)[1])
+        self.assertEqual([row["company"] for row in last_page["rows"]], ["Company 50", "Company 51"])
+        self.assertIsNone(last_page["next_offset"])
+        jobs = json.loads(request("/api/jobs?view=new", cookie=session)[1])
+        self.assertEqual(jobs, {"rows": [], "total": 0, "next_offset": None, "counts": {"all": 0}})
         self.assertEqual(request("/api/runs/older/delete", {})[0], 401)
         self.assertEqual(request("/api/runs/older/delete", {}, cookie=session)[0], 200)
         self.assertEqual(request("/api/runs/older", cookie=session)[0], 404)
