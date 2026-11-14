@@ -59,7 +59,7 @@ class DashboardUITests(unittest.TestCase):
                "audits": [{"job": JOB, "step": 1, "fields": [{"label": "Work location", "actual": "Bengaluru",
                                                             "answer_source": "Profile"}]}]}
         fixtures = {
-            "/api/summary": summary, "/api/jobs": [JOB], "/api/tasks": self.tasks,
+            "/api/summary": summary, "/api/workspace": summary, "/api/jobs": [JOB], "/api/tasks": self.tasks,
             "/api/apply": run if self.active else {"status": "idle"}, "/api/apply/answer": {},
             "/api/runs": [], "/api/applications": [], "/api/logs": {"dates": [], "lines": []},
             "/api/profile": {"path": "Account profile", "text": "personal: {}", "mtime": "1",

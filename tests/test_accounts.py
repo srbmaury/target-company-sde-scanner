@@ -225,6 +225,11 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(request("/api/runs/older", cookie=session)[0], 404)
         self.assertEqual([run["id"] for run in self.account.get_json("browser-runs")], ["newer"])
 
+        with patch.object(tracker, "connect", side_effect=AssertionError("Unexpected tracker read")):
+            self.assertEqual(request("/api/workspace", cookie=session)[0], 200)
+            self.assertEqual(json.loads(request("/api/apply?live=1", cookie=session)[1]), {"status": "idle"})
+            self.assertEqual(request("/api/docs", cookie=session)[0], 200)
+
         self.assertIn(b"Continue with Google", request("/")[1])
         self.assertIn(b"Your Jobbot session expired.", request("/?session=expired")[1])
         self.assertEqual(request("/favicon.svg")[0], 200)

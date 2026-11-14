@@ -50,6 +50,27 @@ function remember(key, value) { try { localStorage.setItem("jobbot." + key, valu
 function recall(key) { try { return localStorage.getItem("jobbot." + key); } catch (e) { return null; } }
 
 // ---------- tabs ----------
+async function loadTrackerTab(name, label, load) {
+  const status = $("#" + name + "-load");
+  if (status.dataset.loading) return;
+  status.dataset.loading = "true";
+  status.textContent = `Loading ${label}…`;
+  status.hidden = false;
+  try {
+    await load();
+    status.hidden = true;
+  } catch (error) {
+    status.textContent = `Could not load ${label}. ${error.message} `;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "Retry";
+    retry.addEventListener("click", () => loadTrackerTab(name, label, load));
+    status.append(retry);
+  } finally {
+    delete status.dataset.loading;
+  }
+}
+
 function showTab(name) {
   if (state.tab !== name) $("main").scrollTop = 0;
   state.tab = name;
@@ -60,12 +81,12 @@ function showTab(name) {
     button.tabIndex = active ? 0 : -1;
   });
   $$("main > [role=tabpanel]").forEach((p) => (p.hidden = p.id !== "tab-" + name));
-  ({ jobs: () => { loadJobs(); loadTasks(); }, apply: () => { state.viewing = false; loadRun(); }, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile, docs: () => loadDocs() }[name])();
+  ({ jobs: () => { loadTrackerTab("jobs", "jobs", async () => { await loadJobs(); refreshCounts(); }); loadTasks(); }, apply: () => { state.viewing = false; loadRun(); }, applications: () => loadTrackerTab("apps", "applications", loadApps), actions: loadTasks, logs: loadLogs, profile: loadProfile, docs: () => loadDocs() }[name])();
 }
 
 // ---------- summary ----------
 async function loadSummary() {
-  const s = (state.summary = await api("summary"));
+  const s = await api("summary?counts=1");
   const a = s.applications;
   const cards = [
     ["Open roles", s.open_jobs], ["Applications", s.total], ["Waiting response", a.applied || 0],
@@ -79,6 +100,18 @@ async function loadSummary() {
     "Response rate": "Applications that got any reply (assessment, interview, offer or rejection)",
   };
   $("#stats").innerHTML = cards.map(([l, v]) => `<div class="stat" title="${esc(tips[l] || "")}"><div class="label">${esc(l)}</div><div class="value">${esc(v)}</div></div>`).join("");
+}
+
+function refreshCounts() {
+  if (state.tab === "jobs") {
+    loadSummary().catch(() => {
+      if (!$("#stats").hasChildNodes()) $("#stats").textContent = "Tracker counts unavailable.";
+    });
+  }
+}
+
+async function loadWorkspace() {
+  const s = state.summary = await api("workspace");
   const dot = (ok) => `<span class="dot" style="background:${ok ? "var(--good)" : "var(--border)"}"></span>`;
   $("#status").innerHTML = `<span>${dot(s.gmail)}Gmail ${s.gmail ? "connected" : "not connected"}</span>
     <span>${dot(s.llm_available)}${esc(s.llm_provider === "openai" ? "OpenAI API" : "Ollama")} ${s.llm_available ? (s.llm_provider === "openai" ? "key configured" : "running") : "unavailable"}</span>`;
@@ -153,7 +186,8 @@ async function markNotDuplicates() {
   if (!keys.length) return;
   for (const k of keys) await api(`jobs/${k}/not-duplicate`, {});
   state.selected.clear();
-  await Promise.all([loadJobs(), loadSummary()]);
+  await loadJobs();
+  refreshCounts();
 }
 
 function renderViews() {
@@ -294,13 +328,13 @@ async function confirmRun() {
 
 async function loadRun() {
   let run;
-  try { run = await api("apply"); } catch (e) { return; }
+  try { run = await api(state.tab === "apply" ? "apply" : "apply?live=1"); } catch (e) { return; }
   state.run = run;
   const active = ["starting", "running", "waiting"].includes(run.status);
   $("#apply-badge").hidden = run.status !== "waiting";
   document.title = run.status === "waiting" ? "● jobbot needs you" : "jobbot";
   if (active && !state.runPoll) state.runPoll = setInterval(loadRun, 1000);
-  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary(); state.historyStale = true; }
+  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; refreshCounts(); state.historyStale = true; }
   renderStrip(run, active);
   if (active) state.viewing = false;
   if (state.tab === "apply" && !state.viewing) renderRun(run);
@@ -731,7 +765,7 @@ function renderApps() {
 
 async function openApp(id) {
   const a = await api("applications/" + id);
-  const statuses = state.summary.statuses.map((s) => `<option ${s === a.status ? "selected" : ""}>${esc(s)}</option>`).join("");
+  const statuses = (state.summary?.statuses || ["shortlisted", "applied", "assessment", "interview", "offer", "rejected", "withdrawn", "ghosted"]).map((s) => `<option ${s === a.status ? "selected" : ""}>${esc(s)}</option>`).join("");
   const history = a.events.map((e) => `<li>${esc(e.at.replace("T", " "))} · <b>${esc(e.status)}</b> ${esc(e.note || "")}</li>`).join("");
   openDialog(`<h2>${esc(a.company)} — ${esc(a.title)}</h2>
     <div class="muted">${esc(a.location || "")} ${a.applied_on ? "· applied " + esc(a.applied_on) : ""} · via ${esc(a.source || "?")}</div>
@@ -751,13 +785,14 @@ async function openApp(id) {
         await api(`applications/${id}/edit`, { company: form.company.value, title: form.title.value, url: form.url.value });
       if (form.status.value !== a.status) await api(`applications/${id}/status`, { status: form.status.value, note: form.change_note.value });
       if (form.note.value !== (a.notes || "")) await api(`applications/${id}/note`, { note: form.note.value });
-      await Promise.all([loadApps(), loadSummary()]);
+      await loadApps();
+      refreshCounts();
       state.allJobs = null;   // matching may have changed
     });
 }
 
 function addApp() {
-  const statuses = state.summary.statuses.map((s) => `<option ${s === "applied" ? "selected" : ""}>${esc(s)}</option>`).join("");
+  const statuses = (state.summary?.statuses || ["shortlisted", "applied", "assessment", "interview", "offer", "rejected", "withdrawn", "ghosted"]).map((s) => `<option ${s === "applied" ? "selected" : ""}>${esc(s)}</option>`).join("");
   openDialog(`<h2>Add an application</h2>
     <p class="muted">For roles you applied to outside jobbot, so it never reopens them.</p>
     <div class="row"><label>Company</label><input type="text" name="company" required></div>
@@ -770,7 +805,8 @@ function addApp() {
     async (form) => {
       await api("applications", { company: form.company.value, title: form.title.value, url: form.url.value,
         applied_on: form.applied_on.value, status: form.status.value, note: form.note.value });
-      await Promise.all([loadApps(), loadSummary()]);
+      await loadApps();
+      refreshCounts();
     });
 }
 
@@ -876,8 +912,8 @@ async function loadTasks() {
     if (!active.length && state.polling) {
       clearInterval(state.polling);
       state.polling = null;
-      await loadSummary();
-      if (state.tab === "jobs") await loadJobs();
+      await loadWorkspace();
+      if (state.tab === "jobs") { await loadJobs(); refreshCounts(); }
     }
   } catch (e) {
     alertInline($("#tasks"), e.message);
@@ -1257,7 +1293,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("#gmail-disconnect").addEventListener("click", async () => {
     if (!confirm("Disconnect Gmail and revoke Jobbot’s access?")) return;
-    try { await api("account/gmail/disconnect", {}); await loadSummary(); }
+    try { await api("account/gmail/disconnect", {}); await loadWorkspace(); }
     catch (e) { alertInline($("#gmail-text"), e.message); }
   });
   $("#resume-list").addEventListener("click", changeResume);
@@ -1354,7 +1390,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const b = ev.target.closest("button[data-job]");
     if (!b) return;
     await api(`jobs/${b.dataset.job}/${b.dataset.act}`, {});
-    await Promise.all([loadJobs(), loadSummary()]);
+    await loadJobs();
+    refreshCounts();
   });
   $("#apps-q").addEventListener("input", debounce(loadApps));
   $("#apps-status").addEventListener("change", loadApps);
@@ -1423,8 +1460,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#profile-save").addEventListener("click", saveProfile);
 
   showTab(tabs.some((tab) => tab.dataset.tab === recall("tab")) ? recall("tab") : "jobs");   // before any await, so a tab you click while it loads stays chosen
-  await loadSummary();
-  loadRun();
-  // Keeps the counts fresh and notices a restarted or stopped dashboard even when nothing else polls.
-  setInterval(() => { if (!document.hidden) loadSummary().catch(() => {}); }, 30000);   // picks up a run that is already in progress (and keeps polling while it is)
+  loadWorkspace().catch(() => { $("#status").textContent = "Workspace status unavailable."; });
+  if (state.tab !== "apply") loadRun();
 });
