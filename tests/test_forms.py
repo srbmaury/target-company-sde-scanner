@@ -124,7 +124,7 @@ class FormTests(unittest.TestCase):
         self.assertEqual(audit["If yes, please explain"]["answer_source"], "model")
         self.assertEqual(audit["If yes, please explain"]["actual"], "I took a career break.")
         self.assertEqual(audit["Please select one"]["status"], "question unclear, review")
-        self.assertTrue(any("question could not be identified" in m for m in report["skipped"]))
+        self.assertTrue(any("Required control could not be identified" in m for m in report["skipped"]))
         self.assertEqual(page.locator("#ambiguous").input_value(), "")
         self.assertFalse(any(page.locator('input[name="response"]').nth(i).is_checked() for i in (0, 1)))
         self.assertFalse(any(call.args[0] == "Please select one" for call in model.answer.call_args_list))
