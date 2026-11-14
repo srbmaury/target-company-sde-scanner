@@ -59,10 +59,13 @@ class Account:
         row = self.db.account_data.find_one({"_id": self.owner + ":" + name})
         return (self._unseal(name, row["value"]), row["version"]) if row else (None, "")
 
+    def cached_tracker_snapshot(self):
+        with self._tracker_lock:
+            return self._tracker_snapshot
+
     def read_tracker_snapshot(self):
         """Reuse the decrypted tracker while its durable version is current."""
-        with self._tracker_lock:
-            cached = self._tracker_snapshot
+        cached = self.cached_tracker_snapshot()
         if cached is not None:
             row = self.db.account_data.find_one({"_id": self.owner + ":tracker"}, {"version": 1})
             if cached[1] == (row["version"] if row else ""):

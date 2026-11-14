@@ -183,7 +183,7 @@ function markSorted(table, [key, dir]) {
 async function loadTablePage(name, params, append, render) {
   const current = state[name + "Page"];
   if (append && (!current || current.next_offset == null || current.loading)) return;
-  const page = append ? current : {};
+  const page = append ? current : {stale: current?.stale};
   state[name + "Page"] = page;
   page.loading = true;
   const button = $("#" + name + "-more");
@@ -198,9 +198,12 @@ async function loadTablePage(name, params, append, render) {
     // Older servers still return the full list.
     Object.assign(page, Array.isArray(result) ? {rows: result, total: result.length, next_offset: null} : result, {
       paged: !Array.isArray(result),
+      stale: Boolean(result.stale),
       rows: append ? [...new Map([...page.rows, ...result.rows].map((row) => [row.n ?? row.id, row])).values()] : result.rows || result,
     });
     button.hidden = page.next_offset == null;
+    const notice = $("#" + name + "-storage");
+    notice.hidden = !page.stale;
     render(page);
   } finally {
     if (state[name + "Page"] === page) {
@@ -297,7 +300,7 @@ function selectable() {
 function setRunAvailability() {
   const hosted = Boolean(state.summary?.account);
   for (const button of [$("#apply-selected"), $("#dry-selected")]) {
-    button.disabled = !state.summary || !state.selected.size;
+    button.disabled = !state.summary || !state.selected.size || Boolean(state.jobsPage?.stale);
     if (hosted) button.setAttribute("aria-describedby", "hosted-apply-note");
     else button.removeAttribute("aria-describedby");
   }
@@ -338,7 +341,7 @@ function selectAll(on) {
 
 function startRun(dry) {
   const jobs = Array.from(state.selected);
-  if (!jobs.length || !state.summary) return;
+  if (!jobs.length || !state.summary || state.jobsPage?.stale) return;
   const hosted = Boolean(state.summary.account);
   if (!hosted) dry = dry || ($("#validate-steps").checked && !$("#auto-submit").checked);
   state.pendingRun = hosted ? {jobs, dry_run: dry, auto_submit: !dry && $("#hosted-auto-submit").checked} : { jobs, dry_run: dry || $("#validate-steps").checked, unattended: $("#unattended").checked, validation: $("#validate-steps").checked, auto_next: $("#unattended").checked || !$("#validate-steps").checked };
@@ -368,7 +371,7 @@ function cancelRun() {
 }
 
 async function confirmRun() {
-  if (!state.pendingRun || state.runStarting) return;
+  if (!state.pendingRun || state.runStarting || state.jobsPage?.stale) return;
   state.runStarting = true;
   $("#run-confirm-start").disabled = true;
   try {
@@ -1521,6 +1524,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   const tableAction = (name, load) => load().catch((error) => alertInline($("#" + name + "-page-controls"), error.message));
   const reloadJobs = debounce(() => tableAction("jobs", loadJobs));
+  for (const [name, load] of [["jobs", loadJobs], ["apps", loadApps]]) {
+    const retry = $("#" + name + "-storage button");
+    retry.addEventListener("click", async () => {
+      retry.disabled = true;
+      retry.textContent = "Refreshing…";
+      try {
+        await tableAction(name, load);
+      } finally {
+        retry.disabled = false;
+        retry.textContent = "Try refreshing";
+      }
+    });
+  }
   $("#jobs-more").addEventListener("click", () => tableAction("jobs", () => loadJobs(true)));
   $("#apps-more").addEventListener("click", () => tableAction("apps", () => loadApps(true)));
   ["#jobs-q", "#jobs-min"].forEach((s) => $(s).addEventListener("input", reloadJobs));

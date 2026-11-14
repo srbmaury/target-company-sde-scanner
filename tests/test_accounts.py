@@ -299,9 +299,14 @@ class AccountTests(unittest.TestCase):
         with patch.object(self.account, "read_tracker_snapshot", side_effect=NetworkTimeout("private details")):
             with self.assertLogs(server.LOGGER, level="WARNING") as log:
                 status, body, _ = request(query, cookie=session)
-            self.assertEqual(status, 503)
-            self.assertEqual(json.loads(body)["error"], "MongoDB timed out during tracker read.")
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body), {**first_page, "stale": True})
             self.assertNotIn("private details", "\n".join(log.output))
+            with patch.object(self.account, "cached_tracker_snapshot", return_value=None):
+                with self.assertLogs(server.LOGGER, level="WARNING"):
+                    status, body, _ = request(query, cookie=session)
+                self.assertEqual(status, 503)
+                self.assertEqual(json.loads(body)["error"], "MongoDB timed out during tracker read.")
         self.assertEqual((len(first_page["rows"]), first_page["total"], first_page["next_offset"]), (50, 52, 50))
         last_page = json.loads(request(query + "&offset=50", cookie=session)[1])
         self.assertEqual([row["company"] for row in last_page["rows"]], ["Company 50", "Company 51"])

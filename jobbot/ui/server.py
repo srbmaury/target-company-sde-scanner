@@ -661,15 +661,24 @@ class Handler(BaseHTTPRequestHandler):
         ):
             return self._send(404, {"error": "not found"})
         try:
-            conn = tracker.connect(account=self.account, cached_snapshot=True)
+            conn = tracker.connect(account=self.account, cached_snapshot=True,
+                                   allow_stale=(parts == ["jobs"] and "view" in params)
+                                   or (parts == ["applications"] and params.get("page") == "1"))
         except (PyMongoError, accounts.AccountError, sqlite3.DatabaseError) as exc:
             return self._storage_error("tracker read", exc)
         try:
+            stale = getattr(conn, "stale", False)
+            if stale:
+                LOGGER.warning("Dashboard is serving a cached tracker after a MongoDB timeout")
             if parts == ["summary"]:
                 return self._send(200, summary_payload(conn))
             if parts == ["jobs"]:
                 rows = jobs_payload(conn, params)
-                return self._send(200, jobs_page(rows, params) if "view" in params else rows)
+                if "view" in params:
+                    rows = jobs_page(rows, params)
+                    if stale:
+                        rows["stale"] = True
+                return self._send(200, rows)
             if parts == ["applications"]:
                 rows = tracker.list_applications(conn, status=params.get("status") or None,
                                                  company=params.get("q") or None)
@@ -677,6 +686,8 @@ class Handler(BaseHTTPRequestHandler):
                 if params.get("page") == "1":
                     rows = table_page(rows, params, {"id", "company", "title", "status", "resume", "applied_on",
                                                     "updated_on", "source"}, "applied_on")
+                    if stale:
+                        rows["stale"] = True
                 return self._send(200, rows)
             if len(parts) == 2 and parts[0] == "applications" and parts[1].isdigit():
                 app = tracker.find_application(conn, parts[1])

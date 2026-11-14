@@ -42,6 +42,10 @@
           <button type="button" data-go="docs">View setup guide</button>
         </div>
         <section class="stats" id="stats" aria-label="Application overview"></section>
+        <div class="workspace-notice" id="jobs-storage" hidden>
+          <p role="status">Showing the last loaded tracker. MongoDB did not respond.</p>
+          <button type="button">Try refreshing</button>
+        </div>
         <div class="toolbar">
           <input type="search" id="jobs-q" aria-label="Filter jobs" placeholder="Filter company, role, location, or site (greenhouse, workday…)">
           <label>Min fit <input type="number" id="jobs-min" min="0" max="100" step="5" placeholder="0"></label>
@@ -150,6 +154,10 @@
           <span class="eyebrow">Workspace / Applications</span>
           <h1>Application history</h1>
           <p>Track status, the resume used, and where each record came from.</p>
+        </div>
+        <div class="workspace-notice" id="apps-storage" hidden>
+          <p role="status">Showing the last loaded tracker. MongoDB did not respond.</p>
+          <button type="button">Try refreshing</button>
         </div>
         <div class="toolbar">
           <input type="search" id="apps-q" aria-label="Filter applications" placeholder="Filter by company">

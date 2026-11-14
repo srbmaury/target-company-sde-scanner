@@ -12,6 +12,8 @@ import re
 import sqlite3
 from functools import lru_cache
 
+from pymongo.errors import PyMongoError
+
 from . import paths
 
 STATUSES = ("shortlisted", "applied", "assessment", "interview", "offer", "rejected", "withdrawn", "ghosted")
@@ -84,19 +86,31 @@ class AccountConnection(sqlite3.Connection):
             self.synced_changes = self.total_changes
 
 
-def connect(path=None, *, account=None, cached_snapshot=False):
+def connect(path=None, *, account=None, cached_snapshot=False, allow_stale=False):
     if path is None and account is None:
         from .accounts import current, enabled
         if enabled():
             account = current()
     if path is None and account is not None:
-        snapshot, version = account.read_tracker_snapshot() if cached_snapshot else account.read("tracker")
+        stale = False
+        try:
+            snapshot, version = account.read_tracker_snapshot() if cached_snapshot else account.read("tracker")
+        except PyMongoError as exc:
+            cached = account.cached_tracker_snapshot() if allow_stale and exc.timeout else None
+            if cached is None or cached[0] is None:
+                raise
+            snapshot, version = cached
+            stale = True
         conn = sqlite3.connect(":memory:", factory=AccountConnection)
         try:
             conn.account, conn.version, conn.synced_changes = account, version, 0
             if snapshot is not None:
                 conn.deserialize(snapshot)
-            return _prepare(conn)
+            conn.stale = stale
+            _prepare(conn)
+            if stale:
+                conn.execute("PRAGMA query_only = ON")
+            return conn
         except Exception:
             conn.close()
             raise
