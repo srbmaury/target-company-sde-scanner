@@ -101,15 +101,21 @@
                 <button type="button" class="primary" id="live-open">Take control</button>
                 <button type="button" id="live-refresh" hidden>Refresh view</button>
                 <button type="button" id="live-release" hidden>Return control and recheck</button>
+                <span id="live-spinner" class="live-spinner" aria-hidden="true" hidden></span>
                 <span id="live-message" class="muted" role="status"></span>
               </div>
               <div id="live-viewport" hidden>
                 <p class="hint" id="live-help">Click the page to use it. Use Tab, arrow keys, or scroll to navigate. Use Return control when you're done.</p>
                 <img id="live-image" alt="Live employer browser viewport" tabindex="0" aria-describedby="live-help">
+                <div class="toolbar" id="live-scroll-controls">
+                  <button type="button" data-live-scroll="-480">Scroll up</button>
+                  <button type="button" data-live-scroll="480">Scroll down</button>
+                </div>
                 <p class="hint" id="live-direct">You are operating the employer page directly. Use Jobbot’s review flow to submit.</p>
                 <form id="live-text" class="toolbar">
-                  <label>Type into the selected field <input id="live-input" type="password" maxlength="4000" autocomplete="off"></label>
-                  <button type="submit">Type text</button>
+                  <label>Type into the selected field <input id="live-input" type="text" spellcheck="false" maxlength="4000" autocomplete="off"></label>
+                  <label class="check"><input type="checkbox" id="live-mask"> Hide text</label>
+                  <button type="submit" id="live-send">Type text</button>
                   <button type="button" id="live-tab">Next field</button>
                 </form>
               </div>

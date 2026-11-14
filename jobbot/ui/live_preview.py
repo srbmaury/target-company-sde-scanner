@@ -67,7 +67,7 @@ class Viewport:
                 x = min(width - 1, math.floor(width * command["x"]))
                 y = min(height - 1, math.floor(height * command["y"]))
                 if action == "click":
-                    page.mouse.click(x, y)
+                    page.mouse.click(x, y, delay=45)
                 else:
                     page.mouse.move(x, y)
                     page.mouse.wheel(0, command["delta"])
@@ -76,7 +76,8 @@ class Viewport:
             elif action == "key":
                 key = command["key"]
                 page.keyboard.press(" " if key == "Space" else key)
-            page.wait_for_timeout(100)
+            # The wheel and click can return before Chromium paints the new state.
+            page.wait_for_timeout(180)
         frame = capture(page)
         viewport = page.viewport_size
         self.size = (viewport["width"], viewport["height"]) if viewport else tuple(page.evaluate(

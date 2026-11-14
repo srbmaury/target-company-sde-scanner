@@ -336,3 +336,9 @@ dialog ol.history { padding-left: 18px; color: var(--muted); max-height: 220px; 
   .correction-row { grid-template-columns: minmax(0, 1fr); }
   .correction-row button { justify-self: start; }
 }
+
+.live-spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: live-spin .8s linear infinite; }
+@keyframes live-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .live-spinner { animation: none; } }
+#live-image { user-select: none; -webkit-user-drag: none; cursor: crosshair; }

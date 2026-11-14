@@ -294,7 +294,7 @@ class WebUI:
                     released = action == "release"
                     if released or (action == "open" and "error" in response):
                         run._controller = None
-                    run._frame_id = response.get("frame_id")
+                    run._frame_id = response.get("frame_id") or run._frame_id
                     run._preview_request = None
                     if released and not run.dry_run:
                         # Never reuse the pre-takeover Submit/Next prompt.

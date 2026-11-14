@@ -293,8 +293,10 @@ async function confirmRun() {
 }
 
 async function loadRun() {
+  const request = state.runRequest = (state.runRequest || 0) + 1;
   let run;
   try { run = await api("apply"); } catch (e) { return; }
+  if (request !== state.runRequest) return;
   state.run = run;
   const active = ["starting", "running", "waiting"].includes(run.status);
   $("#apply-badge").hidden = run.status !== "waiting";
@@ -377,6 +379,8 @@ function resetLivePreview() {
   live.inputs.length = 0;
   $("#live-image").removeAttribute("src");
   $("#live-input").value = "";
+  $("#live-input").type = "text";
+  $("#live-mask").checked = false;
   $("#live-message").textContent = "";
 }
 
@@ -394,65 +398,109 @@ function renderLivePreview(run) {
   $("#live-help").textContent = run.dry_run
     ? "Dry-run view is read-only. Use the dashboard prompts to continue."
     : "Click or scroll the page. Use the keyboard or the text box below to enter answers. Use Next field to send Tab. Return control to recheck the page.";
-  $("#live-text").hidden = $("#live-direct").hidden = Boolean(run.dry_run);
+  $("#live-text").hidden = $("#live-direct").hidden = $("#live-scroll-controls").hidden = Boolean(run.dry_run);
   $("#live-refresh").hidden = $("#live-release").hidden = !live.control;
   $("#prompt").inert = Boolean(live.control);
   $("#page-preview").hidden = Boolean(live.control) || !run.preview || Boolean(run.history);
 }
 
-async function browserCommand(action, extra = {}) {
-  if (!live.prompt) return;
+const browserActionLabels = {
+  open: "Opening browser…", frame: "Refreshing…", click: "Clicking…", scroll: "Scrolling…",
+  text: "Typing…", key: "Sending key…", release: "Returning control…",
+};
+
+async function browserCommand(action, extra = {}, background = false) {
+  if (!live.prompt) return false;
   if (live.busy) {
-    if (!["frame", "open"].includes(action) && live.inputs.length < 40) live.inputs.push([action, extra]);
-    return;
+    if (action === "scroll" && live.inputs.at(-1)?.[0] === "scroll") {
+      const previous = live.inputs.at(-1)[1];
+      previous.delta = Math.max(-1600, Math.min(1600, previous.delta + extra.delta));
+    } else if (!background && action !== "open" && live.inputs.length < 12) {
+      live.inputs.push([action, extra]);
+    } else if (!background && action !== "open") {
+      $("#live-message").textContent = "Browser is catching up. Wait before sending more input.";
+    }
+    return false;
   }
   clearTimeout(live.timer);
   const prompt = live.prompt;
+  const spinner = $("#live-spinner");
+  const message = $("#live-message");
   live.busy = true;
-  if (action === "open") $("#live-message").textContent = "Opening the browser view…";
+  $("#live-send").disabled = true;
+  if (!background) {
+    spinner.hidden = false;
+    message.textContent = browserActionLabels[action];
+  }
   try {
     const reply = await api("apply/preview", {
       prompt_id: prompt, control: live.control, frame_id: live.frame, action, ...extra,
     });
-    if (live.prompt !== prompt) return;
+    if (live.prompt !== prompt) return false;
     if (action === "release") {
       resetLivePreview();
       renderLivePreview(state.run);
       await loadRun();
-      return;
+      return true;
     }
     live.control = reply.control;
-    live.frame = reply.frame_id;
-    $("#live-image").src = "data:image/jpeg;base64," + reply.image;
-    $("#live-image").width = reply.width;
-    $("#live-image").height = reply.height;
-    $("#live-message").textContent = state.run.dry_run ? "Live view · read-only" : "You have control. Jobbot is paused.";
     renderLivePreview(state.run);
-    if (action === "open") $("#live-image").focus();
+    const image = $("#live-image");
+    const source = "data:image/jpeg;base64," + reply.image;
+    const next = new Image();
+    next.src = source;
+    await next.decode();
+    if (live.prompt !== prompt) return false;
+    image.src = source;
+    image.width = reply.width;
+    image.height = reply.height;
+    live.frame = reply.frame_id;
+    if (!background) message.textContent = state.run.dry_run ? "Live view · read-only" : "You have control. Jobbot is paused.";
+    renderLivePreview(state.run);
+    if (action === "open") image.focus({preventScroll: true});
+    return true;
   } catch (error) {
-    if (live.prompt === prompt) $("#live-message").textContent = error.message;
+    if (live.prompt === prompt) {
+      message.textContent = error.message;
+      // Stop queued gestures after a failed command. The employer may have
+      // received the input even when its updated frame could not be captured.
+      live.inputs.length = 0;
+    }
+    return false;
   } finally {
     live.busy = false;
+    spinner.hidden = true;
+    $("#live-send").disabled = false;
     if (live.control && live.prompt === prompt) {
       if (live.inputs.length) browserCommand(...live.inputs.shift());
-      else if (state.tab === "apply") live.timer = setTimeout(() => browserCommand("frame"), 1500);
+      else if (state.tab === "apply" && state.run?.dry_run) live.timer = setTimeout(() => browserCommand("frame", {}, true), 2500);
     }
   }
 }
 
 function wireLivePreview() {
+  $("#live-mask").addEventListener("change", (event) => {
+    $("#live-input").type = event.target.checked ? "password" : "text";
+  });
   $("#live-open").addEventListener("click", () => browserCommand("open"));
   $("#live-release").addEventListener("click", () => browserCommand("release"));
   $("#live-refresh").addEventListener("click", () => browserCommand("frame"));
+  $$("[data-live-scroll]").forEach((button) => button.addEventListener("click", () => {
+    if (!state.run?.dry_run) browserCommand("scroll", {x: .5, y: .5, delta: Number(button.dataset.liveScroll)});
+  }));
   $("#live-tab").addEventListener("click", () => browserCommand("key", {key: "Tab"}));
   const frame = $("#live-image");
   const coords = (event) => {
     const rect = frame.getBoundingClientRect();
-    return { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height };
+    const normalize = (value, size) => Math.max(0, Math.min(1, value / size));
+    return {
+      x: normalize(event.clientX - rect.left - frame.clientLeft, frame.clientWidth),
+      y: normalize(event.clientY - rect.top - frame.clientTop, frame.clientHeight),
+    };
   };
   frame.addEventListener("click", (event) => {
     if (!state.run?.dry_run) {
-      frame.focus();
+      frame.focus({preventScroll: true});
       browserCommand("click", coords(event));
     }
   });
@@ -471,14 +519,13 @@ function wireLivePreview() {
     if (event.key.length === 1) browserCommand("text", { text: event.key });
     else browserCommand("key", { key: event.key });
   });
-  $("#live-text").addEventListener("submit", (event) => {
+  $("#live-text").addEventListener("submit", async (event) => {
     event.preventDefault();
     const input = $("#live-input");
-    if (input.value) {
-      const text = input.value;
-      input.value = "";
-      browserCommand("text", {text});
-      frame.focus();
+    const text = input.value;
+    if (text && !live.busy && await browserCommand("text", {text})) {
+      if (input.value === text) input.value = "";
+      frame.focus({preventScroll: true});
     }
   });
 }
