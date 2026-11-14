@@ -201,7 +201,7 @@ The CLI and tracker live in `jobbot/`, browser automation in `jobbot/apply/`, an
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Browser tests use fixture forms. Account tests use mocked Google and MongoDB.
+Browser tests use local fixture forms and dashboard responses. Set `JOBBOT_REQUIRE_BROWSER_TESTS=1` to make a missing Chromium installation fail the suite, as it does in CI. On Linux, install with `python -m playwright install --with-deps chromium` if system libraries are missing. Account tests use mocked Google and MongoDB.
 
 ## License
 

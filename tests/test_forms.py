@@ -1,6 +1,6 @@
 """End-to-end: the real apply engine fills and verifies local copies of real-site form patterns.
 
-Runs headless Chrome (Playwright). Skipped when Playwright or a browser is not available.
+Runs headless Chromium through Playwright.
 """
 
 import os
@@ -10,15 +10,16 @@ import tempfile
 os.environ["JOBBOT_HOME"] = tempfile.mkdtemp(prefix="jobbot-test-")
 import functools
 import http.server
-import importlib.util
 import os
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 
+from browser_support import launch_for_test
+
 FIXTURES = Path(__file__).parent / "fixtures" / "forms"
-HAVE_PLAYWRIGHT = importlib.util.find_spec("playwright") is not None
+
 
 PROFILE = {
     "personal": {"first_name": "Asha", "last_name": "Example", "email": "asha@example.com", "phone": "9876543210",
@@ -54,7 +55,6 @@ class RecordingUI:
         return "quit"
 
 
-@unittest.skipUnless(HAVE_PLAYWRIGHT, "Playwright not installed")
 class FormTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -74,6 +74,7 @@ class FormTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server.server_close()
         cls.tmp.cleanup()
 
     def session(self, ui, profile_extra=None, unattended=False):
@@ -85,13 +86,9 @@ class FormTests(unittest.TestCase):
                            *data.get("answers", [])]
         prof = Profile(data, Path(self.tmp.name) / "profile.yaml")
         prof.resume_text = lambda key: "Backend services in Java and Spring Boot; Redis; GraphQL."
-        try:
-            s = Session(prof, LLM(enabled=False), ui, dry_run=False, upload=True, unattended=unattended)
-            s.__enter__()
-        except Exception as e:   # no browser available here
-            self.skipTest(f"browser not available: {e}")
-        self.addCleanup(s.__exit__, None, None, None)
-        return s
+        session = Session(prof, LLM(enabled=False), ui, dry_run=False, upload=True, unattended=unattended)
+        launch_for_test(self, self.enterContext, session)
+        return session
 
     @staticmethod
     def job(url, ats=None):

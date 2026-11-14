@@ -2,7 +2,9 @@
 import unittest
 from pathlib import Path
 
-from playwright.sync_api import Error, expect, sync_playwright
+from playwright.sync_api import expect, sync_playwright
+
+from browser_support import launch_for_test
 
 
 STATIC = Path(__file__).resolve().parents[1] / "jobbot" / "ui" / "static"
@@ -13,12 +15,7 @@ JOB = {"n": 1, "company": "Example Co.", "title": "Backend Engineer",
 class DashboardUITests(unittest.TestCase):
     def setUp(self):
         playwright = self.enterContext(sync_playwright())
-        try:
-            self.browser = playwright.chromium.launch()
-        except Error as exc:
-            if "Executable doesn't exist" in str(exc):
-                self.skipTest("Playwright Chromium is not installed")
-            raise
+        self.browser = launch_for_test(self, playwright.chromium.launch)
         self.addCleanup(self.browser.close)
         self.page = self.browser.new_page(viewport={"width": 1100, "height": 800})
         self.errors = []

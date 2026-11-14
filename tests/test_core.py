@@ -1207,23 +1207,20 @@ class ValidationPromptTest(unittest.TestCase):
 
     def test_button_finder_reaches_nested_components(self):
         from jobbot.apply.fields import BUTTONS_JS
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            self.skipTest("playwright not installed")
+        from playwright.sync_api import sync_playwright
+        from browser_support import launch_for_test
+
         html = """<div id=a></div><script>
           const outer = document.getElementById('a').attachShadow({mode: 'open'});
           outer.innerHTML = '<div id=b></div>';
           const inner = outer.getElementById('b').attachShadow({mode: 'open'});
           inner.innerHTML = '<button>Next</button>';</script>"""
-        try:
-            with sync_playwright() as p:
-                b = p.chromium.launch(headless=True)
-                page = b.new_page(); page.set_content(html)
-                hits = page.evaluate(BUTTONS_JS, ["^next$", False])
-                b.close()
-        except Exception as e:
-            self.skipTest(f"no browser: {type(e).__name__}")
+        playwright = self.enterContext(sync_playwright())
+        browser = launch_for_test(self, playwright.chromium.launch, headless=True)
+        self.addCleanup(browser.close)
+        page = browser.new_page()
+        page.set_content(html)
+        hits = page.evaluate(BUTTONS_JS, ["^next$", False])
         self.assertEqual([h["text"] for h in hits], ["Next"])
 
     def test_salary_in_lpa_text_box_gets_the_number(self):
