@@ -151,16 +151,21 @@ GONE_AFTER_MISSES = 2
 
 def mark_gone(conn, seen_urls, companies):
     """After a scan: roles at `companies` (boards that were read completely and without error) that the scan
-    did not return count one miss; after GONE_AFTER_MISSES consecutive misses they are no longer listed. One
-    flaky scan never hides a live role. A role that shows up again is un-marked by upsert_jobs."""
+    did not see count one miss. After GONE_AFTER_MISSES consecutive complete misses they are no longer listed.
+    A posting seen on any board resets its counter, even if filters excluded it from the results."""
     seen, companies = set(seen_urls), set(companies)
-    missed = [r["url"] for r in conn.execute("SELECT url, company FROM jobs WHERE gone = 0")
-              if r["company"] in companies and r["url"] not in seen]
-    conn.executemany("UPDATE jobs SET misses = misses + 1 WHERE url = ?", [(u,) for u in missed])
-    conn.execute("UPDATE jobs SET gone = 1 WHERE gone = 0 AND misses >= ?", (GONE_AFTER_MISSES,))
+    missed, reappeared = [], []
+    for row in conn.execute("SELECT url, company, gone, misses FROM jobs"):
+        url = row["url"]
+        if url in seen and (row["gone"] or row["misses"]):
+            reappeared.append((url,))
+        elif url not in seen and row["company"] in companies and not row["gone"]:
+            missed.append((url,))
+    conn.executemany("UPDATE jobs SET gone = 0, misses = 0 WHERE url = ?", reappeared)
+    conn.executemany("UPDATE jobs SET misses = misses + 1 WHERE url = ?", missed)
+    gone = conn.execute("UPDATE jobs SET gone = 1 WHERE gone = 0 AND misses >= ?", (GONE_AFTER_MISSES,)).rowcount
     conn.commit()
-    return conn.execute("SELECT COUNT(*) FROM jobs WHERE gone = 1 AND url IN (%s)" % ",".join("?" * len(missed)),
-                        missed).fetchone()[0] if missed else 0
+    return gone
 
 
 def list_jobs(conn, unranked=False, include_applied=False, include_dismissed=False, limit=None, include_gone=False):

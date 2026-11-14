@@ -47,7 +47,7 @@ class DashboardStartupTests(unittest.TestCase):
             make.assert_called_once()
 
     @unittest.skipUnless(shutil.which("bash"), "Bash is required for jobbot.sh")
-    def test_launcher_uses_dotenv_only_for_ui_without_exported_uri(self):
+    def test_launcher_loads_repo_dotenv_for_ui_even_with_an_exported_uri(self):
         launcher = Path(__file__).resolve().parents[1] / "jobbot.sh"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -62,5 +62,7 @@ class DashboardStartupTests(unittest.TestCase):
                 return subprocess.check_output(["bash", str(root / "jobbot.sh"), command],
                                                cwd=root.parent, env=settings, text=True)
             self.assertEqual(launch("ui", env), "mongodb://file.test")
-            self.assertEqual(launch("ui", dict(env, JOBBOT_MONGODB_URI="mongodb://env.test")), "mongodb://env.test")
+            self.assertEqual(launch("ui", dict(env, JOBBOT_MONGODB_URI="mongodb://env.test")), "mongodb://file.test")
             self.assertEqual(launch("doctor", env), "unset")
+            (root / ".env").unlink()
+            self.assertEqual(launch("ui", dict(env, JOBBOT_MONGODB_URI="mongodb://env.test")), "mongodb://env.test")

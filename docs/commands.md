@@ -4,7 +4,7 @@
 | --- | --- |
 | `init [--force]` | Create `profile.yaml` (git-ignored) from the template |
 | `doctor` | Check profile, resume files, Playwright, configured LLM, and the tracker |
-| `scan [--companies A,B] [--exclude C] [--locations REGEX] [--max-yoe N] [--show-all] [--no-careers-pages]` | Find matching roles and store new ones |
+| `scan [--companies A,B] [--exclude C] [--locations REGEX] [--min-yoe N] [--max-yoe N] [--include-unstated] [--show-all] [--no-careers-pages]` | Find matching roles and store new ones |
 | `rank [--limit N] [--rerank] [--llm ollama|openai|none] [--model NAME]` | Score unranked roles against your resumes |
 | `jobs [--why] [--urls] [--limit N] [--include-applied]` | List tracked roles, best fit first |
 | `apply <n, x-y or URL>... [--top N] [--all] [--min-fit N] [--exclude A,B] [-y] [--dry-run] [--resume KEY] [--no-auto-next] [--no-upload] [--force] [--llm ollama|openai|none]` | Fill applications in Chrome |
@@ -25,16 +25,19 @@ Environment variables: `JOBBOT_PROFILE` (default `./profile.yaml`), `JOBBOT_HOME
 ## Running only the scanner
 
 The scanner needs only Python 3, with no dependencies (companies read from their careers page also
-need Playwright and Chrome; without them they are reported as skipped, or pass `--no-careers-pages`):
+need Playwright and Chrome or Playwright Chromium. To skip them, pass `--no-careers-pages`):
 
 ```bash
 python3 scripts/ats_scan.py --companies "Stripe,MongoDB,Adobe,ServiceNow"
-python3 scripts/ats_scan.py --all --exclude "Salesforce" --max-yoe 3
+python3 scripts/ats_scan.py --all --exclude "Salesforce" --min-yoe 4 --max-yoe 7
 python3 scripts/ats_scan.py --all --locations "hyderabad|bengaluru|bangalore|remote" --json
 ```
 
 It prints a Markdown table of candidate roles with the stated experience, plus per-company coverage.
 Rows are candidates: open each link before treating it as a live opening.
+
+The standalone scanner takes its experience range from flags, which default to 1–3 years.
+Use `./jobbot.sh scan` to apply your saved profile preferences.
 
 ---
 

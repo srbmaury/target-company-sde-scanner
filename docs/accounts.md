@@ -37,8 +37,9 @@ Local CLI commands are still available without hosted settings.
    ./jobbot.sh ui
    ```
 
-   In a Codespace, `./jobbot.sh ui` can load the repository's Git-ignored `.env` when
-   `JOBBOT_MONGODB_URI` is not already exported. With an exported URI, it uses the deployment environment.
+   In a Codespace, put the settings in the repository's Git-ignored `.env`. `./jobbot.sh ui` loads
+   the file automatically and its assignments take precedence. Hosted services can supply settings
+   through the deployment environment when the file is absent.
    Run with Python 3.11 or newer. The app listens on the host's `PORT` variable when set, or
    `8765` otherwise. Use an HTTPS reverse proxy that preserves the dashboard's public Host
    header. Don't expose the backend port directly. Redeploy with the **same data key and owner

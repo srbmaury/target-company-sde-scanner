@@ -236,7 +236,45 @@ class ScanParsingTest(unittest.TestCase):
         self.assertIsNone(classify({**job, "title": "Senior Software Engineer"}, loc, 3))
         self.assertIsNone(classify({**job, "title": "Backend Engineer - 5+ Years"}, loc, 3))
         self.assertEqual(classify({**job, "title": "Site Reliability Engineer (1 to 4 Years)", "text": ""}, loc, 3)[0],
-                         "1+ yrs in title")
+                         "1–4 yrs in title")
+
+    def test_target_ranges_include_senior_and_graduate_roles(self):
+        import re
+        loc = re.compile("India")
+        job = {"title": "Senior Software Engineer", "location": "India",
+               "text": "Requires 4–7 years of software engineering experience."}
+        self.assertEqual(classify(job, loc, 6, 5)[0], "4–7 yrs stated")
+        self.assertIsNone(classify(job, loc, 10, 8))
+        self.assertIsNone(classify(job, loc, 3, 1))
+        grad = {**job, "title": "Graduate Software Engineer (0–1 years)"}
+        self.assertEqual(classify(grad, loc, 0, 0)[0], "0–1 yrs in title")
+        self.assertEqual(classify({**job, "title": "Software Engineer (0.5 to 2 years)"}, loc, 3)[0],
+                         "0.5–2 yrs in title")
+
+    def test_scan_profile_defaults_and_overrides(self):
+        from jobbot.profile import ProfileError
+
+        self.assertEqual(Profile({}, "test").scan_experience(), (1, 3))
+        profile = Profile({"preferences": {"min_yoe": 4, "max_yoe": 7}}, "test")
+        self.assertEqual(profile.scan_experience(), (4, 7))
+        self.assertEqual(profile.scan_experience(max_yoe=9), (4, 9))
+        for invalid in (-1, "5", True, 8):
+            with self.subTest(invalid=invalid), self.assertRaises(ProfileError):
+                profile.scan_experience(min_yoe=invalid)
+
+    def test_scan_reports_presence_before_filtering(self):
+        from unittest.mock import patch
+        from jobbot import scan
+
+        registry = {"Acme": {"ats": "greenhouse", "id": "acme"}}
+        job = {"title": "Software Engineer II", "location": "India", "url": "https://example.test/1",
+               "text": "2 to 3 years of experience", "posted": ""}
+        seen = set()
+        with patch.object(scan, "load_registry", return_value=registry), patch.object(scan, "fetch", return_value=[job]):
+            results, coverage, _ = scan.run_scan(min_yoe=4, max_yoe=6, seen_urls=seen)
+        self.assertEqual(results, [])
+        self.assertEqual(seen, {job["url"]})
+        self.assertNotIn("incomplete", coverage["Acme"])
 
     def test_json_feed_fields(self):
         item = {"title": "SDE II", "portalJobPost": {"portalUrl": "https://x.test/1"}, "locations": ["Pune", "Remote"]}
@@ -1235,10 +1273,13 @@ class ValidationPromptTest(unittest.TestCase):
         tracker.upsert_jobs(conn, [job])
         self.assertEqual(tracker.mark_gone(conn, [], ["Acme"]), 0)     # one missed scan: still listed
         self.assertEqual(conn.execute("SELECT gone FROM jobs").fetchone()[0], 0)
-        tracker.upsert_jobs(conn, [job])                               # seen again: the count starts over
+        tracker.mark_gone(conn, [job["url"]], ["Acme"])                # seen again even if filtered out
         tracker.mark_gone(conn, [], ["Acme"])
         self.assertEqual(conn.execute("SELECT gone FROM jobs").fetchone()[0], 0)
         self.assertEqual(tracker.mark_gone(conn, [], ["Acme"]), 1)     # two in a row: no longer listed
+        tracker.mark_gone(conn, [job["url"]], [])                      # seen even on an incomplete board
+        self.assertFalse(tracker.get_job(conn, job["url"])["gone"])
+        conn.close()
 
     def test_incomplete_board_reads_are_flagged(self):
         from jobbot import scan

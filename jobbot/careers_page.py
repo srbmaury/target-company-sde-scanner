@@ -85,7 +85,7 @@ async def _settle(page):
 
 
 async def _company(ctx, name, entry, rules, sem):
-    engineering, not_engineering, senior, location_re = rules
+    engineering, not_engineering, location_re = rules
     url = entry["url"] if entry["url"].startswith("http") else "https://" + entry["url"]
     blobs = []
 
@@ -130,7 +130,7 @@ async def _company(ctx, name, entry, rules, sem):
             title = j["title"][:140]
             if not href or href in seen or not ROLE.search(title):
                 continue
-            if not engineering.search(title) or not_engineering.search(title) or senior.search(title):
+            if not engineering.search(title) or not_engineering.search(title):
                 continue
             seen.add(href)
             picked.append((title, href, j["location"]))
@@ -143,7 +143,7 @@ async def _company(ctx, name, entry, rules, sem):
         href = x["href"].split("#")[0]
         if not title or NAV.search(title) or href in seen or SKIP.search(href) or not JOBISH.search(href):
             continue
-        if not engineering.search(title) or not_engineering.search(title) or senior.search(title):
+        if not engineering.search(title) or not_engineering.search(title):
             continue
         same_site = urllib.parse.urlparse(href).netloc.split(".")[-2:] == host
         if not same_site and not re.search(r"greenhouse|lever|ashby|workday|smartrecruiters|icims|eightfold|"
@@ -177,7 +177,10 @@ async def _scan_all(entries, rules, workers, on_done):
     from playwright.async_api import async_playwright
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(channel="chrome", headless=True)
+        try:
+            browser = await p.chromium.launch(channel="chrome", headless=True)
+        except Exception:
+            browser = await p.chromium.launch(headless=True)
         ctx = await browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) "
                        "Chrome/129 Safari/537.36", locale="en-US")
@@ -203,4 +206,14 @@ def scan_careers_pages(entries, rules, on_done, workers=6):
         for name in entries:
             on_done(name, RuntimeError("Playwright is not installed"))
         return
-    asyncio.run(_scan_all(entries, rules, workers, on_done))
+    completed = set()
+
+    def report(name, jobs):
+        completed.add(name)
+        on_done(name, jobs)
+
+    try:
+        asyncio.run(_scan_all(entries, rules, workers, report))
+    except Exception as exc:
+        for name in entries.keys() - completed:
+            on_done(name, exc)

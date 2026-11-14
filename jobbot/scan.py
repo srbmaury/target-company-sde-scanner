@@ -1,4 +1,4 @@
-"""Sweep public applicant-tracking-system APIs for 1-3 YOE engineering roles.
+"""Sweep public applicant-tracking-system APIs for engineering roles in a configurable experience range.
 
 Reads references/ats-registry.json, queries each company's public job-board API
 (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Eightfold, Oracle
@@ -29,6 +29,8 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REGISTRY = os.path.join(HERE, "..", "references", "ats-registry.json")
+DEFAULT_MIN_YOE = 1
+DEFAULT_MAX_YOE = 3
 DEFAULT_QUERIES = "software engineer,backend engineer,full stack engineer,developer"
 UA = {"User-Agent": "Mozilla/5.0 (target-company-sde-scanner)"}
 
@@ -45,17 +47,31 @@ NOT_ENGINEERING = re.compile(
     re.I,
 )
 SENIOR = re.compile(
-    r"senior|\bsr\.?\b|staff|principal|\blead\b|manager|director|head of|architect|"
-    r"distinguished|fellow|"
-    r"intern|apprentice|new grad|graduate|campus|trainee",
+    r"\bsenior\b|\bsr\.?\b|(?<!technical )\bstaff\b|\bprincipal\b|\blead\b|"
+    r"\bmanager\b|\bdirector\b|head of|\barchitect\b|\bdistinguished\b|\bfellow\b",
     re.I,
 )
+ENTRY_LEVEL = re.compile(r"\bintern(?:ship)?\b|\bapprentice\b|\bnew grad(?:uate)?\b|"
+                         r"\bgraduate\b|\bcampus\b|\btrainee\b", re.I)
 MID_LEVEL = re.compile(r"\bii\b|\b2\b|sde\s*-?\s*2|mid[- ]level|engineer\s*2|\bl[34]\b|\bmts\b", re.I)
 YEARS = re.compile(
-    r"(?:(?:minimum|min\.?|at least|over)\s+(?:of\s+)?)?"
-    r"(\d{1,2})(?:\s*(?:\+|plus)|\s*(?:-|–|—|to)\s*(\d{1,2}))?\s*\+?\s*(?:years?|yrs?)",
+    r"(?<![\d.])(?P<low>\d+(?:\.\d+)?)"
+    r"(?:\s*(?P<open>\+|plus)|\s*(?:-|–|—|to)\s*(?P<high>\d+(?:\.\d+)?)(?P<high_open>\s*\+)?)?"
+    r"\s*(?:years?|yrs?)\b",
     re.I,
 )
+
+
+def validate_experience_range(min_yoe, max_yoe):
+    if any(type(value) is not int or value < 0 for value in (min_yoe, max_yoe)) or min_yoe > max_yoe:
+        raise ValueError("Set min_yoe and max_yoe to non-negative whole numbers with min_yoe <= max_yoe.")
+
+
+def experience_bounds(match):
+    low = float(match["low"])
+    if match["open"] or match["high_open"] or not match["high"]:
+        return low, float("inf")
+    return low, float(match["high"])
 
 
 class SiteMaintenance(Exception):
@@ -90,25 +106,31 @@ REQUIRED_RE = re.compile(r"minimum|at least|required|must have|must possess|requ
 PREFERRED_RE = re.compile(r"preferred|nice to have|bonus|plus|ideally|desired", re.I)
 
 
-def stated_years(text):
-    """Return (min_years, snippet) for the posting's experience requirement. "5+ years preferred ... 2+ years
+def stated_experience(text):
+    """Return ((min_years, max_years), snippet) for the posting's experience requirement. "5+ years preferred ... 2+ years
     required" is 2: a stated requirement wins over a preference, and among several the lowest counts."""
     found = []
     for m in YEARS.finditer(text or ""):
-        low = int(m.group(1))
-        if low > 20:
+        low, high = experience_bounds(m)
+        if high < low:
             continue
-        start = max(0, m.start() - 60)
-        context = text[start : m.end() + 50]
+        # Keep neighboring sentences from lending their qualification markers to this match.
+        left = re.split(r"[.!?;]\s+|\n", text[max(0, m.start() - 60):m.start()])[-1]
+        right = re.split(r"[.!?;](?:\s+|$)|\n", text[m.end():m.end() + 50])[0]
+        context = left + m.group() + right
         if re.search(r"experience|exp\b|expertise|professional|industry|hands-on|relevant|engineering|building|working|develop", context, re.I):
-            near = text[max(0, m.start() - 40): m.end() + 40]
+            near = left[-40:] + m.group() + right[:40]
             rank = 0 if REQUIRED_RE.search(near) else (2 if PREFERRED_RE.search(near) else 1)
-            found.append((rank, low, context.strip()))
+            found.append((rank, low, high, context.strip()))
     if not found:
         return None, ""
-    best_rank = min(f[0] for f in found)
-    rank, low, context = min(f for f in found if f[0] == best_rank)
-    return low, context
+    _, low, high, context = min(found)
+    return (low, high), context
+
+
+def stated_years(text):
+    bounds, snippet = stated_experience(text)
+    return (bounds[0] if bounds else None), snippet
 
 
 # --- Adapters: each yields dicts with title, location, url, text, posted ---------
@@ -186,7 +208,7 @@ def workday(entry, queries, location_re):
         loc = p.get("locationsText", "")
         title = p.get("title", "")
         # Detail calls are slow: only fetch the ones that can still pass the filters.
-        if not ENGINEERING.search(title) or NOT_ENGINEERING.search(title) or SENIOR.search(title):
+        if not ENGINEERING.search(title) or NOT_ENGINEERING.search(title):
             continue
         if not location_re.search(loc + " " + path):
             continue
@@ -219,7 +241,7 @@ def smartrecruiters(entry, queries, location_re):
     if capped:
         yield INCOMPLETE   # a search returned more than one page: the rest were never seen
     for pid, p in seen.items():
-        if SENIOR.search(p.get("name", "")) or not ENGINEERING.search(p.get("name", "")):
+        if not ENGINEERING.search(p.get("name") or ""):
             continue
         try:
             d = http_json(f"https://api.smartrecruiters.com/v1/companies/{entry['id']}/postings/{pid}")
@@ -239,7 +261,7 @@ def smartrecruiters(entry, queries, location_re):
 def worth_details(title, location, location_re):
     """Cheap pre-filter before fetching a posting's details (detail calls are slow)."""
     return bool(ENGINEERING.search(title or "") and not NOT_ENGINEERING.search(title or "")
-                and not SENIOR.search(title or "") and location_re.search(location or ""))
+                and location_re.search(location or ""))
 
 
 def http_text(url, timeout=25):
@@ -564,23 +586,25 @@ def fetch(name, entry, queries, location_re):
     raise ValueError(f"unknown ats {ats}")
 
 
-def classify(job, location_re, max_yoe):
-    title, loc = job["title"], job["location"]
-    if not ENGINEERING.search(title) or NOT_ENGINEERING.search(title) or SENIOR.search(title):
+def classify(job, location_re, max_yoe, min_yoe=DEFAULT_MIN_YOE):
+    title, loc = job["title"] or "", job["location"] or ""
+    if not ENGINEERING.search(title) or NOT_ENGINEERING.search(title) or not location_re.search(loc):
         return None
-    if not location_re.search(loc or ""):
+    if (max_yoe <= DEFAULT_MAX_YOE and SENIOR.search(title)) or (min_yoe > 0 and ENTRY_LEVEL.search(title)):
         return None
-    in_title = re.search(r"(\d{1,2})\s*\+?\s*(?:-|–|to)?\s*\d*\s*\+?\s*(?:years?|yrs?)", title, re.I)
-    if in_title and int(in_title.group(1)) > max_yoe:
-        return None
-    if in_title:  # "(1 to 4 Years)" in the title is as good as a stated range
-        return f"{in_title.group(1)}+ yrs in title", title
-    low, snippet = stated_years(job["text"])
-    if low is not None:
-        if low > max_yoe:
+    in_title = YEARS.search(title)
+    if in_title:
+        bounds, snippet, source = experience_bounds(in_title), title, "in title"
+    else:
+        bounds, snippet = stated_experience(job.get("text"))
+        source = "stated"
+    if bounds:
+        low, high = bounds
+        if high < low or low > max_yoe or high < min_yoe:
             return None
-        return f"{low}+ yrs stated", snippet
-    if MID_LEVEL.search(title):
+        years = f"{low:g}+" if high == float("inf") else f"{low:g}–{high:g}"
+        return f"{years} yrs {source}", snippet
+    if MID_LEVEL.search(title) and min_yoe <= DEFAULT_MAX_YOE and max_yoe >= DEFAULT_MIN_YOE:
         return "implied by title", ""
     return "not stated", ""
 
@@ -610,15 +634,16 @@ def resolve_names(registry, companies=None):
     return names, missing
 
 
-def run_scan(companies=None, exclude=(), locations=DEFAULT_LOCATIONS, max_yoe=3, include_unstated=False,
-             queries=DEFAULT_QUERIES, skip_urls=(), workers=16, careers_pages=True):
+def run_scan(companies=None, exclude=(), locations=DEFAULT_LOCATIONS, max_yoe=DEFAULT_MAX_YOE, include_unstated=False,
+             queries=DEFAULT_QUERIES, skip_urls=(), workers=16, careers_pages=True, *, min_yoe=DEFAULT_MIN_YOE, seen_urls=None):
     """Scan the registry. Returns (results, coverage, missing).
 
     Each result has company, ats, board, title, location, url, posted, experience,
     evidence and description (plain text, truncated). Companies listed only by their careers
     page ("careers-page") are read in headless Chrome alongside the API sweep, unless
-    careers_pages is False.
+    careers_pages is False. If supplied, seen_urls collects posting URLs before filtering.
     """
+    validate_experience_range(min_yoe, max_yoe)
     registry = load_registry()
     names, missing = resolve_names(registry, companies)
     excluded = {x.strip().lower() for x in exclude if x.strip()}
@@ -644,8 +669,13 @@ def run_scan(companies=None, exclude=(), locations=DEFAULT_LOCATIONS, max_yoe=3,
             incomplete = any(j.get("_incomplete") for j in jobs) or registry[name]["ats"] == "careers-page"
             jobs = [j for j in jobs if not j.get("_incomplete")]
             for job in jobs:
-                verdict = classify(job, location_re, max_yoe)
-                if not verdict or job["url"] in skip_urls or job["url"] in urls:
+                url = job["url"]
+                if not url:
+                    continue
+                if seen_urls is not None:
+                    seen_urls.add(url)
+                verdict = classify(job, location_re, max_yoe, min_yoe)
+                if not verdict or url in skip_urls or url in urls:
                     continue
                 if verdict[0] == "not stated" and not include_unstated:
                     continue
@@ -658,12 +688,15 @@ def run_scan(companies=None, exclude=(), locations=DEFAULT_LOCATIONS, max_yoe=3,
                     "experience": verdict[0], "evidence": verdict[1][:160],
                     "description": (job.get("text") or "")[:8000],
                 })
-            coverage[name] = f"{len(jobs)} postings, {kept} kept" + (" (incomplete)" if incomplete else "")
+            # Search-based sources only return a subset of the board, even on success.
+            complete_board = entry["ats"] in {"greenhouse", "lever", "lever-eu", "ashby", "keka"}
+            coverage[name] = f"{len(jobs)} postings, {kept} kept" + (
+                " (incomplete)" if incomplete or not complete_board else "")
 
     browser = None
     if pages and careers_pages:
         from .careers_page import scan_careers_pages
-        rules = (ENGINEERING, NOT_ENGINEERING, SENIOR, location_re)
+        rules = (ENGINEERING, NOT_ENGINEERING, location_re)
         browser = threading.Thread(target=scan_careers_pages, args=(pages, rules, absorb), daemon=True)
         browser.start()
     elif pages:
@@ -689,7 +722,8 @@ def main(argv=None):
     scope.add_argument("--all", action="store_true", help="Scan every company in the registry")
     ap.add_argument("--exclude", default="", help="Comma-separated companies to skip (e.g. current employer)")
     ap.add_argument("--locations", default=DEFAULT_LOCATIONS, help="Regex matched against job location")
-    ap.add_argument("--max-yoe", type=int, default=3, help="Drop roles whose stated minimum exceeds this")
+    ap.add_argument("--min-yoe", type=int, default=DEFAULT_MIN_YOE, help="Lower end of the target experience range")
+    ap.add_argument("--max-yoe", type=int, default=DEFAULT_MAX_YOE, help="Upper end of the target experience range")
     ap.add_argument("--include-unstated", action="store_true", help="Keep roles with no stated range and no level in the title")
     ap.add_argument("--queries", default=DEFAULT_QUERIES,
                     help="Search terms for search-based sources (Workday, SmartRecruiters, Oracle, Eightfold, "
@@ -698,13 +732,17 @@ def main(argv=None):
     ap.add_argument("--json", action="store_true", help="Print JSON instead of a Markdown table")
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--no-careers-pages", action="store_true",
-                    help="Skip companies read from their own careers page (needs Playwright and Chrome)")
+                    help="Skip companies read from their own careers page (needs Playwright with Chrome or Chromium)")
     args = ap.parse_args(argv)
+    try:
+        validate_experience_range(args.min_yoe, args.max_yoe)
+    except ValueError as exc:
+        ap.error(str(exc))
 
     results, coverage, missing = run_scan(
         companies=None if args.all else args.companies.split(","),
         exclude=args.exclude.split(","), locations=args.locations, max_yoe=args.max_yoe,
-        include_unstated=args.include_unstated, queries=args.queries,
+        min_yoe=args.min_yoe, include_unstated=args.include_unstated, queries=args.queries,
         skip_urls=load_history(args.history), workers=args.workers, careers_pages=not args.no_careers_pages,
     )
     if missing:

@@ -114,7 +114,9 @@ def cmd_doctor(args):
 
 def cmd_scan(args):
     p = _profile()
+    min_yoe, max_yoe = p.scan_experience(args.min_yoe, args.max_yoe)
     conn = tracker.connect()
+    seen_urls = set()
     exclude = list(p.get("preferences.exclude_companies") or []) + [x for x in args.exclude.split(",") if x]
     applied = {r["url"] for r in tracker.list_applications(conn) if r["url"]}
     print("Scanning job boards and careers pages (a few minutes)…")
@@ -122,7 +124,7 @@ def cmd_scan(args):
         companies=args.companies.split(",") if args.companies else None,
         exclude=exclude,
         locations=args.locations or p.get("preferences.locations") or DEFAULT_LOCATIONS,
-        max_yoe=args.max_yoe if args.max_yoe is not None else p.get("preferences.max_yoe", 3),
+        min_yoe=min_yoe, max_yoe=max_yoe, seen_urls=seen_urls,
         include_unstated=args.include_unstated, skip_urls=applied, careers_pages=not args.no_careers_pages,
     )
     if missing:
@@ -130,8 +132,8 @@ def cmd_scan(args):
     new = set(tracker.upsert_jobs(conn, results))
     errors = [k for k, v in coverage.items() if v.startswith("error")]
     # only boards read completely: a failed detail fetch or a capped search must not hide live roles
-    complete = [k for k in coverage if k not in errors and "incomplete" not in coverage[k]]
-    gone = tracker.mark_gone(conn, [r["url"] for r in results], complete)
+    complete = [k for k in coverage if not coverage[k].startswith(("error:", "skipped:")) and "incomplete" not in coverage[k]]
+    gone = tracker.mark_gone(conn, seen_urls, complete)
     print(f"{len(results)} matching roles across {len(coverage)} companies; {len(new)} new"
           + (f"; {gone} no longer listed." if gone else "."))
     down = sorted(k for k in errors if coverage[k] == "error: SiteMaintenance")
@@ -473,7 +475,8 @@ def build_parser():
     sp.add_argument("--companies", help="comma-separated registry names (default: all)")
     sp.add_argument("--exclude", default="", help="extra companies to skip")
     sp.add_argument("--locations", help="location regex (default: profile preferences)")
-    sp.add_argument("--max-yoe", type=int)
+    sp.add_argument("--min-yoe", type=int, help="lower experience bound (default: profile preferences)")
+    sp.add_argument("--max-yoe", type=int, help="upper experience bound (default: profile preferences)")
     sp.add_argument("--include-unstated", action="store_true")
     sp.add_argument("--show-all", action="store_true", help="print every match, not only new ones")
     sp.add_argument("--no-careers-pages", action="store_true",
@@ -586,7 +589,7 @@ def main(argv=None):
 
     try:
         args.fn(args)
-    except AccountError as exc:
+    except (AccountError, profile_mod.ProfileError) as exc:
         sys.exit(str(exc))
     except PyMongoError:
         sys.exit("Could not access MongoDB. Check the account database configuration.")

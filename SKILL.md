@@ -1,11 +1,11 @@
 ---
 name: target-company-sde-scanner
-description: Use this whenever the user wants to find currently open Software Engineer / SDE roles requiring roughly 1-3 years of experience (SDE II, SDE-2, Software Engineer II, mid-level, L2/L3, "1-3 years") across target MNCs, Indian startups, and the expanded employer pool in the bundled reference. Also use it when the user asks to tailor their resume for one or more of these roles. Trigger on "scan my target companies," "check my company list for jobs," "any SDE-2 openings," "find mid-level roles at [company]," "run my job search," "search LinkedIn/Naukri/Instahyre/Indeed/Glassdoor," "update my target list job search," "tailor my resume for these roles," or a bare "more" / "check for new jobs" once this search has been established. Search major India, startup, remote, and recruiter sources as discovery inputs; prefer verified employer application pages and clearly label any verified board-only application route.
+description: Use this whenever the user wants to find currently open Software Engineer / SDE roles matching the candidate’s target experience range (default 1–3 years) across target MNCs, Indian startups, and the expanded employer pool in the bundled reference. Also use it when the user asks to tailor their resume for one or more of these roles. Trigger on "scan my target companies," "check my company list for jobs," "any SDE-2 openings," "find mid-level roles at [company]," "run my job search," "search LinkedIn/Naukri/Instahyre/Indeed/Glassdoor," "update my target list job search," "tailor my resume for these roles," or a bare "more" / "check for new jobs" once this search has been established. Search major India, startup, remote, and recruiter sources as discovery inputs; prefer verified employer application pages and clearly label any verified board-only application route.
 ---
 
-# Target-Company SDE Scanner (1-3 YOE)
+# Target-Company SDE Scanner
 
-Finds real, currently open Software Engineer roles requiring **roughly 1-3 years of experience**
+Finds real, currently open Software Engineer roles matching the candidate’s **target experience range**
 across a fixed universe of target companies (see `target-companies.md`), and returns a
 ranked, deduplicated shortlist with direct apply links. This is a search-and-compile skill — it
 runs live web searches each time it's invoked, not a background crawler.
@@ -39,10 +39,9 @@ quickly (skip if already answered earlier in the conversation):
   first/quick run if the user doesn't specify — it's the group they said matters most.
 - **Location**: India-based roles specifically, remote, or open to any (many of these companies hire
   for both US and India offices for the same title).
-- **Experience framing**: confirm "1-3 years" means they want roles explicitly labeled SDE-2 /
-  Software Engineer II / mid-level, OR any listing whose stated range (e.g. "2-4 years", "1+ years")
-  overlaps 1-3 years. Default to the overlap interpretation — it catches more real listings, since
-  many companies don't use a clean "1-3 years" band.
+- **Experience**: use the range requested for this search, then `preferences.min_yoe` and
+  `preferences.max_yoe` from the candidate's profile if available, with 1–3 as the default.
+  Match postings whose stated range overlaps the target. Pass both bounds to the standalone script.
 - **Exclusions**: drop the user's current employer and any companies they name as excluded. Pass
   them to the scanner with `--exclude` and skip them in every later pass.
 
@@ -62,8 +61,7 @@ job-board APIs (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Ke
 Eightfold, Oracle Recruiting Cloud), the Amazon, Google, Apple, Microsoft and Atlassian job feeds,
 or, failing those, the careers page itself (read in headless Chrome; needs Playwright). Entries
 were verified on the date stored in the file. `scripts/ats_scan.py` queries them in parallel, keeps engineering roles in the requested
-locations, reads the experience requirement from each posting body, and drops roles whose stated
-minimum exceeds the band. A full sweep takes a few minutes; the API sources need only the Python
+locations, reads the experience requirement from each posting body, and filters roles by overlap with the target range. A full sweep takes a few minutes; the API sources need only the Python
 standard library:
 
 ```bash
@@ -71,8 +69,8 @@ python3 scripts/ats_scan.py --companies "Stripe,MongoDB,Adobe" --exclude "Salesf
 python3 scripts/ats_scan.py --all --exclude "Salesforce" --history job-search-history.md
 ```
 
-Useful flags: `--locations` (regex, defaults to major Indian cities and "India"), `--max-yoe`
-(default 3), `--include-unstated` (keep roles with no stated range and no level in the title),
+Useful flags: `--locations` (regex, defaults to major Indian cities and "India"), `--min-yoe` and `--max-yoe`
+(default 1 and 3), `--include-unstated` (keep roles with no stated range and no level in the title),
 `--json`. Companies missing from the registry are printed to stderr; cover those with the
 career-site and search path below.
 
@@ -113,7 +111,7 @@ expected, not a sign of a broken skill.
 
 **Direct careers-site pattern** (use first for any company without a table entry):
 `"<company>" careers software engineer II`
-`"<company>" jobs "1-3 years" OR "2 years" software engineer`
+`"<company>" jobs "<target experience>" software engineer`
 
 **If the direct search is thin or the careers page requires JS to browse**, fall back to ATS
 site-search, since most companies' real listings live on one of these under the hood:
@@ -131,7 +129,7 @@ Cutshort, Hirist, Foundit, Unstop, Internshala, and the remote/startup sources i
 explicitly names one or more of those services. Use the user’s signed-in browser session when it
 is available; otherwise use public search results. Search by company, location, seniority, and
 current role terms (for example, `Software Engineer II`, `backend engineer`, `SDE-2`, or
-`1-3 years`) and retain the posting URL plus the employer name. Consult
+a years-of-experience phrase matching the selected range) and retain the posting URL plus the employer name. Consult
 `references/job-platforms.md` for source-specific scope and entry points.
 
 Treat board listings as leads, not proof of an opening:
@@ -193,20 +191,13 @@ exact `amazon.jobs/en/jobs/<id>/...` page and confirm its **Apply now** control.
 Never recycle a URL merely because it appeared in a previous batch. Re-check it every run. If a
 candidate disappears while verifying, exclude it without mentioning it as an opening.
 
-## Step 3: Filter for the 1-3 YOE band
+## Step 3: Filter for the target experience range
 
-Keep a listing only if the posting's stated experience requirement plausibly overlaps 1-3 years:
-titles/levels like SDE-2, SDE II, Software Engineer II, L2/L3, "Engineer II", or an explicit stated
-range such as "1-3 years," "2+ years," "1-4 years." Discard:
-
-- New-grad-only or intern listings (0 YOE, explicitly "new college graduate")
-- Senior/staff/principal-only listings (5+ years, "Senior," "Staff," "Lead," "Principal")
-- Duplicate postings for the same role at the same company — keep one, prefer the direct company
-  ATS/careers link over an aggregator mirror
-- Anything you can't confirm is a real, currently-open listing
-
-If a company's posting doesn't state a range but the title strongly implies mid-level (e.g. "Software
-Engineer II"), keep it and note the assumption rather than dropping it.
+Keep postings whose stated experience overlaps the selected range. Use title hints only when
+the posting omits years, and label them as estimates. For searches targeting 1–3 years, Software
+Engineer II can be a useful hint. Include graduate and senior roles where their experience fits the
+selected range. Deduplicate each opening and prefer the employer’s listing or direct ATS link.
+Confirm every listing is still open before reporting it.
 
 ## Step 4: Present results
 
