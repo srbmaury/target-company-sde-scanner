@@ -402,6 +402,10 @@ class AccountTests(unittest.TestCase):
             self.assertEqual(request("/api/apply/answer", {"prompt_id": "review", "value": "submit"}, cookie=session)[0], 400)
             self.assertEqual(request("/api/apply/stop", {}, cookie=session)[0], 200)
             self.assertTrue(run.stop_requested)
+        with patch.object(bridge, "Thread"), patch.dict(bridge.CURRENT, clear=True):
+            status, raw, _ = request("/api/apply", {"jobs": ["1"], "auto_submit": True}, cookie=session)
+            self.assertEqual(status, 200)
+            self.assertFalse(json.loads(raw)["auto_submit"])
         redirect = request("/auth/google")
         self.assertEqual(redirect[0], 303)
         self.assertIn("Secure; HttpOnly; SameSite=Lax", redirect[2]["Set-Cookie"])

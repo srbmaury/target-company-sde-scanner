@@ -367,6 +367,11 @@ class WebUI:
             from ..apply.engine import NeedsYou
             raise NeedsYou(msg)
 
+    def application_step(self, page, check_ok):
+        message = ("Take control and click Next, Verify, or Submit on the employer page."
+                   if check_ok else "Take control to review the employer’s fields and resolve any issues.")
+        return self._wait("wait", "skip", page=page, question=message, choices=["skip"])
+
     def next_action(self, can_submit, can_next, dry_run, check_ok=True, final_page=False, *, page=None):
         choices = (["submit"] if can_submit and not dry_run else []) + (["next"] if can_next else []) + ["refill"]
         if not (dry_run or self.run.account):
@@ -394,7 +399,7 @@ def start(keys, dry_run=False, auto_next=True, resume=None, use_llm=True, force=
     if dry_run and auto_submit:
         raise ValueError("Choose either dry run or automatic submission.")
     if account:
-        unattended = force = False
+        unattended = force = auto_submit = False
         validation = bool(dry_run)
     if validation:
         dry_run, auto_next = True, bool(account or unattended)

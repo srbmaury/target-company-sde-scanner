@@ -131,7 +131,6 @@ async function loadWorkspace() {
   $("#hosted-apply-note").hidden = !s.account;
   $("#apply-selected").textContent = s.account ? "Fill for review" : "Apply to selected";
   $("#local-run-options").hidden = Boolean(s.account);
-  $("#hosted-run-options").hidden = !s.account;
   $("#local-run-hint").hidden = Boolean(s.account);
   setAccountProfile(Boolean(s.account));
   $("#employer-auth").hidden = !s.account;
@@ -335,7 +334,7 @@ function startRun(dry) {
   if (!jobs.length || !state.summary) return;
   const hosted = Boolean(state.summary.account);
   if (!hosted) dry = dry || ($("#validate-steps").checked && !$("#auto-submit").checked);
-  state.pendingRun = hosted ? {jobs, dry_run: dry, auto_submit: !dry && $("#hosted-auto-submit").checked} : { jobs, dry_run: dry || $("#validate-steps").checked, unattended: $("#unattended").checked, validation: $("#validate-steps").checked, auto_next: $("#unattended").checked || !$("#validate-steps").checked };
+  state.pendingRun = hosted ? {jobs, dry_run: dry} : { jobs, dry_run: dry || $("#validate-steps").checked, unattended: $("#unattended").checked, validation: $("#validate-steps").checked, auto_next: $("#unattended").checked || !$("#validate-steps").checked };
   if (!hosted && !dry && $("#auto-submit").checked) {
     state.pendingRun = {jobs, dry_run: false, unattended: true, validation: true, auto_next: true, auto_submit: true};
   }
@@ -345,7 +344,7 @@ function startRun(dry) {
   box.innerHTML = `<h4>${dry ? "Confirm dry run" : "Confirm application run"}</h4>
     <p>${dry ? "Dry-run" : hosted ? "Fill" : "Apply to"} ${jobs.length} role${jobs.length === 1 ? "" : "s"}?
     ${hosted ? "Chromium runs on the host. Follow progress in Runs." : "Chrome will open in its own window."}
-    ${dry ? "Forms may be filled and resumes uploaded; nothing will be submitted." : state.pendingRun.auto_submit ? "Completed applications will be submitted automatically after every check passes." : state.pendingRun.unattended ? "jobbot works through every role without stopping. Finished applications wait for your Submit, and roles that need you are listed at the end." : "You’ll confirm each Submit here."}</p>
+    ${dry ? "Forms may be filled and resumes uploaded; nothing will be submitted." : state.pendingRun.auto_submit ? "Completed applications will be submitted automatically after every check passes." : state.pendingRun.unattended ? "jobbot works through every role without stopping. Finished applications wait for your Submit, and roles that need you are listed at the end." : "You’ll click through each step on the employer page."}</p>
     <details><summary>Review selected roles</summary><ul>${roles.map((j) => `<li>${esc(j.company)} — ${esc(j.title)}</li>`).join("")}</ul></details>
     <p id="run-confirm-error" role="alert"></p>
     <div class="actions"><button class="primary" id="run-confirm-start">${dry ? "Start dry run" : hosted && !state.pendingRun.auto_submit ? "Start filling" : "Start applications"}</button>

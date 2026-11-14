@@ -249,6 +249,8 @@ class Session:
         step = 1
         visits, began, check = {}, time.time(), None
         reread = False
+        manual_step = getattr(self.ui, "application_step", None) if getattr(self, "hosted", False) and not self.dry_run else None
+        manual_submit_at = None
         while step <= MAX_PAGES:
             if not reread and (self.unattended or getattr(self, "hosted", False)):
                 # Never get stuck on one application: the same page 3 times (Next not moving, Submit
@@ -275,6 +277,18 @@ class Session:
             if getattr(self, "hosted", False) and needs_account:
                 self._ensure_signed_in(page)
                 continue
+            if manual_step and manual_submit_at is not None:
+                if self._had_form and self._confirmation(page):
+                    return "applied", "Employer confirmation seen after manual browser control."
+                boxes = email_verification.code_fields(self._fields(page))
+                if boxes and not all(field.get("value") for field in boxes):
+                    code = self._code_from_email(page, since=manual_submit_at, provider=ats)
+                    if not code:
+                        code = self.ui.ask_code("Enter the code from the employer email, or skip to enter it on the employer page.")
+                    if code:
+                        email_verification.fill_code(page, boxes, code)
+                    reread = True
+                manual_submit_at = None
             if reread:
                 # Read the employer's current values without overwriting the owner's edits.
                 report, check, rounds = {"filled": [], "skipped": [], "records": []}, self.verify(page, {}), 0
@@ -306,6 +320,23 @@ class Session:
             can_submit = not can_next and bool(self._buttons(page, submit_re))
             if getattr(self, "hosted", False) and can_submit and not self._had_form:
                 raise NeedsYou("Could not verify that this is an application form. Open the posting and finish manually.")
+            if manual_step:
+                before = (page.url, self._step_marker(page))
+                ready_at = time.time()
+                if manual_step(page, check.ok) != "recheck":
+                    raise NeedsYou("Application paused for manual completion. Check the employer site before retrying.")
+                if self._had_form and self._confirmation(page):
+                    return "applied", "Employer confirmation seen after manual browser control."
+                if can_submit:
+                    manual_submit_at = ready_at
+                    reread = True
+                    self.ui.info("Checking the employer page for verification or submission confirmation.")
+                else:
+                    reread = (page.url, self._step_marker(page)) == before
+                    if not reread:
+                        self._manual_records.clear()
+                        step += 1
+                continue
             if getattr(self, "auto_submit", False) and not self.dry_run and check.ok and can_submit:
                 choice = "submit"
             elif self.auto_next and not reread and check.ok and can_next:

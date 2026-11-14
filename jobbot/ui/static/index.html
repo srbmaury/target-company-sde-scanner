@@ -60,9 +60,7 @@
             <span class="sel-state"><span id="sel-count" class="muted">None selected</span>
               <button class="link" id="sel-clear">Clear</button></span>
           </div>
-          <div class="toolbar run-options" id="hosted-run-options" hidden>
-            <label class="check"><input type="checkbox" id="hosted-auto-submit"> Auto-apply to selected roles</label>
-          </div>
+
           <div class="toolbar run-options" id="local-run-options">
             <label class="check" title="Never stop: jobs that need you are listed at the end, and each finished application waits for your Submit"><input type="checkbox" id="unattended"> Don't stop for me</label>
             <label class="check" title="Fill and check every page, but never submit"><input type="checkbox" id="validate-steps"> Validate every step (no submission)</label>
@@ -114,7 +112,7 @@
                   <button type="button" data-live-scroll="-720">Scroll up</button>
                   <button type="button" data-live-scroll="720">Scroll down</button>
                 </div>
-                <p class="hint" id="live-direct">You are operating the employer page directly. Use Jobbot’s review flow to submit.</p>
+                <p class="hint" id="live-direct">You are operating the employer page directly. Click Next, Verify, or Submit here on the employer page, then return control.</p>
                 <form id="live-text" class="toolbar">
                   <label>Type into the selected field <input id="live-input" type="text" spellcheck="false" maxlength="4000" autocomplete="off"></label>
                   <label class="check"><input type="checkbox" id="live-mask"> Hide text</label>
