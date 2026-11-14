@@ -160,11 +160,12 @@ def start_task(name):
         raise ValueError("unknown task")
     with TASK_LOCK:
         for t in TASKS.values():
-            if t["status"] == "running" and (t["name"] == name or {t["name"], name} <= JOB_TASKS):
+            if t["status"] == "running" and (t["name"] == name or {t["name"], name} <= JOB_TASKS
+                                             or {t["name"], name} == {"refresh", "sync-gmail"}):
                 raise ValueError(f"{t['name']} is already running")
         task_id = secrets.token_hex(4)
-        TASKS[task_id] = {"id": task_id, "name": name, "status": "running", "lines": [],
-                          "step": None, "started": dt.datetime.now().isoformat(timespec="seconds"), "ended": None}
+        TASKS[task_id] = {"id": task_id, "activity": {}, "name": name, "status": "running", "lines": [],
+                          "step": None, "started": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "ended": None}
 
     def run():
         task = TASKS[task_id]
@@ -174,8 +175,11 @@ def start_task(name):
                 task["lines"].append(f"$ jobbot {' '.join(args)}")
                 proc = subprocess.Popen([sys.executable, "-m", "jobbot", *args], cwd=paths.REPO,
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                        text=True, bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1"})
+                                        text=True, bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1", "JOBBOT_ACTIVITY": "1"})
                 for line in proc.stdout:
+                    if line.startswith("JOBBOT_ACTIVITY "):
+                        task["activity"] = {**task["activity"], args[0]: json.loads(line.removeprefix("JOBBOT_ACTIVITY "))}
+                        continue
                     task["lines"].append(line.rstrip("\n"))
                     del task["lines"][:-500]
                 if proc.wait() != 0:
@@ -186,7 +190,7 @@ def start_task(name):
         except Exception as e:  # report instead of dying silently
             task["lines"].append(f"error: {e}")
             task["status"] = "failed"
-        task["ended"] = dt.datetime.now().isoformat(timespec="seconds")
+        task["ended"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
     threading.Thread(target=run, daemon=True).start()
     return TASKS[task_id]
@@ -579,7 +583,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"path": str(path), "text": path.read_text(encoding="utf-8") if path.exists() else "",
                                         "mtime": str(path.stat().st_mtime_ns) if path.exists() else ""})
             if parts == ["tasks"]:
-                return self._send(200, sorted(TASKS.values(), key=lambda t: t["started"], reverse=True)[:20])
+                return self._send(200, sorted(TASKS.copy().values(), key=lambda t: (t["status"] == "running", t["started"]), reverse=True)[:20])
             if parts == ["apply"]:
                 run = bridge.current(self.account)
                 if run:

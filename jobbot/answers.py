@@ -236,7 +236,7 @@ class Resolver:
             return str(value) if value not in (None, "") else experience_years()
 
         def tech_years(question):
-            """'Years of experience with Kafka': your total years if a resume mentions it, else 0."""
+            """'Years of experience with Kafka': your total years if a resume mentions it, otherwise ask."""
             m = (re.search(r"(?:experience|years|worked|working)\s+(?:\w+\s+){0,2}?(?:with|in|using|on)\s+"
                            r"([A-Za-z0-9+#./ -]{2,40}?)\s*(?:\?|$|\*|\s+(?:development|programming))", question, re.I)
                  or re.search(r"(?:with|in|using|on|of)\s+([A-Za-z0-9+#./ -]{2,40}?)(?:\?|$|\s+(?:development|programming|experience))",
@@ -249,7 +249,7 @@ class Resolver:
             from . import resumes
             # every "and" part needs one of its "/" choices on a resume (full text, not a truncated preview)
             found, _missing = resumes.has_all(p, tech)
-            return experience_years() if found else "0"
+            return experience_years() if found else None
 
         def tools_statement(question):
             """'Share your hands-on experience with AWS services like S3, EKS, or MSK': name what your resumes show,
@@ -270,7 +270,7 @@ class Resolver:
             if have:
                 parts.append(f"I have hands-on experience with {join(have)}, as listed on my resume.")
             if lack:
-                parts.append(f"I have not worked with {join(lack).replace(' and ', ' or ')}.")
+                return None
             return " ".join(parts)
 
         def used_tech(question):
@@ -287,7 +287,7 @@ class Resolver:
             from . import resumes
             if not p.resumes():
                 return None
-            return yes_no(resumes.has_all(p, m.group(1))[0])
+            return "Yes" if resumes.has_all(p, m.group(1))[0] else None
 
         def has_credential(question):
             """'Do you hold a PMP certification?': Yes only if your resumes name it."""
@@ -385,7 +385,7 @@ class Resolver:
             (r"^(total |work |relevant |overall |professional )?(experience|exp\.?|years)( \(?in years\)?| in years)?\s*[*✱]?$",
              lambda: str(int(total_months() // 12))),
             (r"^months\s*[*✱]?$|^(total |work )?experience \(?(in )?months\)?\s*[*✱]?$", lambda: str(int(total_months() % 12))),
-            (r"how many months.*(with|in|using|on) ", lambda: str(total_months()) if tech_years(self._q) != "0" else "0"),
+            (r"how many months.*(with|in|using|on) ", lambda: str(total_months()) if tech_years(self._q) is not None else None),
             (r"^(key |technical |primary |core |relevant )?skills?( set)?\s*[*✱]?$",
              lambda: __import__("jobbot.resumes", fromlist=["top_skills"]).top_skills(p, self.resume_key) or None),
             (r"^(please )?(share|describe|tell us about|explain|walk us through) (your )?(hands.?on |practical |professional )?"
@@ -569,6 +569,7 @@ class Resolver:
             ans = self._by_rules(question, kind, options, False, quick=True)
             if ans is not None:
                 return ans
+            return self._by_rules(question, kind, options, required, quick)
         if not (self.llm and self.llm.enabled) or kind == "checkbox" or (
                 not EEO_RE.match(question) and any(p.search(question) for p in self.always_ask)):
             return self._by_rules(question, kind, options, required, quick)   # consent boxes and always_ask stay yours
@@ -758,7 +759,7 @@ class Resolver:
         """The model's reasoned answer (facts, or inference for preference questions), else yours.
 
         Optional questions get the model's answer too, but are left blank rather than asked."""
-        if self.llm and self.llm.enabled and not FACT_ONLY_RE.search(question):
+        if self.llm and self.llm.enabled and not FACT_ONLY_RE.search(question) and not RESUME_FACT_RE.search(question):
             try:
                 resume = self.p.resume_text(self.resume_key) if self.resume_key else ""
                 if kind == "choice" and options:

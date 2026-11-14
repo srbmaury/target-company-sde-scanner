@@ -15,6 +15,7 @@
 """
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -112,6 +113,11 @@ def cmd_doctor(args):
     sys.exit(0 if ok else 1)
 
 
+def _activity(summary, **details):
+    if os.getenv("JOBBOT_ACTIVITY") == "1":
+        print("JOBBOT_ACTIVITY " + json.dumps({"summary": summary, **details}))
+
+
 def cmd_scan(args):
     p = _profile()
     min_yoe, max_yoe = p.scan_experience(args.min_yoe, args.max_yoe)
@@ -145,7 +151,11 @@ def cmd_scan(args):
     for r in shown:
         flag = "NEW " if r["url"] in new else "    "
         print(f"{flag}{r['company']:22s} {_short(r['title'], 58):58s} {_short(r['location'], 28):28s} {r['experience']}")
-    if new:
+    _activity(f"{len(results)} matching roles · {len(new)} new", jobs=[
+        {**{key: r[key] for key in ("company", "title", "location", "experience")}, "new": r["url"] in new}
+        for r in sorted(results, key=lambda r: r["url"] not in new)[:20]
+    ], total=len(results))
+    if new and os.getenv("JOBBOT_ACTIVITY") != "1":
         print("\nNext: `jobbot rank` to score them, then `jobbot jobs`.")
 
 
@@ -181,6 +191,7 @@ def cmd_rank(args):
 
     done = rank_jobs(conn, p, model, limit=args.limit, rerank=args.rerank, on_progress=progress)
     print(f"Ranked {len(done)} roles. `jobbot jobs --why` shows the best fits first.")
+    _activity(f"Ranked {len(done)} roles")
 
 
 def cmd_apply(args):
@@ -352,10 +363,14 @@ def sync_gmail(conn, args):
         sys.exit(str(e))
     rows = mailimport.rows_from(messages)
     added, updated = mailimport.import_rows(conn, rows)
-    print(f"Read {len(messages)} emails: {len(rows)} about applications, {added} new applications, {updated} status updates.")
+    print(f"Read {len(messages)} emails: {len(rows)} application matches, {added} new applications, {updated} status updates.")
     named = mailimport.name_unnamed(conn, gmail)
     if named:
         print(f"Found the role in the email body for {named} application(s) whose subject did not name it.")
+    detail = f"{added} new applications · {updated} status updates"
+    if named:
+        detail += f" · {named} missing role titles filled"
+    _activity(f"{len(messages)} emails checked · {len(rows)} application matches", detail=detail)
 
 
 def cmd_answers(args):
@@ -402,7 +417,9 @@ def cmd_resumes(args):
         sys.exit("No resumes found: check `resumes:` in profile.yaml.")
     for key, entry in info.items():
         print(f"{key}: {len(entry['text'])} characters · {resumes.top_skills(p, key, limit=40) or '(no known skills found)'}")
-    print(f"\nSaved to {resumes.cache_path()}. Questions about tools none of these name are answered 0 / No.")
+    _activity(f"{len(info)} resume variants indexed", resumes=list(info))
+    if os.getenv("JOBBOT_ACTIVITY") != "1":
+        print(f"\nSaved to {resumes.cache_path()}.")
 
 
 def cmd_password(args):

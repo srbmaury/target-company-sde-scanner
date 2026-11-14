@@ -166,12 +166,21 @@ def lever(entry, host="api.lever.co"):
         }
 
 
+def clean_location(location):
+    """Strip metadata appended by sources without changing the location itself."""
+    return re.split(r"\s*\|\s*(?=(?:posted\s+on|department|job\s+type)\b)", location or "",
+                    maxsplit=1, flags=re.I)[0].strip()
+
+
 def ashby(entry):
     d = http_json(f"https://api.ashbyhq.com/posting-api/job-board/{entry['id']}")
     for j in d.get("jobs", []):
         locs = [j.get("location") or ""] + [
             (s.get("location") or "") for s in j.get("secondaryLocations", []) or []
         ]
+        department = (j.get("department") or "").strip()
+        if department:
+            locs = [re.sub(r"\s+[–—-]\s+" + re.escape(department) + r"$", "", loc, flags=re.I) for loc in locs]
         yield {
             "title": j.get("title", ""),
             "location": "; ".join(x for x in locs if x),
@@ -674,6 +683,7 @@ def run_scan(companies=None, exclude=(), locations=DEFAULT_LOCATIONS, max_yoe=DE
                     continue
                 if seen_urls is not None:
                     seen_urls.add(url)
+                job = {**job, "location": clean_location(job["location"])}
                 verdict = classify(job, location_re, max_yoe, min_yoe)
                 if not verdict or url in skip_urls or url in urls:
                     continue

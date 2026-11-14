@@ -51,6 +51,7 @@ function recall(key) { try { return localStorage.getItem("jobbot." + key); } cat
 
 // ---------- tabs ----------
 function showTab(name) {
+  if (state.tab !== name) $("main").scrollTop = 0;
   state.tab = name;
   remember("tab", name);
   $$(".tabs [role=tab]").forEach((button) => {
@@ -750,24 +751,84 @@ async function startTask(name) {
   loadTasks();
 }
 
+const taskNames = {
+  scan: "Job scan", rank: "Job ranking", refresh: "Refresh jobs",
+  resumes: "Resume scan", "sync-gmail": "Gmail sync", "gmail-login": "Gmail sign-in",
+};
+const taskTime = new Intl.DateTimeFormat(undefined, {
+  month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
+});
+
+function renderTask(t) {
+  const activity = Object.values(t.activity || {});
+  const scan = t.activity?.scan;
+  const resumes = t.activity?.resumes?.resumes;
+  const lines = t.lines.filter((line) => line.trim() && !line.startsWith("$ "));
+  const latest = lines.at(-1);
+  const status = {done: "Completed", failed: "Failed", running: "Running"}[t.status];
+  const tone = {done: "applied", failed: "rejected", running: "interview"}[t.status];
+  return `<div class="task" data-run-task="${esc(t.id)}">
+    <div class="task-head"><div><b>${esc(taskNames[t.name] || t.name)}</b>
+      <time class="when" datetime="${esc(t.started)}">${esc(taskTime.format(new Date(t.started)))}</time></div>
+      <span class="pill ${tone}">${status}</span></div>
+    <div class="task-body">
+      ${activity.map((entry) => `<p>${esc(entry.summary)}</p>${entry.detail ? `<p>${esc(entry.detail)}</p>` : ""}`).join("")}
+      ${t.status === "running" && !latest ? "<p>Starting…</p>" : ""}
+      ${latest && (t.status !== "done" || !activity.length) ? `<p>${esc(latest)}</p>` : ""}
+      ${scan?.jobs.length ? `<details data-task-detail="results"><summary>Scan results</summary>
+        <ul class="task-results">${scan.jobs.map((job) => `<li><div><b>${esc(job.title)}</b>
+        <small>${esc(job.company)} · ${esc(job.location)}${job.new ? " · New" : ""}</small></div>
+        <span>${esc(job.experience)}</span></li>`).join("")}</ul>
+        ${scan.total > scan.jobs.length ? `<p>Showing ${scan.jobs.length} of ${scan.total} matches.</p>` : ""}
+        <button type="button" data-go="jobs">View Jobs</button></details>` : ""}
+      ${resumes?.length ? `<details data-task-detail="resumes"><summary>Resume variants</summary>
+        <ul>${resumes.map((key) => `<li>${esc(key)}</li>`).join("")}</ul></details>` : ""}
+      ${lines.length ? `<details data-task-detail="output"><summary>Task output</summary>
+        <pre>${esc(t.lines.join("\n"))}</pre></details>` : ""}
+    </div></div>`;
+}
+
 async function loadTasks() {
-  const tasks = await api("tasks");
-  $("#tasks").innerHTML = tasks.length ? tasks.map((t) => `<div class="task">
-      <div class="task-head"><b>${esc(t.name)}</b><span class="pill ${t.status === "done" ? "applied" : t.status === "failed" ? "rejected" : "interview"}">${esc(t.status)}</span>
-        <span class="when">${esc(t.started.replace("T", " "))}</span></div>
-      <pre>${esc(t.lines.slice(-200).join("\n")) || "…"}</pre></div>`).join("")
-    : `<div class="empty">Nothing has run yet in this session.</div>`;
-  $$(".task pre").forEach((p) => (p.scrollTop = p.scrollHeight));
-  renderRefresh(tasks);
-  const running = tasks.some((t) => t.status === "running");
-  $$("[data-task]").forEach((b) => (b.disabled = running && !b.dataset.task.startsWith("gmail") ? true : b.disabled));
-  if (running && !state.polling) state.polling = setInterval(loadTasks, 1500);
-  if (!running && state.polling) {
-    clearInterval(state.polling);
-    state.polling = null;
-    $$("[data-task]").forEach((b) => (b.disabled = false));
-    await loadSummary();
-    if (state.tab === "jobs") await loadJobs();
+  if (state.loadingTasks) return;
+  state.loadingTasks = true;
+  try {
+    const tasks = await api("tasks");
+    const id = (detail) => detail.closest("[data-run-task]").dataset.runTask + ":" + detail.dataset.taskDetail;
+    const root = $("#tasks");
+    const open = new Map($$("details[open]", root).map((d) => [id(d), d.querySelector("pre")?.scrollTop]));
+    const focused = document.activeElement?.closest("details");
+    const focusKey = focused && root.contains(focused) && document.activeElement.matches("summary") ? id(focused) : null;
+    const markup = tasks.length ? tasks.map(renderTask).join("") : '<div class="empty">No recent activity.</div>';
+    if (state.taskMarkup !== markup) {
+      root.innerHTML = markup;
+      state.taskMarkup = markup;
+      $$("details", root).forEach((detail) => {
+        detail.open = open.has(id(detail));
+        if (detail.open && detail.querySelector("pre")) detail.querySelector("pre").scrollTop = open.get(id(detail)) || 0;
+        if (id(detail) === focusKey) detail.querySelector("summary").focus({preventScroll: true});
+      });
+    }
+    root.querySelector(":scope > .err")?.remove();
+    renderRefresh(tasks);
+    const active = tasks.filter((t) => t.status === "running").map((t) => t.name);
+    const jobTasks = ["scan", "rank", "refresh"];
+    $$("[data-task]").forEach((button) => {
+      const name = button.dataset.task;
+      button.disabled = active.includes(name) ||
+        (jobTasks.includes(name) && active.some((task) => jobTasks.includes(task))) ||
+        (name === "sync-gmail" && (!state.summary?.gmail || active.includes("refresh")));
+    });
+    if (active.length && !state.polling) state.polling = setInterval(loadTasks, 1500);
+    if (!active.length && state.polling) {
+      clearInterval(state.polling);
+      state.polling = null;
+      await loadSummary();
+      if (state.tab === "jobs") await loadJobs();
+    }
+  } catch (e) {
+    alertInline($("#tasks"), e.message);
+  } finally {
+    state.loadingTasks = false;
   }
 }
 
@@ -776,19 +837,20 @@ function renderRefresh(tasks) {
   const t = tasks.find((x) => ["refresh", "scan", "rank"].includes(x.name));
   const el = $("#refresh-status"), btn = $("#jobs-refresh");
   const busy = t && t.status === "running";
-  btn.disabled = busy;
+  btn.disabled = Boolean(busy || tasks.some((task) => task.name === "sync-gmail" && task.status === "running"));
   const steps = { track: ["Syncing Gmail…", "Reading application emails"], scan: ["Scanning…", "Scanning job boards"], rank: ["Ranking…", "Ranking new roles"] };
   const order = t && t.name === "refresh" ? ["track", "scan", "rank"] : [];
   const [short, long] = (t && steps[t.step]) || steps.scan;
   const of = order.includes(t && t.step) ? ` (${order.indexOf(t.step) + 1}/3)` : "";
   btn.textContent = busy ? short : "Refresh jobs";
   if (!t) { el.hidden = true; return; }
-  const last = t.lines.filter((l) => l.trim() && !l.startsWith("$ ")).slice(-1)[0] || "";
+  const last = (t.status === "done" && Object.values(t.activity || {}).at(-1)?.summary) ||
+    t.lines.filter((l) => l.trim() && !l.startsWith("$ ")).at(-1) || "";
   el.hidden = false;
   el.className = "refresh-status " + (t.status === "failed" ? "bad" : "");
   el.textContent = busy ? `${long}${of}… ${last}`
     : t.status === "failed" ? `${t.name} failed: ${last} (details in Actions)`
-    : `Last ${t.name} finished ${t.ended ? t.ended.slice(11, 16) : ""}. ${last}`;
+    : `Last ${t.name} finished ${t.ended ? taskTime.format(new Date(t.ended)) : ""}. ${last}`;
 }
 
 // ---------- logs ----------

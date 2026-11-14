@@ -8,7 +8,7 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="dashboard-page">
   <div id="conn-banner" class="conn-banner" role="alert" hidden></div>
   <header class="top">
     <div class="brand"><span class="brand-mark" aria-hidden="true">J</span> Jobbot</div>
@@ -27,7 +27,7 @@
       <button role="tab" id="nav-profile" aria-controls="tab-profile" data-tab="profile" aria-selected="false" tabindex="-1">Profile</button>
       <button role="tab" id="nav-docs" aria-controls="tab-docs" data-tab="docs" aria-selected="false" tabindex="-1">Docs</button>
     </nav>
-    <main>
+    <main tabindex="0" aria-label="Workspace content">
       <!-- Jobs -->
       <section class="panel" id="tab-jobs" role="tabpanel" aria-labelledby="nav-jobs">
         <div class="page-heading">
@@ -152,8 +152,7 @@
       <!-- Actions -->
       <section class="panel" id="tab-actions" role="tabpanel" aria-labelledby="nav-actions" hidden>
         <div class="page-heading">
-          <span class="eyebrow">Workspace / Actions</span>
-          <h1>Workspace actions</h1>
+          <h1>Actions</h1>
           <p>Find jobs, rank them against your resumes, and manage Gmail.</p>
         </div>
         <div class="cards">
@@ -168,7 +167,7 @@
             <button data-task="gmail-login" id="gmail-login">Connect Gmail</button>
             <button id="gmail-disconnect" hidden>Disconnect Gmail</button></div>
         </div>
-        <h3 class="section-title">Recent runs</h3>
+        <h2 class="section-title">Recent activity</h2>
         <div id="tasks"></div>
       </section>
 

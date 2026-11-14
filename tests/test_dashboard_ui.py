@@ -26,6 +26,7 @@ class DashboardUITests(unittest.TestCase):
         self.hosted, self.dry_run, self.active = True, False, False
         self.answers = []
         self.browser_actions = []
+        self.tasks = []
         self.page.route("http://jobbot.test/**", self.respond)
 
     def respond(self, route):
@@ -58,7 +59,7 @@ class DashboardUITests(unittest.TestCase):
                "audits": [{"job": JOB, "step": 1, "fields": [{"label": "Work location", "actual": "Bengaluru",
                                                             "answer_source": "Profile"}]}]}
         fixtures = {
-            "/api/summary": summary, "/api/jobs": [JOB], "/api/tasks": [],
+            "/api/summary": summary, "/api/jobs": [JOB], "/api/tasks": self.tasks,
             "/api/apply": run if self.active else {"status": "idle"}, "/api/apply/answer": {},
             "/api/runs": [], "/api/applications": [], "/api/logs": {"dates": [], "lines": []},
             "/api/profile": {"path": "Account profile", "text": "personal: {}", "mtime": "1",
@@ -86,7 +87,7 @@ class DashboardUITests(unittest.TestCase):
         self.page.locator("#nav-jobs").press("ArrowDown")
         expect(self.page.locator("#nav-apply")).to_be_focused()
         expect(self.page.get_by_text("No hosted run yet")).to_be_visible()
-        for tab, title in (("applications", "Application history"), ("actions", "Workspace actions"),
+        for tab, title in (("applications", "Application history"), ("actions", "Actions"),
                            ("logs", "Activity logs"), ("profile", "Resume library"), ("docs", "Jobbot guide")):
             self.page.locator("#nav-" + tab).click()
             expect(self.page.get_by_role("heading", name=title, exact=True)).to_be_visible()
@@ -94,6 +95,31 @@ class DashboardUITests(unittest.TestCase):
         self.page.locator("#nav-docs").press("ArrowRight")
         expect(self.page.locator("#nav-jobs")).to_be_focused()
         self.assertTrue(self.page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
+        self.assertEqual(self.errors, [])
+
+    def test_activity_scroll_keeps_navigation_fixed_and_details_open(self):
+        self.tasks = [
+            {"id": str(i), "name": "scan", "status": "done", "started": "2026-11-14T09:04:48+00:00",
+             "ended": "2026-11-14T09:05:48+00:00", "lines": ["Scan output"],
+             "activity": {"scan": {"summary": "1 matching role · 1 new", "total": 1, "jobs": [
+                 {"title": "Backend Engineer", "company": "Example Co", "location": "India",
+                  "experience": "2+ yrs stated", "new": True}]}}}
+            for i in range(12)
+        ]
+        self.open()
+        self.page.locator("#nav-actions").click()
+        first = self.page.locator(".task").first
+        expect(first.get_by_text("1 matching role · 1 new")).to_be_visible()
+        first.get_by_text("Scan results").click()
+        expect(first.get_by_text("Backend Engineer")).to_be_visible()
+        self.tasks[0]["lines"].append("Updated scan output")
+        self.page.evaluate("loadTasks()")
+        expect(first.get_by_text("Backend Engineer")).to_be_visible()
+        before = self.page.locator(".tabs").bounding_box()
+        self.page.locator("main").evaluate("(main) => main.scrollTop = main.scrollHeight")
+        self.assertGreater(self.page.locator("main").evaluate("(main) => main.scrollTop"), 0)
+        self.assertEqual(before, self.page.locator(".tabs").bounding_box())
+        expect(self.page.get_by_role("heading", name="Actions", exact=True)).to_be_in_viewport()
         self.assertEqual(self.errors, [])
 
     def test_local_submission_waits_for_confirmation(self):

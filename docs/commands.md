@@ -15,7 +15,7 @@
 | `track [list\|add\|update\|show\|stats\|export\|import\|import-gmail\|sync-gmail]` | Manage the application tracker |
 | `gmail login [--client FILE] \| logout \| status` | Connect Gmail (job-hunting mailbox) for `track sync-gmail`, codes and links |
 | `password [--delete]` | Store the password jobbot uses to sign in to, or sign up on, job sites (macOS Keychain; it prompts for it) |
-| `resumes` | Read every resume now and list the skills each shows (questions about tools none name are answered 0 / No) |
+| `resumes` | Read every resume now and list the skills each shows |
 
 Every command explains its options with `--help`, for example `./jobbot.sh apply --help`.
 
