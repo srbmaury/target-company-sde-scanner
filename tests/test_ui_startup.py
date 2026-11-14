@@ -16,6 +16,21 @@ from jobbot.ui import server
 
 
 class DashboardStartupTests(unittest.TestCase):
+    def test_response_handles_client_disconnect(self):
+        for failure in (BrokenPipeError, ConnectionResetError):
+            for stage in ("end_headers", "write"):
+                with self.subTest(failure=failure, stage=stage):
+                    handler = Mock()
+                    target = handler if stage == "end_headers" else handler.wfile
+                    getattr(target, stage).side_effect = failure
+                    server.Handler._send(handler, 200, {"ok": True})
+                    self.assertTrue(handler.close_connection)
+
+        handler = Mock()
+        handler.wfile.write.side_effect = OSError("unexpected write failure")
+        with self.assertRaisesRegex(OSError, "unexpected"):
+            server.Handler._send(handler, 200, {})
+
     def test_missing_mongodb_does_not_start_server(self):
         with patch.dict(os.environ, {"JOBBOT_MONGODB_URI": ""}), patch.object(server, "make_server") as make:
             with self.assertRaisesRegex(accounts.AccountError, "requires a hosted account"):

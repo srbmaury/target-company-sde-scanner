@@ -292,6 +292,16 @@ async function confirmRun() {
   } finally { state.runStarting = false; }
 }
 
+async function pollRun() {
+  if (document.hidden || state.pollingRun) return;
+  state.pollingRun = true;
+  try {
+    await loadRun();
+  } finally {
+    state.pollingRun = false;
+  }
+}
+
 async function loadRun() {
   const request = state.runRequest = (state.runRequest || 0) + 1;
   let run;
@@ -301,7 +311,7 @@ async function loadRun() {
   const active = ["starting", "running", "waiting"].includes(run.status);
   $("#apply-badge").hidden = run.status !== "waiting";
   document.title = run.status === "waiting" ? "● jobbot needs you" : "jobbot";
-  if (active && !state.runPoll) state.runPoll = setInterval(loadRun, 1000);
+  if (active && !state.runPoll) state.runPoll = setInterval(pollRun, 1000);
   if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary(); state.historyStale = true; }
   renderStrip(run, active);
   if (active) state.viewing = false;
