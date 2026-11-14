@@ -14,12 +14,20 @@ async function api(path, body) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
-  let res;
-  try { res = await fetch("/api/" + path, opts); } catch (e) {
+  const reading = body === undefined;
+  if (reading) opts.signal = AbortSignal.timeout(12000);
+  let res, data;
+  try {
+    res = await fetch("/api/" + path, opts);
+    data = await res.json();
+  } catch (e) {
+    if (e.name === "TimeoutError" || e.name === "AbortError") {
+      throw new Error("The dashboard request timed out. Try again.");
+    }
+    if (res && e instanceof SyntaxError) throw new Error("The dashboard returned an unreadable response.");
     connection("Can't reach jobbot. Is <code>./jobbot.sh ui</code> still running?");
     throw e;
   }
-  const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
     location.replace("/?session=expired");
     throw new Error("Sign in to Jobbot.");
@@ -96,7 +104,8 @@ function showTab(name) {
     jobs: ["jobs", loadJobs],
     apply: ["application runs", () => {
       state.viewing = false;
-      return Promise.all([loadRun({strict: true, history: false}), loadHistory(true)]);
+      loadHistory();
+      return loadRun({strict: true, history: false});
     }],
     applications: ["applications", loadApps],
     actions: ["activity", () => loadTasks(true)],
@@ -350,7 +359,13 @@ async function pollRun() {
 async function loadRun({strict = false, history = true} = {}) {
   const request = state.runRequest = (state.runRequest || 0) + 1;
   let run;
-  try { run = await api("apply"); } catch (e) { if (strict) throw e; return; }
+  try {
+    run = await api("apply");
+    if (!run || typeof run.status !== "string") throw new Error("Invalid application run response.");
+  } catch (e) {
+    if (strict) throw e;
+    return;
+  }
   if (request !== state.runRequest) return;
   state.run = run;
   const active = ["starting", "running", "waiting"].includes(run.status);
@@ -396,13 +411,28 @@ function historyMessage(message) {
   $("#history-message").hidden = !message;
 }
 
-async function loadHistory(strict = false) {
-  let runs;
-  try { runs = await api("runs"); } catch (e) { if (strict) throw e; historyMessage(e.message); return; }
-  state.historyLoaded = true;
-  state.historyStale = false;
-  state.historyRuns = runs;
-  renderHistory();
+async function loadHistory() {
+  if (state.loadingHistory) return;
+  state.loadingHistory = true;
+  const message = $("#history-message");
+  historyMessage("Loading run history…");
+  try {
+    state.historyRuns = await api("runs");
+    if (!Array.isArray(state.historyRuns)) throw new Error("Invalid run history.");
+    state.historyLoaded = true;
+    state.historyStale = false;
+    renderHistory();
+    historyMessage("");
+  } catch (error) {
+    historyMessage("Could not load run history. " + error.message + " ");
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "Retry history";
+    retry.addEventListener("click", loadHistory);
+    message.append(retry);
+  } finally {
+    state.loadingHistory = false;
+  }
 }
 
 function renderHistory() {
@@ -586,6 +616,7 @@ function wireLivePreview() {
 }
 
 function renderRun(run) {
+  run = {jobs: [], results: {}, events: [], ...run};
   state.displayedRun = run;
   renderLivePreview(run);
   $("#run-current").hidden = !state.viewing;
@@ -608,7 +639,7 @@ function renderRun(run) {
     + (run.dry_run ? "Dry run" : run.unattended ? "Unattended run" : "Application run");
   $("#run-status").textContent = runStatus(run.status);
   $("#run-status").className = "pill " + ({ waiting: "maybe", running: "interview", done: "applied", failed: "rejected", stopped: "withdrawn" }[run.status] || "");
-  const done = Object.keys(run.results).length;
+  const done = Object.keys(run.results || {}).length;
   $("#run-progress").textContent = run.jobs.length ? `${done} of ${run.jobs.length} finished` : "";
   $("#run-stop").hidden = !active;
   $("#queue").innerHTML = run.jobs.map((j, i) => {

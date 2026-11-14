@@ -78,6 +78,18 @@ class DashboardUITests(unittest.TestCase):
         expect(self.page.locator("#workspace-mode")).to_have_text(
             "Hosted account" if self.hosted else "Local workspace")
 
+    def test_runs_remain_visible_when_history_fails(self):
+        self.active = True
+        self.page.add_init_script("localStorage.setItem('jobbot.tab', 'apply')")
+        self.page.route("**/api/runs", lambda route: route.fulfill(status=503, json={"error": "Unavailable"}), times=1)
+        self.open()
+        panel = self.page.locator("#tab-apply")
+        expect(panel.get_by_text("Needs review", exact=True)).to_be_visible()
+        expect(panel.get_by_role("button", name="Take control")).to_be_visible()
+        panel.get_by_role("button", name="Retry history").click()
+        expect(panel.get_by_text("No saved runs yet.")).to_be_visible()
+        self.assertEqual(self.errors, [])
+
     def test_runs_retry_when_initial_data_request_fails(self):
         self.page.add_init_script("localStorage.setItem('jobbot.tab', 'apply')")
         self.page.route("**/api/apply", lambda route: route.fulfill(status=503, json={"error": "Try again"}), times=1)
