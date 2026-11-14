@@ -473,6 +473,28 @@ control before returning a role.
 - Workday: `site:myworkdayjobs.com "<company>" "Software Engineer II" India`
 - Amazon: official India search filtered to `1-3 years`, then direct-job-ID verification.
 
+## Additional India engineering boards
+
+These employers have public feeds in the ATS registry. A reachable board can return zero roles
+for a given location and experience filter.
+
+| Company | Public job board |
+| --- | --- |
+| Acceldata | [Lever](https://jobs.lever.co/acceldata) |
+| AiPrise | [Ashby](https://jobs.ashbyhq.com/aiprise) |
+| Ambient.ai | [Ashby](https://jobs.ashbyhq.com/ambient.ai) |
+| Ciroos | [Ashby](https://jobs.ashbyhq.com/ciroos) |
+| Gushwork | [Lever](https://jobs.lever.co/gushwork) |
+| Hevo Data | [Lever](https://jobs.lever.co/hevodata) |
+| Level AI | [Lever](https://jobs.lever.co/levelai) |
+| Loop AI | [Lever](https://jobs.lever.co/Loop%20AI) |
+| Reo.Dev | [Ashby](https://jobs.ashbyhq.com/reo-dev) |
+| Safe Security | [Lever](https://jobs.lever.co/safe) |
+| Sigmoid | [Greenhouse](https://job-boards.greenhouse.io/sigmoid) |
+| Sycamore | [Ashby](https://jobs.ashbyhq.com/sycamore) |
+| Warner Music Group | [Lever](https://jobs.lever.co/wmg) |
+| Wisdom AI | [Ashby](https://jobs.ashbyhq.com/Wisdom-AI) |
+
 ## Notes on coverage
 
 - Some names above are duplicated across tiers (e.g. Razorpay, CRED, PhonePe, Groww, Meesho are
