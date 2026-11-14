@@ -749,7 +749,7 @@ class Resolver:
             if kind == "choice":
                 hint = hint or (", ".join(value) if isinstance(value, list) else value)
 
-        if quick:
+        if quick or (self.profile_first and not required):
             return None
         return self._once(question, kind, options, lambda: self._slow(question, kind, options, required, hint))
 

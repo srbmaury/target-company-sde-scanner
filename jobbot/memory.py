@@ -102,10 +102,12 @@ class Memory:
         from io import StringIO
 
         from ruamel.yaml import YAML
+        from ruamel.yaml.scalarstring import DoubleQuotedScalarString
         from .accounts import AccountError
         from .profile import ACCOUNT_PROFILE
 
         editor = YAML()
+        entry = {**entry, "answer": DoubleQuotedScalarString(entry["answer"])}
         for attempt in range(3):
             raw, version = self.account.read("profile")
             profile = editor.load((raw or ACCOUNT_PROFILE).decode())
