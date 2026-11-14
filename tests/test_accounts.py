@@ -270,6 +270,21 @@ class AccountTests(unittest.TestCase):
         self.assertEqual([row["company"] for row in json.loads(body)["rows"]], ["Employer 50", "Employer 51"])
         self.assertEqual(request(query + "&offset=50&version=old", cookie=session)[0], 409)
 
+        with closing(tracker.connect()) as conn:
+            conn.execute("INSERT INTO jobs(url, company, title, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)",
+                         ("https://example.com/job", "Example", "Engineer", "2026-11-01", "2026-11-01"))
+            conn.commit()
+        mark_url = "/api/jobs/1/mark-applied"
+        first = request(mark_url, {}, cookie=session)
+        self.assertEqual(first[0], 200)
+        self.assertEqual(json.loads(first[1])["status"], "applied")
+        self.assertEqual(json.loads(request(mark_url, {}, cookie=session)[1]), json.loads(first[1]))
+        with patch.object(self.account, "read", return_value=(b"personal: {first_name: Ada, password: secret}", "v")):
+            self.assertEqual(request("/api/fill-script-fields")[0], 401)
+            code, body, _ = request("/api/fill-script-fields", cookie=session)
+            self.assertEqual(code, 200)
+            self.assertEqual(json.loads(body), {"given-name": "Ada", "name": "Ada"})
+
         self.assertIn(b"Continue with Google", request("/")[1])
         self.assertIn(b"Your Jobbot session expired.", request("/?session=expired")[1])
         self.assertEqual(request("/favicon.svg")[0], 200)

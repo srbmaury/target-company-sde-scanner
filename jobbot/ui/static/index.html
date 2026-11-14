@@ -46,6 +46,7 @@
           <input type="search" id="jobs-q" aria-label="Filter jobs" placeholder="Filter company, role, location, or site (greenhouse, workday…)">
           <label>Min fit <input type="number" id="jobs-min" min="0" max="100" step="5" placeholder="0"></label>
           <span class="muted" id="jobs-count"></span>
+          <button type="button" id="fill-script">Generate fill script</button>
           <button id="jobs-refresh" title="Sync Gmail, scan every company's job board, then rank the new roles">Refresh jobs</button>
         </div>
         <div class="toolbar"><div class="views" id="jobs-views" role="tablist" aria-label="Which roles"></div></div>
@@ -269,5 +270,16 @@
   </dialog>
   <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
   <script src="app.js"></script>
+  <dialog id="fill-script-dialog">
+    <h2>Fill contact fields on the employer page</h2>
+    <p>Open the application form, then run this script in that tab’s developer console. It contains your contact details. Review filled fields before continuing.</p>
+    <label for="fill-script-source">Script</label>
+    <textarea id="fill-script-source" rows="10" readonly></textarea>
+    <div class="actions">
+      <button type="button" id="copy-fill-script">Copy script</button>
+      <form method="dialog"><button>Close</button></form>
+    </div>
+    <p role="status"></p>
+  </dialog>
 </body>
 </html>
