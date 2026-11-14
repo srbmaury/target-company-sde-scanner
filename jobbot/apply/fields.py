@@ -41,11 +41,11 @@ SCAN_JS = r"""
   };
   const parentOf = el => el.parentElement || (el.getRootNode && el.getRootNode().host) || null;
   const visible = el => {
-    if (!el.getClientRects().length) return false;
+    if (el.closest('[hidden], [inert], [aria-hidden="true"]') || !el.getClientRects().length) return false;
     const st = getComputedStyle(el);
     if (st.visibility === 'hidden' || st.display === 'none') return false;
     // react-select and similar widgets keep an invisible input just for form validation
-    if (el.getAttribute('aria-hidden') === 'true' || (el.tabIndex === -1 && parseFloat(st.opacity) === 0)) return false;
+    if (el.getAttribute('aria-hidden') === 'true' || ((el.tabIndex === -1 || !el.matches('[type=checkbox], [type=radio]')) && parseFloat(st.opacity) === 0)) return false;
     return true;
   };
   // A fresh prefix per scan: fields from an earlier step of a multi-page form keep their old ids, and a
@@ -198,6 +198,9 @@ SCAN_JS = r"""
         id: tag(el), kind: t === 'select' ? 'select' : combo ? 'combo' : (t === 'textarea' ? 'textarea' : 'text'),
         type, ...metadata(el, title), required: required(el, label), value: el.value || '', maxlength: el.maxLength || -1,
         inputmode: el.getAttribute('inputmode') || '',
+        autocomplete: el.getAttribute('autocomplete') || '',
+        name: el.name || el.id || '',
+        placeholder: el.getAttribute('placeholder') || '',
         unit: (el.closest('.form-group, .field, [data-field-path]')?.innerText || '').match(/\bLPA\b|\blakhs?\b|₹|\bINR\b/i)?.[0] || '',
         text: t === 'select' && el.selectedIndex >= 0 ? clean(el.options[el.selectedIndex].text) : '',
         shown: combo ? shownValue(el) : '',

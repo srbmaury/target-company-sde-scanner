@@ -41,7 +41,6 @@ CONFIRM_RE = re.compile(
     r"successfully (submitted|applied)|we.ve received your application", re.I)
 # Honeypot fields exist to catch bots; filling one gets the application flagged.
 TRAP_RE = re.compile(r"robots? only|for robots|do not (fill|enter)|leave (this )?(field )?(blank|empty)|honeypot", re.I)
-CODE_RE = email_verification.CODE_RE
 CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i confirm|confirm the statement|declare|"
                         r"^i understand\b|^i have (read|reviewed|marked)\b", re.I)
 
@@ -96,7 +95,8 @@ class Session:
         self._consent_declined = set()
         from ..memory import Memory
 
-        self.memory = Memory.for_profile(profile, persist=not hosted)
+        account = getattr(getattr(ui, "run", None), "account", None) if hosted else None
+        self.memory = Memory.for_profile(profile, persist=not dry_run and (not hosted or account is not None), account=account)
         self._pw = None
         self.ctx = None
 
@@ -154,6 +154,37 @@ class Session:
             return None, "the site did not accept it: " + "; ".join(after.lines()[:2])
         return "applied", "submitted; no confirmation text seen, check the tab"
 
+    def _complete_email_submission(self, page, code_boxes, since, ats, submit_re):
+        self.ui.info("The employer requested email verification after Submit.")
+        code = self._code_from_email(page, since=since, provider=ats)
+        if not code:
+            code_ui = self.ui.inner if self.hosted and isinstance(self.ui, UnattendedUI) else self.ui
+            code = code_ui.ask_code("Enter the verification code sent by the employer to finish this application.")
+        if not code or not email_verification.fill_code(page, code_boxes, code):
+            raise NeedsYou("Application verification code unavailable. Check Gmail or finish on the employer site.")
+        verify = r"^(verify( (email|code|and submit))?|confirm( (code|submission))?|submit code)$"
+        for _ in range(10):
+            confirmed = self._confirmation(page)
+            if confirmed:
+                return "applied", confirmed
+            if not email_verification.code_fields(self._fields(page)):
+                break
+            for pattern in (verify, submit_re):
+                if self._click(page, pattern):
+                    break
+            else:
+                page.wait_for_timeout(500)
+                continue
+            break
+        for _ in range(10):
+            page.wait_for_timeout(2500)
+            confirmed = self._confirmation(page)
+            if confirmed:
+                return "applied", confirmed
+            if check_page(page, [], [], []).captcha:
+                break
+        raise NeedsYou("The submission was not confirmed after email verification. Check the employer site before retrying.")
+
     def discard_ready(self, url):
         page, _ = self.ready.pop(url, (None, None))
         self._close(page)
@@ -204,9 +235,10 @@ class Session:
         if resume and self.upload:
             self._upload_resume(page, resume["path"], ats)
 
-        resolver = Resolver(self.profile, self.llm, job=job, resume_key=resume_key, ask=self.ui.ask,
+        resolver = Resolver(self.profile, self.llm, job=job, resume_key=resume_key, ask=self.ui.ask, warn=self.ui.warn,
                             memory=self.memory,
-                            auto_drafts=bool(self.profile.get("automation.auto_accept_drafts", True)))
+                            auto_drafts=bool(self.profile.get("automation.auto_accept_drafts", True)),
+                            profile_first=getattr(self, "hosted", False))
         self._consent_approved = bool(self.profile.get("automation.auto_consent", False))
         self._consent_allowed = set()
         self._consent_declined = set()
@@ -217,6 +249,8 @@ class Session:
         step = 1
         visits, began, check = {}, time.time(), None
         reread = False
+        manual_step = getattr(self.ui, "application_step", None) if getattr(self, "hosted", False) and not self.dry_run else None
+        manual_submit_at = None
         while step <= MAX_PAGES:
             if not reread and (self.unattended or getattr(self, "hosted", False)):
                 # Never get stuck on one application: the same page 3 times (Next not moving, Submit
@@ -243,6 +277,18 @@ class Session:
             if getattr(self, "hosted", False) and needs_account:
                 self._ensure_signed_in(page)
                 continue
+            if manual_step and manual_submit_at is not None:
+                if self._had_form and self._confirmation(page):
+                    return "applied", "Employer confirmation seen after manual browser control."
+                boxes = email_verification.code_fields(self._fields(page))
+                if boxes and not all(field.get("value") for field in boxes):
+                    code = self._code_from_email(page, since=manual_submit_at, provider=ats)
+                    if not code:
+                        code = self.ui.ask_code("Enter the code from the employer email, or skip to enter it on the employer page.")
+                    if code:
+                        email_verification.fill_code(page, boxes, code)
+                    reread = True
+                manual_submit_at = None
             if reread:
                 # Read the employer's current values without overwriting the owner's edits.
                 report, check, rounds = {"filled": [], "skipped": [], "records": []}, self.verify(page, {}), 0
@@ -274,6 +320,23 @@ class Session:
             can_submit = not can_next and bool(self._buttons(page, submit_re))
             if getattr(self, "hosted", False) and can_submit and not self._had_form:
                 raise NeedsYou("Could not verify that this is an application form. Open the posting and finish manually.")
+            if manual_step:
+                before = (page.url, self._step_marker(page))
+                ready_at = time.time()
+                if manual_step(page, check.ok) != "recheck":
+                    raise NeedsYou("Application paused for manual completion. Check the employer site before retrying.")
+                if self._had_form and self._confirmation(page):
+                    return "applied", "Employer confirmation seen after manual browser control."
+                if can_submit:
+                    manual_submit_at = ready_at
+                    reread = True
+                    self.ui.info("Checking the employer page for verification or submission confirmation.")
+                else:
+                    reread = (page.url, self._step_marker(page)) == before
+                    if not reread:
+                        self._manual_records.clear()
+                        step += 1
+                continue
             if getattr(self, "auto_submit", False) and not self.dry_run and check.ok and can_submit:
                 choice = "submit"
             elif self.auto_next and not reread and check.ok and can_next:
@@ -291,7 +354,7 @@ class Session:
                 continue
 
             if isinstance(choice, dict) and choice.get("action") == "correct":
-                self._correct_field(page, choice)
+                self._correct_field(page, choice, resolver)
                 continue
             if choice == "refill":
                 import importlib
@@ -329,6 +392,8 @@ class Session:
                 return None, "stopped before advancing"
             if choice == "submit" and not self.dry_run:
                 from playwright.sync_api import TimeoutError
+                existing_codes = {f["id"] for f in email_verification.code_fields(self._fields(page))}
+                submitted_at = time.time()
                 try:
                     clicked = self._click(page, submit_re)
                 except TimeoutError as exc:
@@ -341,23 +406,23 @@ class Session:
                     continue
                 # Slow sites (Workday, careers pages) confirm several seconds later: keep looking, never resubmit.
                 confirmed = None
+                code_boxes = []
                 for _ in range(10):
                     page.wait_for_timeout(2500)
                     confirmed = self._confirmation(page)
-                    if confirmed or check_page(page, [], [], []).errors:
+                    if confirmed:
+                        self.ui.info(f"Confirmation seen: “{confirmed}”")
+                        return "applied", confirmed
+                    code_boxes = [f for f in email_verification.code_fields(self._fields(page))
+                                  if f["id"] not in existing_codes]
+                    if code_boxes or check_page(page, [], [], []).errors:
                         break
-                if confirmed:
-                    self.ui.info(f"Confirmation seen: “{confirmed}”")
-                    return "applied", confirmed
+                if code_boxes:
+                    return self._complete_email_submission(page, code_boxes, submitted_at, ats, submit_re)
                 after = check_page(page, [], [], [])
                 if after.errors or after.captcha:
                     self.ui.warn("The site did not accept the submission: " + "; ".join(after.lines()[:3]))
                     self._reassert_missing(page, after.lines())
-                    continue
-                if any(CODE_RE.search(f.get("label") or "") and not f.get("value") for f in self._fields(page)):
-                    # Greenhouse, after several applications: "enter the security code we emailed you, then
-                    # resubmit". The next round reads the code from Gmail, enters it and submits again.
-                    self.ui.info("The site emailed a security code; entering it and submitting again.")
                     continue
                 if getattr(self, "hosted", False):
                     raise NeedsYou("Submission unconfirmed. Check the employer site or your email before trying again.")
@@ -406,10 +471,15 @@ class Session:
             page.wait_for_timeout(500)
             check = self.verify(page, total)
             changes = len(rep["filled"])
+            if resolver.profile_first and not getattr(self, "auto_submit", False):
+                if hasattr(self.ui, "audit"):
+                    self.ui.audit(step, rnd, self.audit_fields(page, total), check)
+                    self._preview_page(page)
+                return total, check, rnd
             if changes == 0 or rnd == MAX_ROUNDS:
                 # The profile check decides every field your profile answers; the model reviews the rest.
                 confirmed = consistency.apply(self, page, resolver, total, check)
-                if getattr(self, "auto_submit", False) or self.profile.get("automation.ollama_review_each_step", False):
+                if getattr(self, "auto_submit", False) or (not resolver.profile_first and self.profile.get("automation.ollama_review_each_step", False)):
                     self._ollama_review(page, resolver, total, check, step, confirmed)
             self._log(f"page {step} round {rnd}: {changes} change(s)", *[f"  set {l} = {a}" for l, a in rep["filled"]],
                       *[f"  ! {line}" for line in check.lines()])
@@ -426,7 +496,7 @@ class Session:
 
     _ollama_review = review.review_step
 
-    def _correct_field(self, page, action):
+    def _correct_field(self, page, action, resolver=None):
         """Apply a reviewed text/select correction, then verify its exact value next round."""
         f = next((f for f in self._fields(page) if f["id"] == action.get("field")), None)
         if not f or f["kind"] not in ("text", "textarea", "select", "radio", "yesno"):
@@ -454,6 +524,8 @@ class Session:
         self._manual_records[target_id] = {"id": target_id, "kind": f["kind"], "label": f["label"], "expected": value, "source": "you"}
         self._broken.discard(f["id"])
         self._mine.add(f["id"])
+        if resolver and not self.dry_run and not values.ambiguous_question(f):
+            resolver.remember_answer(f["label"], value)
         self.ui.info(f"Corrected {f['label']}; reading the value back again.")
 
     def _preview_page(self, page, *, during_fill=False):
@@ -726,19 +798,11 @@ class Session:
             records.append(record)
 
         fields = self._fields(page)
-        code_boxes = [f for f in fields if f["kind"] == "text" and not values.ambiguous_question(f) and CODE_RE.search(f["label"] or "")]
+        code_boxes = email_verification.code_fields(fields)
         if code_boxes and not all(f["value"] for f in code_boxes):
             code = self._code_from_email(page) or self.ui.ask_code(code_boxes[0]["label"])
-            if code:
-                code = re.sub(r"\s+", "", code)
-                # one box per character (Greenhouse: 8 boxes that do not all declare maxlength=1)
-                single = len(code_boxes) > 1 and (all(f.get("maxlength") == 1 for f in code_boxes) or len(code_boxes) == len(code))
-                if single:
-                    for f, ch in zip(code_boxes, code):
-                        page.locator(f'[data-jobbot-id="{f["id"]}"]').fill(ch)
-                else:
-                    page.locator(f'[data-jobbot-id="{code_boxes[0]["id"]}"]').fill(code)
-                filled.append(("verification code", "entered (you)"))
+            if code and email_verification.fill_code(page, code_boxes, code):
+                filled.append(("verification code", "entered"))
             else:
                 skipped.append("verification code from your email")
         code_ids = {f["id"] for f in code_boxes}
@@ -761,7 +825,7 @@ class Session:
                 if f["required"] and not real_options([f.get("text") or f.get("shown") or
                                                        (f["value"] if isinstance(f["value"], str) else "")]) and not (
                         isinstance(f["value"], list) and any(f["value"])):
-                    skipped.append(f"{label} (question could not be identified)")
+                    skipped.append("Required control could not be identified. Check the employer page.")
                 continue
             if re.search(r"captcha|type (?:the |below )?image text", label, re.I):
                 if f["required"]:
@@ -911,7 +975,8 @@ class Session:
                 except Exception:
                     pass
 
-        consents = [c for c in consents if c["label"] not in self._consent_declined]
+        consents = [c for c in consents if c["label"] not in self._consent_declined
+                    and (not resolver.profile_first or c["required"] or self._consent_approved)]
         if self._dry_validation() and any(c["label"] not in self._consent_allowed for c in consents):
             self._consent_approved = False
         if consents and not self._consent_approved:

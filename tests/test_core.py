@@ -453,11 +453,16 @@ class UnattendedTest(unittest.TestCase):
         self.assertEqual(ui.unanswered, ["Security clearance?"])
         self.assertFalse(ui.confirm("Tick consent boxes?"))
         self.assertEqual(ui.next_action(True, False, False, True, final_page=True), "hold")
-        self.assertEqual(ui.next_action(False, False, False, False, final_page=False), "quit")
+        self.assertEqual(ui.next_action(True, False, False, False, final_page=True, page=object()), "quit")
         with self.assertRaises(NeedsYou):
             ui.wait_for_user("Sign in, then press Enter")
         ui.info("passes through")
         self.assertEqual(ui.inner.last, "passes through")
+
+    def test_hosted_home_address_uses_configured_street_address(self):
+        profile = Profile({"personal": {"address_line1": "12 Example Street"}}, "profile.yaml")
+        resolver = Resolver(profile, profile_first=True)
+        self.assertEqual(resolver.resolve("Home Address*", required=True).value, "12 Example Street")
 
 
 class AnswerLogAndCapTest(unittest.TestCase):
@@ -1439,6 +1444,28 @@ class ValidationPromptTest(unittest.TestCase):
             self.assertEqual(gmail.latest_code(0, hint=["greenhouse"], wait=0), "482913")
             self.assertIsNone(gmail.latest_code(0, hint=["greenhouse"], wait=0))   # the next application waits for its own
         gmail._USED_CODES.clear()
+
+    def test_post_submit_code_accepts_manual_input_in_hosted_unattended_run(self):
+        from unittest.mock import Mock, patch
+        from jobbot.apply.engine import Session, UnattendedUI
+
+        session = Session.__new__(Session)
+        session.hosted = True
+        session.ui = UnattendedUI(Mock())
+        session.ui.inner.ask_code.return_value = "012345"
+        session._code_from_email = Mock(return_value=None)
+        session._confirmation = Mock(side_effect=[None, "Thank you for applying"])
+        boxes = [{"kind": "text", "autocomplete": "one-time-code", "id": "otp"}]
+        session._fields = Mock(return_value=boxes)
+        session._click = Mock(return_value=True)
+        page = Mock()
+        with patch("jobbot.apply.email_verification.fill_code", return_value=True) as fill:
+            self.assertEqual(session._complete_email_submission(page, boxes, 100, "workday", "^submit$"),
+                             ("applied", "Thank you for applying"))
+        session._code_from_email.assert_called_once_with(page, since=100, provider="workday")
+        session.ui.inner.ask_code.assert_called_once()
+        fill.assert_called_once_with(page, boxes, "012345")
+        session._click.assert_called_once()
 
     def test_learned_answers_merge_across_workers(self):
         from jobbot.memory import Memory

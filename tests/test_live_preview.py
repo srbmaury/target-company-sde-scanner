@@ -52,7 +52,7 @@ class LivePreviewTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Return control"):
             run.answer(auth["prompt_id"], "submit")
         reply = run.control({**auth, "action": "click", "x": .25, "y": .5})
-        page.mouse.click.assert_called_once_with(250, 300)
+        page.mouse.click.assert_called_once_with(250, 300, delay=45)
         with self.assertRaisesRegex(ValueError, "view changed"):
             run.control({**auth, "action": "text", "text": "Bengaluru"})
         run.control({**auth, "frame_id": reply["frame_id"], "action": "text", "text": "Bengaluru"})
@@ -61,6 +61,24 @@ class LivePreviewTests(unittest.TestCase):
         self.assertEqual(result.get(timeout=2), "recheck")
         with self.assertRaises(ValueError):
             run.answer(auth["prompt_id"], "submit")
+
+    def test_scroll_keyboard_refresh_and_recovery(self):
+        run, page, result, auth = self.start_preview()
+        reply = run.control({**auth, "action": "scroll", "x": .5, "y": .25, "delta": 360})
+        page.mouse.move.assert_called_once_with(500, 150)
+        page.mouse.wheel.assert_called_once_with(0, 360)
+        page.wait_for_timeout.assert_called_once_with(32)
+        self.assertEqual(page.screenshot.call_args.kwargs["quality"], 40)
+        auth["frame_id"] = reply["frame_id"]
+        original = page.screenshot.side_effect
+        page.screenshot.side_effect = RuntimeError("frame capture failed")
+        with self.assertRaisesRegex(ValueError, "Refresh"):
+            run.control({**auth, "action": "key", "key": "Tab"})
+        page.keyboard.press.assert_called_once_with("Tab")
+        page.screenshot.side_effect = original
+        run.control({**auth, "action": "frame"})
+        run.control({**auth, "action": "release"})
+        self.assertEqual(result.get(timeout=2), "recheck")
 
     def test_dry_run_allows_frames_but_no_remote_input(self):
         run, page, result, auth = self.start_preview(dry=True)

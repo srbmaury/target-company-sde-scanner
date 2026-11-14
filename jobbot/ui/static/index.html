@@ -46,6 +46,7 @@
           <input type="search" id="jobs-q" aria-label="Filter jobs" placeholder="Filter company, role, location, or site (greenhouse, workday…)">
           <label>Min fit <input type="number" id="jobs-min" min="0" max="100" step="5" placeholder="0"></label>
           <span class="muted" id="jobs-count"></span>
+          <button type="button" id="fill-script">Generate fill script</button>
           <button id="jobs-refresh" title="Sync Gmail, scan every company's job board, then rank the new roles">Refresh jobs</button>
         </div>
         <div class="toolbar"><div class="views" id="jobs-views" role="tablist" aria-label="Which roles"></div></div>
@@ -60,9 +61,7 @@
             <span class="sel-state"><span id="sel-count" class="muted">None selected</span>
               <button class="link" id="sel-clear">Clear</button></span>
           </div>
-          <div class="toolbar run-options" id="hosted-run-options" hidden>
-            <label class="check"><input type="checkbox" id="hosted-auto-submit"> Auto-apply to selected roles</label>
-          </div>
+
           <div class="toolbar run-options" id="local-run-options">
             <label class="check" title="Never stop: jobs that need you are listed at the end, and each finished application waits for your Submit"><input type="checkbox" id="unattended"> Don't stop for me</label>
             <label class="check" title="Fill and check every page, but never submit"><input type="checkbox" id="validate-steps"> Validate every step (no submission)</label>
@@ -70,6 +69,7 @@
           </div>
         </div>
         <div id="run-confirmation" class="prompt" role="region" aria-label="Confirm application run" hidden></div>
+        <p id="jobs-load" role="status" hidden></p>
         <div class="table-wrap"><table class="grid" id="jobs-table">
           <thead><tr>
             <th data-sort="n">#</th><th data-sort="fit_score">Fit</th><th data-sort="company">Company</th>
@@ -78,6 +78,7 @@
           </tr></thead>
           <tbody></tbody>
         </table></div>
+        <div class="toolbar" id="jobs-page-controls"><button type="button" id="jobs-more" hidden>Load more</button></div>
         <p class="hint" id="local-run-hint">Applications open in jobbot's own Chrome window. Automatic submission requires the configured LLM to approve every page. Jobs needing your action are listed while the batch continues.</p>
       </section>
 
@@ -87,6 +88,7 @@
           <h1>Application runs</h1>
           <p>Follow progress, review answers, and see which applications need your input.</p>
         </div>
+        <p id="run-load" role="status" hidden></p>
         <div class="toolbar run-overview">
           <b id="run-title">No apply run yet</b>
           <span class="pill" id="run-status"></span>
@@ -101,15 +103,21 @@
                 <button type="button" class="primary" id="live-open">Take control</button>
                 <button type="button" id="live-refresh" hidden>Refresh view</button>
                 <button type="button" id="live-release" hidden>Return control and recheck</button>
+                <span id="live-spinner" class="live-spinner" aria-hidden="true" hidden></span>
                 <span id="live-message" class="muted" role="status"></span>
               </div>
               <div id="live-viewport" hidden>
                 <p class="hint" id="live-help">Click the page to use it. Use Tab, arrow keys, or scroll to navigate. Use Return control when you're done.</p>
                 <img id="live-image" alt="Live employer browser viewport" tabindex="0" aria-describedby="live-help">
-                <p class="hint" id="live-direct">You are operating the employer page directly. Use Jobbot’s review flow to submit.</p>
+                <div class="toolbar" id="live-scroll-controls">
+                  <button type="button" data-live-scroll="-720">Scroll up</button>
+                  <button type="button" data-live-scroll="720">Scroll down</button>
+                </div>
+                <p class="hint" id="live-direct">You are operating the employer page directly. Click Next, Verify, or Submit here on the employer page, then return control.</p>
                 <form id="live-text" class="toolbar">
-                  <label>Type into the selected field <input id="live-input" type="password" maxlength="4000" autocomplete="off"></label>
-                  <button type="submit">Type text</button>
+                  <label>Type into the selected field <input id="live-input" type="text" spellcheck="false" maxlength="4000" autocomplete="off"></label>
+                  <label class="check"><input type="checkbox" id="live-mask"> Hide text</label>
+                  <button type="submit" id="live-send">Type text</button>
                   <button type="button" id="live-tab">Next field</button>
                 </form>
               </div>
@@ -150,6 +158,7 @@
           <button class="primary" id="apps-add">Add application</button>
           <span class="muted" id="apps-count"></span>
         </div>
+        <p id="apps-load" role="status" hidden></p>
         <div class="table-wrap"><table class="grid" id="apps-table">
           <thead><tr>
             <th data-sort="id">#</th><th data-sort="company">Company</th><th data-sort="title">Role</th>
@@ -158,6 +167,7 @@
           </tr></thead>
           <tbody></tbody>
         </table></div>
+        <div class="toolbar" id="apps-page-controls"><button type="button" id="apps-more" hidden>Load more</button></div>
       </section>
 
       <!-- Actions -->
@@ -260,5 +270,16 @@
   </dialog>
   <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
   <script src="app.js"></script>
+  <dialog id="fill-script-dialog">
+    <h2>Fill contact fields on the employer page</h2>
+    <p>Open the application form, then run this script in that tab’s developer console. It contains your contact details. Review filled fields before continuing.</p>
+    <label for="fill-script-source">Script</label>
+    <textarea id="fill-script-source" rows="10" readonly></textarea>
+    <div class="actions">
+      <button type="button" id="copy-fill-script">Copy script</button>
+      <form method="dialog"><button>Close</button></form>
+    </div>
+    <p role="status"></p>
+  </dialog>
 </body>
 </html>

@@ -14,12 +14,14 @@ async function api(path, body) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
-  let res;
-  try { res = await fetch("/api/" + path, opts); } catch (e) {
+  let res, data;
+  try {
+    res = await fetch("/api/" + path, opts);
+    data = await res.json();
+  } catch (e) {
     connection("Can't reach jobbot. Is <code>./jobbot.sh ui</code> still running?");
     throw e;
   }
-  const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
     location.replace("/?session=expired");
     throw new Error("Sign in to Jobbot.");
@@ -28,7 +30,7 @@ async function api(path, body) {
     // A page left open across a restart holds the old access token: every call fails until it reloads.
     connection("jobbot was restarted, so this page is out of date.", true);
   } else connection(null);
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), {status: res.status});
   return data;
 }
 
@@ -50,6 +52,27 @@ function remember(key, value) { try { localStorage.setItem("jobbot." + key, valu
 function recall(key) { try { return localStorage.getItem("jobbot." + key); } catch (e) { return null; } }
 
 // ---------- tabs ----------
+async function loadTrackerTab(name, label, load) {
+  const status = $("#" + name + "-load");
+  if (status.dataset.loading) return;
+  status.dataset.loading = "true";
+  status.textContent = `Loading ${label}…`;
+  status.hidden = false;
+  try {
+    await load();
+    status.hidden = true;
+  } catch (error) {
+    status.textContent = `Could not load ${label}. ${error.message} `;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "Retry";
+    retry.addEventListener("click", () => loadTrackerTab(name, label, load));
+    status.append(retry);
+  } finally {
+    delete status.dataset.loading;
+  }
+}
+
 function showTab(name) {
   if (state.tab !== name) $("main").scrollTop = 0;
   state.tab = name;
@@ -60,12 +83,12 @@ function showTab(name) {
     button.tabIndex = active ? 0 : -1;
   });
   $$("main > [role=tabpanel]").forEach((p) => (p.hidden = p.id !== "tab-" + name));
-  ({ jobs: () => { loadJobs(); loadTasks(); }, apply: () => { state.viewing = false; loadRun(); }, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile, docs: () => loadDocs() }[name])();
+  ({ jobs: () => { loadTrackerTab("jobs", "jobs", async () => { await loadJobs(); refreshCounts(); }); loadTasks(); }, apply: () => { state.viewing = false; loadTrackerTab("run", "application runs", () => loadRun(true)); }, applications: () => loadTrackerTab("apps", "applications", loadApps), actions: loadTasks, logs: loadLogs, profile: loadProfile, docs: () => loadDocs() }[name])();
 }
 
 // ---------- summary ----------
 async function loadSummary() {
-  const s = (state.summary = await api("summary"));
+  const s = await api("summary?counts=1");
   const a = s.applications;
   const cards = [
     ["Open roles", s.open_jobs], ["Applications", s.total], ["Waiting response", a.applied || 0],
@@ -79,6 +102,18 @@ async function loadSummary() {
     "Response rate": "Applications that got any reply (assessment, interview, offer or rejection)",
   };
   $("#stats").innerHTML = cards.map(([l, v]) => `<div class="stat" title="${esc(tips[l] || "")}"><div class="label">${esc(l)}</div><div class="value">${esc(v)}</div></div>`).join("");
+}
+
+function refreshCounts() {
+  if (state.tab === "jobs") {
+    loadSummary().catch(() => {
+      if (!$("#stats").hasChildNodes()) $("#stats").textContent = "Tracker counts unavailable.";
+    });
+  }
+}
+
+async function loadWorkspace() {
+  const s = state.summary = await api("workspace");
   const dot = (ok) => `<span class="dot" style="background:${ok ? "var(--good)" : "var(--border)"}"></span>`;
   $("#status").innerHTML = `<span>${dot(s.gmail)}Gmail ${s.gmail ? "connected" : "not connected"}</span>
     <span>${dot(s.llm_available)}${esc(s.llm_provider === "openai" ? "OpenAI API" : "Ollama")} ${s.llm_available ? (s.llm_provider === "openai" ? "key configured" : "running") : "unavailable"}</span>`;
@@ -96,7 +131,6 @@ async function loadSummary() {
   $("#hosted-apply-note").hidden = !s.account;
   $("#apply-selected").textContent = s.account ? "Fill for review" : "Apply to selected";
   $("#local-run-options").hidden = Boolean(s.account);
-  $("#hosted-run-options").hidden = !s.account;
   $("#local-run-hint").hidden = Boolean(s.account);
   setAccountProfile(Boolean(s.account));
   $("#employer-auth").hidden = !s.account;
@@ -124,15 +158,64 @@ function markSorted(table, [key, dir]) {
   });
 }
 
-async function loadJobs() {
+async function loadTablePage(name, params, append, render) {
+  const current = state[name + "Page"];
+  if (append && (!current || current.next_offset == null || current.loading)) return;
+  const page = append ? current : {};
+  state[name + "Page"] = page;
+  page.loading = true;
+  const button = $("#" + name + "-more");
+  button.disabled = true;
+  if (!append) button.hidden = true;
+  $(".err", button.parentElement)?.remove();
+  button.textContent = append ? "Loading…" : "Load more";
+  params.set("offset", append ? page.next_offset : 0);
+  if (append && page.version != null) params.set("version", page.version);
+  try {
+    const result = await api((name === "apps" ? "applications" : name) + "?" + params);
+    if (state[name + "Page"] !== page) return;
+    // Older servers still return the full list.
+    Object.assign(page, Array.isArray(result) ? {rows: result, total: result.length, next_offset: null} : result, {
+      paged: !Array.isArray(result),
+      rows: append ? [...new Map([...page.rows, ...result.rows].map((row) => [row.n ?? row.id, row])).values()] : result.rows || result,
+    });
+    button.hidden = page.next_offset == null;
+    render(page);
+  } catch (error) {
+    if (state[name + "Page"] !== page) return;
+    if (append && error.status === 409) {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.textContent = "Refresh list";
+      retry.addEventListener("click", () => showTab(name === "apps" ? "applications" : "jobs"));
+      button.hidden = true;
+      alertInline(button.parentElement, error.message);
+      $(".err", button.parentElement).append(" ", retry);
+      return;
+    }
+    throw error;
+  } finally {
+    if (state[name + "Page"] === page) {
+      page.loading = false;
+      button.disabled = false;
+      button.textContent = "Load more";
+    }
+  }
+}
+
+async function loadJobs(append = false) {
+  const [sort, dir] = state.jobSort;
   const params = new URLSearchParams({
     q: $("#jobs-q").value, min_fit: $("#jobs-min").value,
-    include_applied: "1", include_dismissed: "1",   // every role; the view buttons choose which to show
+    include_applied: "1", include_dismissed: "1", view: state.view || "new",
+    sort, direction: dir === 1 ? "asc" : "desc",
   });
-  state.allJobs = await api("jobs?" + params);
-  state.jobCatalog = state.jobCatalog || new Map();
-  state.allJobs.forEach((j) => state.jobCatalog.set(String(j.n), j));
-  renderJobs();
+  await loadTablePage("jobs", params, append, (page) => {
+    state.allJobs = page.rows;
+    state.jobCatalog = state.jobCatalog || new Map();
+    state.allJobs.forEach((j) => state.jobCatalog.set(String(j.n), j));
+    renderJobs();
+  });
 }
 
 function fitClass(f) { return f == null ? "" : f >= 80 ? "high" : f >= 60 ? "mid" : "low"; }
@@ -153,13 +236,49 @@ async function markNotDuplicates() {
   if (!keys.length) return;
   for (const k of keys) await api(`jobs/${k}/not-duplicate`, {});
   state.selected.clear();
-  await Promise.all([loadJobs(), loadSummary()]);
+  await loadJobs();
+  refreshCounts();
 }
 
 function renderViews() {
   const all = state.allJobs || [];
   $("#jobs-views").innerHTML = VIEWS.map(([key, label, test]) =>
-    `<button role="tab" data-view="${key}" aria-selected="${state.view === key}">${label} <span class="n">${all.filter(test).length}</span></button>`).join("");
+    `<button role="tab" data-view="${key}" aria-selected="${state.view === key}">${label} <span class="n">${state.jobsPage?.counts ? state.jobsPage.counts[key] || 0 : all.filter(test).length}</span></button>`).join("");
+}
+
+// Serialized into a self-contained script for the browser console on the employer page.
+function fillEmployerContactFields(values) {
+  const aliases = {
+    firstname: "given-name", lastname: "family-name", fullname: "name",
+    email: "email", emailaddress: "email", phone: "tel", phonenumber: "tel",
+    addressline1: "address-line1", streetaddress: "address-line1",
+    zipcode: "postal-code", postalcode: "postal-code",
+  };
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+  let filled = 0;
+  for (const field of document.querySelectorAll("input")) {
+    if (!["text", "email", "tel"].includes(field.type) || field.disabled || field.readOnly ||
+        field.value.trim() || !field.getClientRects().length ||
+        field.closest('[hidden], [aria-hidden="true"], [inert]') || getComputedStyle(field).visibility !== "visible") continue;
+    const key = field.autocomplete.trim().split(/\s+/).at(-1);
+    const labels = [field.name, field.id, field.getAttribute("aria-label"), ...Array.from(field.labels || [], (label) => label.textContent)];
+    const match = labels.map((label) => aliases[(label || "").toLowerCase().replace(/[^a-z]/g, "")]).find(Boolean);
+    const answer = Object.hasOwn(values, key) ? values[key] : values[match];
+    if (!answer) continue;
+    setValue.call(field, answer);
+    field.dispatchEvent(new Event("input", {bubbles: true}));
+    field.dispatchEvent(new Event("change", {bubbles: true}));
+    filled++;
+  }
+  console.info(`Jobbot filled ${filled} contact field(s). Review the form and continue on the employer page.`);
+}
+
+async function showFillScript() {
+  const fields = await api("fill-script-fields");
+  const dialog = $("#fill-script-dialog");
+  $("textarea", dialog).value = `(${fillEmployerContactFields.toString()})(${JSON.stringify(fields)});`;
+  $("[role=status]", dialog).textContent = "";
+  dialog.showModal();
 }
 
 function renderJobs() {
@@ -167,9 +286,9 @@ function renderJobs() {
   renderViews();
   const test = VIEWS.find(([k]) => k === state.view)[2];
   state.jobs = (state.allJobs || []).filter(test);
-  const rows = sortRows(state.jobs, state.jobSort);
+  const rows = state.jobsPage?.counts ? state.jobs : sortRows(state.jobs, state.jobSort);
   markSorted($("#jobs-table"), state.jobSort);
-  $("#jobs-count").textContent = `${rows.length} role${rows.length === 1 ? "" : "s"}`;
+  $("#jobs-count").textContent = state.jobsPage?.next_offset != null ? `${rows.length} of ${state.jobsPage.total} roles` : `${rows.length} role${rows.length === 1 ? "" : "s"}`;
   $("#jobs-table tbody").innerHTML = rows.length ? rows.map((j) => {
     const applied = j.applied === "exact" || j.applied === "likely"
       ? `<span class="pill applied" title="${esc(j.applied_note)}">applied</span>`
@@ -191,6 +310,7 @@ function renderJobs() {
       <td class="num" title="${esc(j.evidence)}">${esc(j.experience)}</td>
       <td>${esc(j.fit_resume || "")}</td>
       <td class="num"><label class="check"><input type="checkbox" data-select="${j.n}" ${state.selected.has(String(j.n)) ? "checked" : ""} ${j.dismissed ? "disabled" : lock}> Select</label>
+        <label class="check"><input type="checkbox" data-mark-applied="${j.n}" ${applied && j.applied !== "possible" ? "checked disabled" : ""}> Already applied</label>
         <button class="link" data-job="${j.n}" data-act="${j.dismissed ? "restore" : "dismiss"}">${j.dismissed ? "Restore" : "Dismiss"}</button></td>
     </tr>`;
   }).join("") : `<tr><td colspan="8" class="empty">${state.view === "new" ? "No new roles match. Try <b>Refresh jobs</b>, or check the other views." : "Nothing in this view."}</td></tr>`;
@@ -234,7 +354,7 @@ function updateSelection() {
 function selectTop(n) {
   const ok = new Set(selectable());
   state.selected.clear();
-  sortRows(state.jobs, state.jobSort).map((j) => String(j.n)).filter((k) => ok.has(k)).slice(0, n)
+  (state.jobsPage?.counts ? state.jobs : sortRows(state.jobs, state.jobSort)).map((j) => String(j.n)).filter((k) => ok.has(k)).slice(0, n)
     .forEach((k) => state.selected.add(k));
   remember("topN", n);
   renderJobs();
@@ -250,7 +370,7 @@ function startRun(dry) {
   if (!jobs.length || !state.summary) return;
   const hosted = Boolean(state.summary.account);
   if (!hosted) dry = dry || ($("#validate-steps").checked && !$("#auto-submit").checked);
-  state.pendingRun = hosted ? {jobs, dry_run: dry, auto_submit: !dry && $("#hosted-auto-submit").checked} : { jobs, dry_run: dry || $("#validate-steps").checked, unattended: $("#unattended").checked, validation: $("#validate-steps").checked, auto_next: $("#unattended").checked || !$("#validate-steps").checked };
+  state.pendingRun = hosted ? {jobs, dry_run: dry} : { jobs, dry_run: dry || $("#validate-steps").checked, unattended: $("#unattended").checked, validation: $("#validate-steps").checked, auto_next: $("#unattended").checked || !$("#validate-steps").checked };
   if (!hosted && !dry && $("#auto-submit").checked) {
     state.pendingRun = {jobs, dry_run: false, unattended: true, validation: true, auto_next: true, auto_submit: true};
   }
@@ -260,7 +380,7 @@ function startRun(dry) {
   box.innerHTML = `<h4>${dry ? "Confirm dry run" : "Confirm application run"}</h4>
     <p>${dry ? "Dry-run" : hosted ? "Fill" : "Apply to"} ${jobs.length} role${jobs.length === 1 ? "" : "s"}?
     ${hosted ? "Chromium runs on the host. Follow progress in Runs." : "Chrome will open in its own window."}
-    ${dry ? "Forms may be filled and resumes uploaded; nothing will be submitted." : state.pendingRun.auto_submit ? "Completed applications will be submitted automatically after every check passes." : state.pendingRun.unattended ? "jobbot works through every role without stopping. Finished applications wait for your Submit, and roles that need you are listed at the end." : "You’ll confirm each Submit here."}</p>
+    ${dry ? "Forms may be filled and resumes uploaded; nothing will be submitted." : state.pendingRun.auto_submit ? "Completed applications will be submitted automatically after every check passes." : state.pendingRun.unattended ? "jobbot works through every role without stopping. Finished applications wait for your Submit, and roles that need you are listed at the end." : "You’ll click through each step on the employer page."}</p>
     <details><summary>Review selected roles</summary><ul>${roles.map((j) => `<li>${esc(j.company)} — ${esc(j.title)}</li>`).join("")}</ul></details>
     <p id="run-confirm-error" role="alert"></p>
     <div class="actions"><button class="primary" id="run-confirm-start">${dry ? "Start dry run" : hosted && !state.pendingRun.auto_submit ? "Start filling" : "Start applications"}</button>
@@ -292,15 +412,31 @@ async function confirmRun() {
   } finally { state.runStarting = false; }
 }
 
-async function loadRun() {
+async function pollRun() {
+  if (document.hidden || state.pollingRun || $("#run-load").dataset.loading) return;
+  state.pollingRun = true;
+  try {
+    await loadRun();
+  } finally {
+    state.pollingRun = false;
+  }
+}
+
+async function loadRun(strict = false) {
+  const request = state.runRequest = (state.runRequest || 0) + 1;
   let run;
-  try { run = await api("apply"); } catch (e) { return; }
+  try { run = await api(state.tab === "apply" ? "apply" : "apply?live=1"); }
+  catch (error) {
+    if (strict) throw error;
+    return;
+  }
+  if (request !== state.runRequest) return;
   state.run = run;
   const active = ["starting", "running", "waiting"].includes(run.status);
   $("#apply-badge").hidden = run.status !== "waiting";
   document.title = run.status === "waiting" ? "● jobbot needs you" : "jobbot";
-  if (active && !state.runPoll) state.runPoll = setInterval(loadRun, 1000);
-  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary(); state.historyStale = true; }
+  if (active && !state.runPoll) state.runPoll = setInterval(pollRun, 1000);
+  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; refreshCounts(); state.historyStale = true; }
   renderStrip(run, active);
   if (active) state.viewing = false;
   if (state.tab === "apply" && !state.viewing) renderRun(run);
@@ -340,8 +476,24 @@ function historyMessage(message) {
 }
 
 async function loadHistory() {
+  if (state.loadingHistory) return;
+  state.loadingHistory = true;
+  historyMessage("Loading run history…");
   let runs;
-  try { runs = await api("runs"); } catch (e) { historyMessage(e.message); return; }
+  try {
+    runs = await api("runs");
+  } catch (error) {
+    historyMessage("Could not load run history. " + error.message + " ");
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "Retry history";
+    retry.addEventListener("click", loadHistory);
+    $("#history-message").append(retry);
+    return;
+  } finally {
+    state.loadingHistory = false;
+  }
+  historyMessage("");
   state.historyLoaded = true;
   state.historyStale = false;
   state.historyRuns = runs;
@@ -377,6 +529,8 @@ function resetLivePreview() {
   live.inputs.length = 0;
   $("#live-image").removeAttribute("src");
   $("#live-input").value = "";
+  $("#live-input").type = "text";
+  $("#live-mask").checked = false;
   $("#live-message").textContent = "";
 }
 
@@ -394,72 +548,116 @@ function renderLivePreview(run) {
   $("#live-help").textContent = run.dry_run
     ? "Dry-run view is read-only. Use the dashboard prompts to continue."
     : "Click or scroll the page. Use the keyboard or the text box below to enter answers. Use Next field to send Tab. Return control to recheck the page.";
-  $("#live-text").hidden = $("#live-direct").hidden = Boolean(run.dry_run);
+  $("#live-text").hidden = $("#live-direct").hidden = $("#live-scroll-controls").hidden = Boolean(run.dry_run);
   $("#live-refresh").hidden = $("#live-release").hidden = !live.control;
   $("#prompt").inert = Boolean(live.control);
   $("#page-preview").hidden = Boolean(live.control) || !run.preview || Boolean(run.history);
 }
 
-async function browserCommand(action, extra = {}) {
-  if (!live.prompt) return;
+const browserActionLabels = {
+  open: "Opening browser…", frame: "Refreshing…", click: "Clicking…", scroll: "Scrolling…",
+  text: "Typing…", key: "Sending key…", release: "Returning control…",
+};
+
+async function browserCommand(action, extra = {}, background = false) {
+  if (!live.prompt) return false;
   if (live.busy) {
-    if (!["frame", "open"].includes(action) && live.inputs.length < 40) live.inputs.push([action, extra]);
-    return;
+    if (action === "scroll" && live.inputs.at(-1)?.[0] === "scroll") {
+      const previous = live.inputs.at(-1)[1];
+      previous.delta = Math.max(-1600, Math.min(1600, previous.delta + extra.delta));
+    } else if (!background && action !== "open" && live.inputs.length < 12) {
+      live.inputs.push([action, extra]);
+    } else if (!background && action !== "open") {
+      $("#live-message").textContent = "Browser is catching up. Wait before sending more input.";
+    }
+    return false;
   }
   clearTimeout(live.timer);
   const prompt = live.prompt;
+  const spinner = $("#live-spinner");
+  const message = $("#live-message");
   live.busy = true;
-  if (action === "open") $("#live-message").textContent = "Opening the browser view…";
+  $("#live-send").disabled = true;
+  if (!background) {
+    spinner.hidden = false;
+    message.textContent = browserActionLabels[action];
+  }
   try {
     const reply = await api("apply/preview", {
       prompt_id: prompt, control: live.control, frame_id: live.frame, action, ...extra,
     });
-    if (live.prompt !== prompt) return;
+    if (live.prompt !== prompt) return false;
     if (action === "release") {
       resetLivePreview();
       renderLivePreview(state.run);
       await loadRun();
-      return;
+      return true;
     }
     live.control = reply.control;
-    live.frame = reply.frame_id;
-    $("#live-image").src = "data:image/jpeg;base64," + reply.image;
-    $("#live-image").width = reply.width;
-    $("#live-image").height = reply.height;
-    $("#live-message").textContent = state.run.dry_run ? "Live view · read-only" : "You have control. Jobbot is paused.";
     renderLivePreview(state.run);
-    if (action === "open") $("#live-image").focus();
+    const image = $("#live-image");
+    const source = "data:image/jpeg;base64," + reply.image;
+    const next = new Image();
+    next.src = source;
+    await next.decode();
+    if (live.prompt !== prompt) return false;
+    image.src = source;
+    image.width = reply.width;
+    image.height = reply.height;
+    live.frame = reply.frame_id;
+    if (!background) message.textContent = state.run.dry_run ? "Live view · read-only" : "You have control. Jobbot is paused.";
+    renderLivePreview(state.run);
+    if (action === "open") image.focus({preventScroll: true});
+    return true;
   } catch (error) {
-    if (live.prompt === prompt) $("#live-message").textContent = error.message;
+    if (live.prompt === prompt) {
+      message.textContent = error.message;
+      // Stop queued gestures after a failed command. The employer may have
+      // received the input even when its updated frame could not be captured.
+      live.inputs.length = 0;
+    }
+    return false;
   } finally {
     live.busy = false;
+    spinner.hidden = true;
+    $("#live-send").disabled = false;
     if (live.control && live.prompt === prompt) {
       if (live.inputs.length) browserCommand(...live.inputs.shift());
-      else if (state.tab === "apply") live.timer = setTimeout(() => browserCommand("frame"), 1500);
+      else if (state.tab === "apply" && state.run?.dry_run) live.timer = setTimeout(() => browserCommand("frame", {}, true), 2500);
     }
   }
 }
 
 function wireLivePreview() {
+  $("#live-mask").addEventListener("change", (event) => {
+    $("#live-input").type = event.target.checked ? "password" : "text";
+  });
   $("#live-open").addEventListener("click", () => browserCommand("open"));
   $("#live-release").addEventListener("click", () => browserCommand("release"));
   $("#live-refresh").addEventListener("click", () => browserCommand("frame"));
+  $$("[data-live-scroll]").forEach((button) => button.addEventListener("click", () => {
+    if (!state.run?.dry_run) browserCommand("scroll", {x: .5, y: .5, delta: Number(button.dataset.liveScroll)});
+  }));
   $("#live-tab").addEventListener("click", () => browserCommand("key", {key: "Tab"}));
   const frame = $("#live-image");
   const coords = (event) => {
     const rect = frame.getBoundingClientRect();
-    return { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height };
+    const normalize = (value, size) => Math.max(0, Math.min(1, value / size));
+    return {
+      x: normalize(event.clientX - rect.left - frame.clientLeft, frame.clientWidth),
+      y: normalize(event.clientY - rect.top - frame.clientTop, frame.clientHeight),
+    };
   };
   frame.addEventListener("click", (event) => {
     if (!state.run?.dry_run) {
-      frame.focus();
+      frame.focus({preventScroll: true});
       browserCommand("click", coords(event));
     }
   });
   frame.addEventListener("wheel", (event) => {
     if (state.run?.dry_run) return;
     event.preventDefault();
-    const unit = event.deltaMode === 1 ? 24 : event.deltaMode === 2 ? frame.clientHeight : 1;
+    const unit = event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? frame.height : frame.height / frame.clientHeight;
     browserCommand("scroll", { ...coords(event), delta: Math.max(-1600, Math.min(1600, event.deltaY * unit)) });
   }, {passive: false});
   frame.addEventListener("keydown", (event) => {
@@ -471,14 +669,13 @@ function wireLivePreview() {
     if (event.key.length === 1) browserCommand("text", { text: event.key });
     else browserCommand("key", { key: event.key });
   });
-  $("#live-text").addEventListener("submit", (event) => {
+  $("#live-text").addEventListener("submit", async (event) => {
     event.preventDefault();
     const input = $("#live-input");
-    if (input.value) {
-      const text = input.value;
-      input.value = "";
-      browserCommand("text", {text});
-      frame.focus();
+    const text = input.value;
+    if (text && !live.busy && await browserCommand("text", {text})) {
+      if (input.value === text) input.value = "";
+      frame.focus({preventScroll: true});
     }
   });
 }
@@ -665,8 +862,8 @@ function renderPrompt(p) {
   } else if (p.kind === "wait") {
     html = `<div class="prompt"><h4>Your turn in Chrome</h4>${q}<div class="actions"><button class="primary" data-answer="null">Done, continue</button><button data-answer="skip">Skip this role</button></div></div>`;
   } else if (p.kind === "code") {
-    html = `<div class="prompt"><h4>Verification code</h4>${q}<input type="text" id="p-text" placeholder="Code from your email" autocomplete="one-time-code">
-      <div class="actions"><button class="primary" data-answer="text">Enter code</button><button data-answer="null">Skip</button></div></div>`;
+    html = `<div class="prompt"><h4>Verification code</h4>${q}<label for="p-text">Code from your email</label><input type="text" id="p-text" autocomplete="one-time-code" spellcheck="false" autocapitalize="off">
+      <div class="actions"><button class="primary" data-answer="text">Verify and continue</button><button data-answer="null">Skip this application</button></div></div>`;
   } else {
     const reason = `<div class="reason">${esc(p.reason || "")}${p.required ? " · required" : " · optional"}</div>`;
     if (p.options && p.options.length) {
@@ -678,20 +875,55 @@ function renderPrompt(p) {
     }
   }
   if (p.kind === "action") {
-    const audit = currentAudit();
-    const editable = audit ? audit.fields.filter((f) => ["text", "textarea", "select", "radio", "yesno"].includes(f.kind) && !/consent|agree|terms|certify|gender|race|ethnic|veteran|disability|signature|password/i.test(f.label)) : [];
-    if (editable.length) html += `<details class="prompt"><summary>Correct a field and re-check</summary>${editable.map((f, i) => `<div class="correction-row"><label>${esc(f.label)}${["select", "radio", "yesno"].includes(f.kind) ? `<select id="correction-${i}">${f.options.map((o) => `<option ${o === f.actual ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>` : `<input id="correction-${i}" type="text" value="${esc(f.actual)}">`}</label><button data-correct="${esc(f.id)}" data-input="correction-${i}" aria-label="Correct ${esc(f.label)}">Save and re-check</button></div>`).join("")}</details>`;
+    const fields = (currentAudit()?.fields || []).filter((f) =>
+      ["text", "textarea", "select", "radio", "yesno"].includes(f.kind) && f.label &&
+      !/consent|agree|terms|certify|gender|race|ethnic|veteran|disability|signature|password|verification code|security code|one.time|\botp\b/i.test(f.label));
+    const needsAttention = (f) => /needs revision|required, empty|question unclear/.test(f.status || "");
+    fields.sort((a, b) => Number(needsAttention(b)) - Number(needsAttention(a)));
+    if (fields.length) {
+      html += `<details class="prompt correction-panel">
+        <summary>Edit a field</summary>
+        <div class="correction-editor">
+          <label for="correction-field">Field</label>
+          <select id="correction-field">${fields.map((f, i) => `<option value="${i}">${esc(f.label)}${needsAttention(f) ? " · Needs review" : ""}</option>`).join("")}</select>
+          <label for="correction-value">Answer</label>
+          <div id="correction-control"></div>
+          <div class="actions"><button type="button" class="primary" data-correct>Save and re-check</button>
+            <span id="correction-status" role="status"></span></div>
+        </div>
+      </details>`;
+    }
+    state.correctionFields = fields;
   }
   box.innerHTML = html;
+  if ($("#correction-field", box)) renderCorrection();
   const input = $("#p-text", box);
   if (input) input.focus();
+}
+
+function renderCorrection() {
+  const field = state.correctionFields[Number($("#correction-field").value)];
+  const control = ["select", "radio", "yesno"].includes(field.kind)
+    ? `<select id="correction-value">${[...new Set([field.actual || "", ...(field.options || [])])].map((option) =>
+      `<option value="${esc(option)}">${esc(option || "Choose an answer")}</option>`).join("")}</select>`
+    : field.kind === "textarea"
+    ? `<textarea id="correction-value" rows="3">${esc(field.actual)}</textarea>`
+    : `<input id="correction-value" type="text" value="${esc(field.actual)}">`;
+  $("#correction-control").innerHTML = control;
+  $("#correction-status").textContent = "";
 }
 
 async function answerPrompt(raw) {
   const p = state.run && state.run.prompt;
   if (!p || (raw === "submit" && (p.dry_run || !p.choices?.includes("submit")))) return;
   let value = null;
-  if (raw === "text") value = $("#p-text").value;
+  if (raw === "text") {
+    value = $("#p-text").value;
+    if (p.kind === "code" && !value.trim()) {
+      alertInline($("#prompt"), "Enter the verification code from your email.");
+      return;
+    }
+  }
   else if (raw === "true") value = true;
   else if (raw === "false") value = false;
   else if (raw !== "null") value = /^\d+$/.test(raw) && p.kind === "ask" ? Number(raw) : raw;
@@ -708,16 +940,20 @@ async function answerPrompt(raw) {
 }
 
 // ---------- applications ----------
-async function loadApps() {
-  const params = new URLSearchParams({ q: $("#apps-q").value, status: $("#apps-status").value });
-  state.apps = await api("applications?" + params);
-  renderApps();
+async function loadApps(append = false) {
+  const [sort, dir] = state.appSort;
+  const params = new URLSearchParams({ q: $("#apps-q").value, status: $("#apps-status").value,
+    page: "1", sort, direction: dir === 1 ? "asc" : "desc" });
+  await loadTablePage("apps", params, append, (page) => {
+    state.apps = page.rows;
+    renderApps();
+  });
 }
 
 function renderApps() {
-  const rows = sortRows(state.apps, state.appSort);
+  const rows = state.appsPage?.paged ? state.apps : sortRows(state.apps, state.appSort);
   markSorted($("#apps-table"), state.appSort);
-  $("#apps-count").textContent = `${rows.length} application${rows.length === 1 ? "" : "s"}`;
+  $("#apps-count").textContent = state.appsPage?.next_offset != null ? `${rows.length} of ${state.appsPage.total} applications` : `${rows.length} application${rows.length === 1 ? "" : "s"}`;
   $("#apps-table tbody").innerHTML = rows.length ? rows.map((a) => `<tr class="clickable" data-app="${a.id}">
       <td class="num">${a.id}</td><td>${esc(a.company)}</td>
       <td class="role">${a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>` : esc(a.title)}
@@ -731,7 +967,7 @@ function renderApps() {
 
 async function openApp(id) {
   const a = await api("applications/" + id);
-  const statuses = state.summary.statuses.map((s) => `<option ${s === a.status ? "selected" : ""}>${esc(s)}</option>`).join("");
+  const statuses = (state.summary?.statuses || ["shortlisted", "applied", "assessment", "interview", "offer", "rejected", "withdrawn", "ghosted"]).map((s) => `<option ${s === a.status ? "selected" : ""}>${esc(s)}</option>`).join("");
   const history = a.events.map((e) => `<li>${esc(e.at.replace("T", " "))} · <b>${esc(e.status)}</b> ${esc(e.note || "")}</li>`).join("");
   openDialog(`<h2>${esc(a.company)} — ${esc(a.title)}</h2>
     <div class="muted">${esc(a.location || "")} ${a.applied_on ? "· applied " + esc(a.applied_on) : ""} · via ${esc(a.source || "?")}</div>
@@ -751,13 +987,14 @@ async function openApp(id) {
         await api(`applications/${id}/edit`, { company: form.company.value, title: form.title.value, url: form.url.value });
       if (form.status.value !== a.status) await api(`applications/${id}/status`, { status: form.status.value, note: form.change_note.value });
       if (form.note.value !== (a.notes || "")) await api(`applications/${id}/note`, { note: form.note.value });
-      await Promise.all([loadApps(), loadSummary()]);
+      await loadApps();
+      refreshCounts();
       state.allJobs = null;   // matching may have changed
     });
 }
 
 function addApp() {
-  const statuses = state.summary.statuses.map((s) => `<option ${s === "applied" ? "selected" : ""}>${esc(s)}</option>`).join("");
+  const statuses = (state.summary?.statuses || ["shortlisted", "applied", "assessment", "interview", "offer", "rejected", "withdrawn", "ghosted"]).map((s) => `<option ${s === "applied" ? "selected" : ""}>${esc(s)}</option>`).join("");
   openDialog(`<h2>Add an application</h2>
     <p class="muted">For roles you applied to outside jobbot, so it never reopens them.</p>
     <div class="row"><label>Company</label><input type="text" name="company" required></div>
@@ -770,7 +1007,8 @@ function addApp() {
     async (form) => {
       await api("applications", { company: form.company.value, title: form.title.value, url: form.url.value,
         applied_on: form.applied_on.value, status: form.status.value, note: form.note.value });
-      await Promise.all([loadApps(), loadSummary()]);
+      await loadApps();
+      refreshCounts();
     });
 }
 
@@ -876,8 +1114,8 @@ async function loadTasks() {
     if (!active.length && state.polling) {
       clearInterval(state.polling);
       state.polling = null;
-      await loadSummary();
-      if (state.tab === "jobs") await loadJobs();
+      await loadWorkspace();
+      if (state.tab === "jobs") { await loadJobs(); refreshCounts(); }
     }
   } catch (e) {
     alertInline($("#tasks"), e.message);
@@ -1257,7 +1495,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("#gmail-disconnect").addEventListener("click", async () => {
     if (!confirm("Disconnect Gmail and revoke Jobbot’s access?")) return;
-    try { await api("account/gmail/disconnect", {}); await loadSummary(); }
+    try { await api("account/gmail/disconnect", {}); await loadWorkspace(); }
     catch (e) { alertInline($("#gmail-text"), e.message); }
   });
   $("#resume-list").addEventListener("click", changeResume);
@@ -1312,14 +1550,48 @@ document.addEventListener("DOMContentLoaded", async () => {
     showTab(link.dataset.go);
     tabs.find((tab) => tab.dataset.tab === link.dataset.go)?.focus();
   });
-  const reloadJobs = debounce(loadJobs);
+  const tableAction = (name, load) => load().catch((error) => alertInline($("#" + name + "-page-controls"), error.message));
+  const reloadJobs = debounce(() => tableAction("jobs", loadJobs));
+  $("#jobs-more").addEventListener("click", () => tableAction("jobs", () => loadJobs(true)));
+  $("#apps-more").addEventListener("click", () => tableAction("apps", () => loadApps(true)));
   ["#jobs-q", "#jobs-min"].forEach((s) => $(s).addEventListener("input", reloadJobs));
   $("#notdup-selected").addEventListener("click", markNotDuplicates);
   $("#jobs-views").addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-view]");
-    if (b) { state.view = b.dataset.view; renderJobs(); }
+    if (b) { state.view = b.dataset.view; tableAction("jobs", loadJobs); }
   });
-  $("#jobs-table tbody").addEventListener("change", (ev) => {
+  $("#fill-script").addEventListener("click", () => showFillScript().catch((error) => alertInline($("#jobs-page-controls"), error.message)));
+  $("#copy-fill-script").addEventListener("click", async () => {
+    const dialog = $("#fill-script-dialog");
+    const source = $("textarea", dialog);
+    const status = $("[role=status]", dialog);
+    try {
+      await navigator.clipboard.writeText(source.value);
+      status.textContent = "Copied.";
+    } catch {
+      source.select();
+      status.textContent = "Use your browser’s copy shortcut.";
+    }
+  });
+  $("#jobs-table tbody").addEventListener("change", async (ev) => {
+    const applied = ev.target.closest("input[data-mark-applied]");
+    if (applied) {
+      if (!applied.checked) return;
+      applied.disabled = true;
+      const id = applied.dataset.markApplied;
+      try {
+        await api(`jobs/${id}/mark-applied`, {});
+      } catch (error) {
+        applied.checked = applied.disabled = false;
+        alertInline($("#jobs-page-controls"), error.message);
+        return;
+      }
+      state.selected.delete(id);
+      updateSelection();
+      await tableAction("jobs", loadJobs);
+      refreshCounts();
+      return;
+    }
     const cb = ev.target.closest("input[data-select]");
     if (!cb) return;
     cb.checked ? state.selected.add(cb.dataset.select) : state.selected.delete(cb.dataset.select);
@@ -1332,7 +1604,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#sel-top-n").value = recall("topN") || 10;
   $("#sel-top").addEventListener("click", () => selectTop(Math.max(1, parseInt($("#sel-top-n").value, 10) || 10)));
   $("#sel-all-box").addEventListener("change", (ev) => selectAll(ev.target.checked));
-  $("#prompt").addEventListener("click", (ev) => {
+  $("#prompt").addEventListener("change", (ev) => {
+    if (ev.target.id === "correction-field") renderCorrection();
+  });
+  $("#prompt").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.target.id === "p-text" && state.run?.prompt?.kind === "code") {
+      event.preventDefault();
+      if (!$("#prompt button[data-answer='text']").disabled) answerPrompt("text");
+    }
+  });
+  $("#prompt").addEventListener("click", async (ev) => {
     const review = ev.target.closest("[data-submit-review], [data-submit-back]");
     if (review) {
       const confirm = $("[data-submit-confirm]", $("#prompt"));
@@ -1344,31 +1625,57 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (b) answerPrompt(b.dataset.answer);
     const correction = ev.target.closest("button[data-correct]");
     if (correction) {
-      const p = state.run.prompt;
-      $$("#prompt button").forEach((b) => b.disabled = true);
-      api("apply/answer", {prompt_id:p.id, value:{action:"correct", field:correction.dataset.correct, value:$("#" + correction.dataset.input).value}}).then(loadRun).catch((e) => { correction.disabled=false; $("#prompt").insertAdjacentHTML("beforeend", `<p role="alert">${esc(e.message)}</p>`); });
+      const p = state.run?.prompt;
+      if (!p) return;
+      const picker = $("#correction-field");
+      const input = $("#correction-value");
+      const status = $("#correction-status");
+      const field = state.correctionFields[Number(picker.value)];
+      const controls = $$("#prompt button, #prompt select, #prompt input, #prompt textarea").filter((el) => !el.disabled);
+      controls.forEach((el) => { el.disabled = true; });
+      status.textContent = "Saving and re-checking…";
+      try {
+        await api("apply/answer", {prompt_id: p.id, value: {action: "correct", field: field.id, value: input.value}});
+        await loadRun();
+      } catch (error) {
+        status.textContent = error.message;
+        controls.forEach((el) => { el.disabled = false; });
+      }
     }
   });
-  $("#run-stop").addEventListener("click", async () => { await api("apply/stop", {}); loadRun(); });
+  $("#run-stop").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await api("apply/stop", {});
+      await loadRun();
+    } catch (error) {
+      alertInline(button.parentElement, error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
   $("#jobs-table tbody").addEventListener("click", async (ev) => {
     const b = ev.target.closest("button[data-job]");
     if (!b) return;
     await api(`jobs/${b.dataset.job}/${b.dataset.act}`, {});
-    await Promise.all([loadJobs(), loadSummary()]);
+    await loadJobs();
+    refreshCounts();
   });
-  $("#apps-q").addEventListener("input", debounce(loadApps));
-  $("#apps-status").addEventListener("change", loadApps);
+  $("#apps-q").addEventListener("input", debounce(() => tableAction("apps", loadApps)));
+  $("#apps-status").addEventListener("change", () => tableAction("apps", loadApps));
   $("#apps-add").addEventListener("click", addApp);
   $("#apps-table tbody").addEventListener("click", (ev) => {
     if (ev.target.closest("a")) return;
     const tr = ev.target.closest("tr[data-app]");
     if (tr) openApp(tr.dataset.app);
   });
-  for (const [table, key, render] of [["#jobs-table", "jobSort", renderJobs], ["#apps-table", "appSort", renderApps]]) {
+  for (const [name, key, load] of [["jobs", "jobSort", loadJobs], ["apps", "appSort", loadApps]]) {
+    const table = "#" + name + "-table";
     $$(`${table} th[data-sort]`).forEach((th) => th.addEventListener("click", () => {
       const [cur, dir] = state[key];
       state[key] = [th.dataset.sort, cur === th.dataset.sort ? -dir : -1];
-      render();
+      tableAction(name, load);
     }));
   }
   $$("[data-task]").forEach((b) => b.addEventListener("click", () => startTask(b.dataset.task)));
@@ -1423,8 +1730,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#profile-save").addEventListener("click", saveProfile);
 
   showTab(tabs.some((tab) => tab.dataset.tab === recall("tab")) ? recall("tab") : "jobs");   // before any await, so a tab you click while it loads stays chosen
-  await loadSummary();
-  loadRun();
-  // Keeps the counts fresh and notices a restarted or stopped dashboard even when nothing else polls.
-  setInterval(() => { if (!document.hidden) loadSummary().catch(() => {}); }, 30000);   // picks up a run that is already in progress (and keeps polling while it is)
+  loadWorkspace().catch(() => { $("#status").textContent = "Workspace status unavailable."; });
+  if (state.tab !== "apply") loadRun();
 });

@@ -91,7 +91,7 @@ account's profile and uploaded resumes. Install the browser in the Codespace or 
 ./jobbot.sh ui
 ```
 
-Select a role in **Jobs** and choose **Dry run** or **Fill for review**. Follow the page preview,
+Select a role in **Jobs** and choose **Dry run** or **Fill for review**. In a live run, use **Take control** to click Next, Verify, or Submit on the employer page. Return control so Jobbot can read the resulting page. Follow the page preview,
 filled answers, and prompts in **Runs**. Dry runs never submit. Live runs require manual approval before Jobbot submits unless you enable **Auto-apply to selected roles**. In a live run, **Take control** opens the current Chromium page when
 Jobbot pauses for review, sign-in, or CAPTCHA. Click, scroll, or type in the view. **Return control
 and recheck** reads the current page without overwriting manual edits. During takeover you are
@@ -101,7 +101,7 @@ If the employer blocks the hosted browser or requires an unsupported interaction
 employer site.
 
 Browser sessions are temporary. MongoDB keeps run outcomes, but not screenshots or field audit
-history. Learned answers from hosted runs are not saved back to the profile. The **Logs** tab is
+history. Reusable answers you enter during hosted live runs are saved under `learned_answers` in your account profile. Optional fields without a known answer stay blank. The **Logs** tab is
 for local browser logs. Use **Runs** for hosted browser progress and **Actions** for task output.
 The local tracker remains separate, and hosted browser runs start from the dashboard.
 

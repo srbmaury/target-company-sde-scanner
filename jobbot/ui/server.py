@@ -14,6 +14,7 @@ import binascii
 import datetime as dt
 import errno
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -22,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,6 +34,8 @@ import yaml
 from .. import accounts, gmail, paths, profile as profile_mod, tracker
 from pymongo.errors import PyMongoError
 from . import bridge
+
+LOGGER = logging.getLogger(__name__)
 
 STATIC = Path(__file__).resolve().parent / "static"
 TASKS = {}            # id -> {"cmd", "status", "lines", "started", "ended"}
@@ -67,17 +71,17 @@ def jobs_payload(conn, params):
     include_applied = params.get("include_applied") == "1"
     include_dismissed = params.get("include_dismissed") == "1"
     rows = tracker.list_jobs(conn, include_applied=True, include_dismissed=include_dismissed, include_gone=True)
-    apps = conn.execute("SELECT * FROM applications").fetchall()
+    match = tracker.job_matcher(conn)
     q = (params.get("q") or "").lower()
     min_fit = int(params["min_fit"]) if params.get("min_fit", "").isdigit() else None
     out = []
     for r in rows:
-        level, app = tracker.job_level(conn, r, apps)
-        if level in ("exact", "likely") and not include_applied:
-            continue
         if q and q not in f"{r['company']} {r['title']} {r['location']} {r['ats'] or ''}".lower():
             continue
         if min_fit is not None and (r["fit_score"] or 0) < min_fit:
+            continue
+        level, app = match(r)
+        if level in ("exact", "likely") and not include_applied:
             continue
         item = {k: r[k] for k in ("n", "url", "company", "title", "location", "ats", "experience", "evidence",
                                   "posted", "first_seen", "fit_score", "fit_resume", "fit_reason", "dismissed",
@@ -91,17 +95,56 @@ def jobs_payload(conn, params):
     return out
 
 
+def table_page(rows, params, columns, default_sort):
+    """Bound the response after sorting the full filtered result."""
+    column = params.get("sort", default_sort)
+    if column not in columns:
+        raise ValueError("Invalid sort column.")
+    descending = params.get("direction", "desc") == "desc"
+    def sort_key(row):
+        value = row[column]
+        return (value is not None, value or 0) if column in ("n", "id", "fit_score") else str(value or "").casefold()
+    rows.sort(key=sort_key, reverse=descending)
+    offset = max(0, int(params.get("offset", "0")))
+    end = offset + 50
+    return {"rows": rows[offset:end], "total": len(rows),
+            "next_offset": end if end < len(rows) else None}
+
+
+def jobs_page(rows, params):
+    def view(job):
+        if job["dismissed"]:
+            return "dismissed"
+        if job["applied"] in ("exact", "likely"):
+            return "applied"
+        if job["excluded"] and not job["gone"]:
+            return "excluded"
+        if job["applied"] == "possible":
+            return "possible" if not job["gone"] else None
+        return "gone" if job["gone"] else "new"
+
+    counts = {"all": len(rows)}
+    selected = params["view"]
+    matching = []
+    for job in rows:
+        bucket = view(job)
+        if bucket:
+            counts[bucket] = counts.get(bucket, 0) + 1
+        if selected == "all" or selected == bucket:
+            matching.append(job)
+    return {**table_page(matching, params, {"n", "fit_score", "company", "title", "location", "experience"},
+                         "fit_score"), "counts": counts}
+
+
 def _new_jobs(conn):
     """Roles you can apply to: not dismissed, not applied, not possibly applied, not at an excluded company."""
     from ..apply.runner import excluded
-    apps, exclude = conn.execute("SELECT * FROM applications").fetchall(), _excluded_companies()
+    match, exclude = tracker.job_matcher(conn), _excluded_companies()
     return sum(1 for r in tracker.list_jobs(conn, include_applied=True)
-               if tracker.job_level(conn, r, apps)[0] is None and not excluded(r["company"], exclude))
+               if not excluded(r["company"], exclude) and match(r)[0] is None)
 
 
 def summary_payload(conn):
-    from .. import llm
-
     stats = tracker.stats(conn)
     total = sum(stats.values())
     responded = sum(stats.get(k, 0) for k in ("assessment", "interview", "offer", "rejected"))
@@ -110,13 +153,23 @@ def summary_payload(conn):
         "response_rate": round(100 * responded / total) if total else 0,
         "interview_rate": round(100 * (stats.get("interview", 0) + stats.get("offer", 0)) / total) if total else 0,
         "open_jobs": _new_jobs(conn),
-        "gmail": gmail.is_connected(),
-        "account": accounts.enabled(),
+    }
+
+
+def workspace_payload(account):
+    from .. import llm
+
+    try:
+        connected = account.get_json("gmail") is not None if account else gmail.is_connected()
+    except (PyMongoError, accounts.AccountError, ValueError):
+        connected = None
+    return {
+        "gmail": connected,
+        "account": account is not None,
         "employer_password_configured": bool(os.getenv("JOBBOT_EMPLOYER_PASSWORD")),
         "llm_provider": llm.DEFAULT_PROVIDER,
         "llm_model": llm.OPENAI_MODEL if llm.DEFAULT_PROVIDER == "openai" else llm.DEFAULT_MODEL,
         "llm_available": llm.LLM.available(),
-        "ollama": llm.LLM.available("ollama"),
         "profile": str(paths.PROFILE),
         "statuses": list(tracker.STATUSES),
     }
@@ -475,20 +528,24 @@ class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json; charset=utf-8", headers=(), frameable=False):
         data = body if isinstance(body, bytes) else (json.dumps(body, default=str) if ctype.startswith("application/json")
                                                     else body).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "no-referrer")
-        for name, value in headers:
-            self.send_header(name, value)
-        self.send_header("Content-Security-Policy",
-                         "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
-                         + ("frame-ancestors 'self'; script-src 'none'; " if frameable else "frame-ancestors 'none'; ")
-                         + "base-uri 'none'")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            for name, value in headers:
+                self.send_header(name, value)
+            self.send_header("Content-Security-Policy",
+                             "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+                             + ("frame-ancestors 'self'; script-src 'none'; " if frameable else "frame-ancestors 'none'; ")
+                             + "base-uri 'none'")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            # The browser or forwarding proxy closed the response while we were writing it.
+            self.close_connection = True
 
     def _json_body(self, limit=2_000_000):
         length = int(self.headers.get("Content-Length") or 0)
@@ -501,6 +558,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._get()
         except (PyMongoError, accounts.AccountError):
             return self._send(503, {"error": "Account storage is unavailable. Try again shortly."})
+        except ValueError as exc:
+            return self._send(400, {"error": str(exc)})
 
     def _get(self):
         if not self._allowed_host():
@@ -527,9 +586,9 @@ class Handler(BaseHTTPRequestHandler):
                               [("Content-Disposition", f'{mode}; filename="{key}.pdf"')], frameable=True)
         if not url.path.startswith("/api/"):
             return self._static(url.path)
-        if not self._authorized():
+        if not secrets.compare_digest(self.headers.get("X-Jobbot-Token", ""), self.token):
             return self._send(403, {"error": "missing or wrong token"})
-        params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+        params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query, keep_blank_values=True).items()}
         parts = url.path.strip("/").split("/")[1:]
         if self.account and len(parts) == 4 and parts[:3] == ["account", "resume", "pdf"]:
             key = parts[3]
@@ -552,53 +611,94 @@ class Handler(BaseHTTPRequestHandler):
                                     if isinstance(resumes, dict) else []})
         if self.account and parts == ["logs"]:
             return self._send(200, {"dates": [], "date": "", "lines": []})
-        conn = tracker.connect()
+        if parts == ["fill-script-fields"]:
+            if self.account:
+                raw, _ = self.account.read("profile")
+                candidate = profile_mod.Profile(yaml.safe_load(raw or profile_mod.ACCOUNT_PROFILE), paths.PROFILE)
+            else:
+                candidate = profile_mod.load()
+            keys = {"given-name": "personal.first_name", "family-name": "personal.last_name",
+                    "name": "personal.full_name", "email": "personal.email", "tel": "personal.phone",
+                    "address-line1": "personal.address_line1", "postal-code": "personal.postal_code"}
+            return self._send(200, {field: str(value) for field, key in keys.items()
+                                    if (value := candidate.get(key))} | {"name": candidate.full_name})
+        if parts == ["workspace"]:
+            return self._send(200, workspace_payload(self.account))
+        if parts == ["docs"]:
+            return self._send(200, docs_index())
+        if len(parts) == 2 and parts[0] == "docs":
+            page = doc_page(parts[1])
+            return self._send(200, page) if page else self._send(404, {"error": "no such page"})
+        if parts == ["logs"]:
+            dates = log_dates()
+            day = params.get("date") or (dates[0] if dates else "")
+            path = paths.HOME / "logs" / f"{day}.log"
+            text = path.read_text(encoding="utf-8") if day and re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) \
+                and path.exists() else ""
+            return self._send(200, {"dates": dates, "date": day, "lines": text.splitlines()[-2000:]})
+        if parts == ["profile"]:
+            path = paths.PROFILE
+            return self._send(200, {"path": str(path), "text": path.read_text(encoding="utf-8") if path.exists() else "",
+                                    "mtime": str(path.stat().st_mtime_ns) if path.exists() else ""})
+        if parts == ["tasks"]:
+            return self._send(200, sorted(TASKS.copy().values(), key=lambda t: (t["status"] == "running", t["started"]), reverse=True)[:20])
+        if parts == ["apply"]:
+            run = bridge.current(self.account)
+            if run:
+                return self._send(200, run.snapshot())
+            if params.get("live") == "1":
+                return self._send(200, {"status": "idle"})
+            last = bridge.latest_saved_run(self.account)
+            return self._send(200, {**last, "history": True} if last else {"status": "idle"})
+        if parts == ["runs"]:
+            return self._send(200, bridge.history(self.account))
+        if len(parts) == 2 and parts[0] == "runs":
+            saved = bridge.saved_run(parts[1], self.account)
+            return self._send(200, {**saved, "history": True}) if saved else self._send(404, {"error": "no such run"})
+        if len(parts) == 2 and parts[0] == "tasks":
+            task = TASKS.get(parts[1])
+            return self._send(200, task) if task else self._send(404, {"error": "no such task"})
+        if parts not in (["summary"], ["jobs"], ["applications"]) and not (
+            len(parts) == 2 and parts[0] == "applications" and parts[1].isdigit()
+        ):
+            return self._send(404, {"error": "not found"})
+        started = time.monotonic()
+        try:
+            conn = tracker.connect(account=self.account)
+        except (PyMongoError, accounts.AccountError) as exc:
+            LOGGER.warning("Tracker read failed after %.1fs (%s)", time.monotonic() - started, type(exc).__name__)
+            message = (str(exc) if isinstance(exc, accounts.AccountError) else
+                       "MongoDB timed out while loading the tracker." if exc.timeout else
+                       "MongoDB could not load the tracker.")
+            return self._send(503, {"error": message})
+        elapsed = time.monotonic() - started
+        if elapsed >= 2:
+            LOGGER.info("Tracker opened in %.1fs", elapsed)
         try:
             if parts == ["summary"]:
-                return self._send(200, summary_payload(conn))
+                counts = summary_payload(conn)
+                return self._send(200, counts if params.get("counts") == "1"
+                                  else {**counts, **workspace_payload(self.account)})
+            version = getattr(conn, "version", None)
+            if "version" in params and params["version"] != version:
+                return self._send(409, {"error": "The tracker changed. Refresh the list to continue."})
             if parts == ["jobs"]:
-                return self._send(200, jobs_payload(conn, params))
+                rows = jobs_payload(conn, params)
+                if "view" in params:
+                    rows = {**jobs_page(rows, params), "version": version}
+                return self._send(200, rows)
             if parts == ["applications"]:
-                rows = tracker.list_applications(conn, status=params.get("status") or None,
-                                                 company=params.get("q") or None)
-                return self._send(200, [_row(r) for r in rows])
+                rows = [_row(r) for r in tracker.list_applications(conn, status=params.get("status") or None,
+                                                                   company=params.get("q") or None)]
+                if params.get("page") == "1":
+                    rows = {**table_page(rows, params, {"id", "company", "title", "status", "resume", "applied_on",
+                                                       "updated_on", "source"}, "applied_on"), "version": version}
+                return self._send(200, rows)
             if len(parts) == 2 and parts[0] == "applications" and parts[1].isdigit():
                 app = tracker.find_application(conn, parts[1])
                 if not app:
                     return self._send(404, {"error": "no such application"})
                 return self._send(200, {**_row(app), "events": [_row(e) for e in tracker.events_for(conn, app["id"])]})
-            if parts == ["docs"]:
-                return self._send(200, docs_index())
-            if len(parts) == 2 and parts[0] == "docs":
-                page = doc_page(parts[1])
-                return self._send(200, page) if page else self._send(404, {"error": "no such page"})
-            if parts == ["logs"]:
-                dates = log_dates()
-                day = params.get("date") or (dates[0] if dates else "")
-                path = paths.HOME / "logs" / f"{day}.log"
-                text = path.read_text(encoding="utf-8") if day and re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) \
-                    and path.exists() else ""
-                return self._send(200, {"dates": dates, "date": day, "lines": text.splitlines()[-2000:]})
-            if parts == ["profile"]:
-                path = paths.PROFILE
-                return self._send(200, {"path": str(path), "text": path.read_text(encoding="utf-8") if path.exists() else "",
-                                        "mtime": str(path.stat().st_mtime_ns) if path.exists() else ""})
-            if parts == ["tasks"]:
-                return self._send(200, sorted(TASKS.copy().values(), key=lambda t: (t["status"] == "running", t["started"]), reverse=True)[:20])
-            if parts == ["apply"]:
-                run = bridge.current(self.account)
-                if run:
-                    return self._send(200, run.snapshot())
-                last = bridge.latest_saved_run(self.account)
-                return self._send(200, {**last, "history": True} if last else {"status": "idle"})
-            if parts == ["runs"]:
-                return self._send(200, bridge.history(self.account))
-            if len(parts) == 2 and parts[0] == "runs":
-                saved = bridge.saved_run(parts[1], self.account)
-                return self._send(200, {**saved, "history": True}) if saved else self._send(404, {"error": "no such run"})
-            if len(parts) == 2 and parts[0] == "tasks":
-                task = TASKS.get(parts[1])
-                return self._send(200, task) if task else self._send(404, {"error": "no such task"})
             return self._send(404, {"error": "not found"})
         finally:
             conn.close()
@@ -633,9 +733,70 @@ class Handler(BaseHTTPRequestHandler):
             if not run:
                 return self._send(404, {"error": "No hosted browser run."})
             return self._send(200, run.control(self._json_body(48_000)))
-        conn = tracker.connect()
+        body = self._json_body()
+        if parts == ["profile"]:
+            text = body.get("text", "")
+            data = yaml.safe_load(text)   # refuse to save YAML that does not parse
+            if not isinstance(data, dict) or "personal" not in data:
+                return self._send(400, {"error": "The profile must be a YAML mapping with a `personal` section."})
+            try:
+                profile_mod.Profile(data, paths.PROFILE).scan_experience()
+            except profile_mod.ProfileError as exc:
+                return self._send(400, {"error": str(exc)})
+            if self.account:
+                if not isinstance(body.get("mtime"), str):
+                    return self._send(400, {"error": "Reload the account profile before saving."})
+                version = self.account.write("profile", text.encode(), expected=body["mtime"])
+                resumes = data.get("resumes")
+                return self._send(200, {"ok": True, "mtime": version,
+                                        "resume_keys": [key for key in resumes if profile_mod.valid_resume_key(key)]
+                                        if isinstance(resumes, dict) else []})
+            if paths.PROFILE.exists() and body.get("mtime") and str(body["mtime"]) != str(paths.PROFILE.stat().st_mtime_ns):
+                # e.g. an apply run saved a learned answer since you opened the page: don't overwrite it.
+                # (sent as a string: nanosecond timestamps are too large for JavaScript numbers)
+                return self._send(409, {"error": "profile.yaml changed on disk since you opened it (an apply run may "
+                                                 "have saved a learned answer). Copy your edits, reload, and save again."})
+            if paths.PROFILE.exists():
+                shutil.copy(paths.PROFILE, paths.PROFILE.with_suffix(".yaml.bak"))
+            paths.PROFILE.write_text(text, encoding="utf-8")
+            os.chmod(paths.PROFILE, 0o600)
+            return self._send(200, {"ok": True, "mtime": str(paths.PROFILE.stat().st_mtime_ns)})
+        if len(parts) == 2 and parts[0] == "tasks":
+            return self._send(200, start_task(parts[1]))
+        if parts == ["apply"]:
+            keys = [str(k) for k in body.get("jobs", []) if str(k).strip()]
+            if not keys:
+                return self._send(400, {"error": "Choose at least one role."})
+            run = bridge.start(keys, dry_run=bool(body.get("dry_run")), auto_next=body.get("auto_next", True),
+                               resume=body.get("resume") or None, use_llm=body.get("llm", True) is not False,
+                               force=bool(body.get("force")), unattended=bool(body.get("unattended")),
+                               validation=bool(body.get("validation")), auto_submit=bool(body.get("auto_submit")),
+                               account=self.account)
+            return self._send(200, run.snapshot())
+        if parts == ["apply", "answer"]:
+            run = bridge.current(self.account)
+            if not run:
+                return self._send(400, {"error": "No apply run."})
+            run.answer(body.get("prompt_id"), body.get("value"))
+            return self._send(200, {"ok": True})
+        if parts == ["apply", "stop"]:
+            run = bridge.current(self.account)
+            if run:
+                run.stop()
+            return self._send(200, {"ok": True})
+        if parts[:1] not in (["jobs"], ["applications"]):
+            return self._send(404, {"error": "not found"})
+        conn = tracker.connect(account=self.account)
         try:
-            body = self._json_body()
+            if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "mark-applied":
+                job = tracker.get_job(conn, parts[1])
+                if not job:
+                    return self._send(404, {"error": "no such job"})
+                existing = tracker.find_application(conn, job["url"])
+                if existing is None or existing["status"] == "shortlisted":
+                    existing = tracker.add_application(conn, job["company"], job["title"], url=job["url"],
+                                                       location=job["location"], source="dashboard")
+                return self._send(200, _row(existing))
             if len(parts) == 3 and parts[0] == "jobs" and parts[2] in ("not-duplicate", "maybe-duplicate"):
                 job = tracker.set_not_duplicate(conn, parts[1], parts[2] == "not-duplicate")
                 return self._send(200, {"ok": True}) if job else self._send(404, {"error": "no such job"})
@@ -672,56 +833,6 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("INSERT INTO events (application_id, at, status, note) VALUES (?,?,?,?)",
                              (app["id"], tracker.now(), app["status"], f"note: {note[:200]}"))
                 conn.commit()
-                return self._send(200, {"ok": True})
-            if parts == ["profile"]:
-                text = body.get("text", "")
-                data = yaml.safe_load(text)   # refuse to save YAML that does not parse
-                if not isinstance(data, dict) or "personal" not in data:
-                    return self._send(400, {"error": "The profile must be a YAML mapping with a `personal` section."})
-                try:
-                    profile_mod.Profile(data, paths.PROFILE).scan_experience()
-                except profile_mod.ProfileError as exc:
-                    return self._send(400, {"error": str(exc)})
-                if self.account:
-                    if not isinstance(body.get("mtime"), str):
-                        return self._send(400, {"error": "Reload the account profile before saving."})
-                    version = self.account.write("profile", text.encode(), expected=body["mtime"])
-                    resumes = data.get("resumes")
-                    return self._send(200, {"ok": True, "mtime": version,
-                                            "resume_keys": [key for key in resumes if profile_mod.valid_resume_key(key)]
-                                            if isinstance(resumes, dict) else []})
-                if paths.PROFILE.exists() and body.get("mtime") and str(body["mtime"]) != str(paths.PROFILE.stat().st_mtime_ns):
-                    # e.g. an apply run saved a learned answer since you opened the page: don't overwrite it.
-                    # (sent as a string: nanosecond timestamps are too large for JavaScript numbers)
-                    return self._send(409, {"error": "profile.yaml changed on disk since you opened it (an apply run may "
-                                                     "have saved a learned answer). Copy your edits, reload, and save again."})
-                if paths.PROFILE.exists():
-                    shutil.copy(paths.PROFILE, paths.PROFILE.with_suffix(".yaml.bak"))
-                paths.PROFILE.write_text(text, encoding="utf-8")
-                os.chmod(paths.PROFILE, 0o600)
-                return self._send(200, {"ok": True, "mtime": str(paths.PROFILE.stat().st_mtime_ns)})
-            if len(parts) == 2 and parts[0] == "tasks":
-                return self._send(200, start_task(parts[1]))
-            if parts == ["apply"]:
-                keys = [str(k) for k in body.get("jobs", []) if str(k).strip()]
-                if not keys:
-                    return self._send(400, {"error": "Choose at least one role."})
-                run = bridge.start(keys, dry_run=bool(body.get("dry_run")), auto_next=body.get("auto_next", True),
-                                   resume=body.get("resume") or None, use_llm=body.get("llm", True) is not False,
-                                   force=bool(body.get("force")), unattended=bool(body.get("unattended")),
-                                   validation=bool(body.get("validation")), auto_submit=bool(body.get("auto_submit")),
-                                   account=self.account)
-                return self._send(200, run.snapshot())
-            if parts == ["apply", "answer"]:
-                run = bridge.current(self.account)
-                if not run:
-                    return self._send(400, {"error": "No apply run."})
-                run.answer(body.get("prompt_id"), body.get("value"))
-                return self._send(200, {"ok": True})
-            if parts == ["apply", "stop"]:
-                run = bridge.current(self.account)
-                if run:
-                    run.stop()
                 return self._send(200, {"ok": True})
             return self._send(404, {"error": "not found"})
         except (KeyError, ValueError, yaml.YAMLError) as e:
