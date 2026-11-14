@@ -56,7 +56,7 @@ class DashboardUITests(unittest.TestCase):
                   "dry_run": self.dry_run, "choices": ["submit", "quit"], "interactive": self.hosted}
         run = {"status": "waiting", "current": 0, "jobs": [JOB], "events": [], "results": {},
                "prompt": prompt, "dry_run": self.dry_run,
-               "audits": [{"job": JOB, "step": 1, "fields": [{"label": "Work location", "actual": "Bengaluru",
+               "audits": [{"job": JOB, "step": 1, "fields": [{"id": "location", "kind": "text", "label": "Work location", "actual": "Bengaluru",
                                                             "answer_source": "Profile"}]}]}
         fixtures = {
             "/api/summary": summary, "/api/workspace": summary, "/api/jobs": [JOB], "/api/tasks": self.tasks,
@@ -140,6 +140,20 @@ class DashboardUITests(unittest.TestCase):
         self.assertEqual(self.answers, [{"prompt_id": "example", "value": "submit"}])
         self.assertEqual(self.errors, [])
 
+    def test_correction_editor_sends_only_the_selected_field(self):
+        self.active = True
+        self.open()
+        self.page.locator("#nav-apply").click()
+        self.page.get_by_text("Edit a field", exact=True).click()
+        expect(self.page.locator("#correction-field")).to_be_visible()
+        expect(self.page.locator("#correction-value")).to_have_value("Bengaluru")
+        self.page.locator("#correction-value").fill("Hyderabad")
+        self.page.get_by_role("button", name="Save and re-check").click()
+        expect(self.page.locator("#run-title")).to_have_text("No runs yet")
+        self.assertEqual(self.answers, [{"prompt_id": "example", "value": {
+            "action": "correct", "field": "location", "value": "Hyderabad"}}])
+        self.assertEqual(self.errors, [])
+
     def test_dry_run_never_shows_submit(self):
         self.open()
         self.page.locator("[data-select]").check()
@@ -156,10 +170,18 @@ class DashboardUITests(unittest.TestCase):
         self.page.get_by_role("button", name="Take control").click()
         expect(self.page.get_by_text("You have control. Jobbot is paused.")).to_be_visible()
         self.page.locator("#live-image").click(position={"x": 15, "y": 15})
+        frame = self.page.locator("#live-image")
+        frame.hover()
+        self.page.mouse.wheel(0, 300)
+        expect(self.page.locator("#live-send")).to_be_enabled()
+        expect(self.page.locator("#live-input")).to_have_attribute("type", "text")
+        self.page.get_by_label("Hide text").check()
+        expect(self.page.locator("#live-input")).to_have_attribute("type", "password")
+        self.page.get_by_label("Hide text").uncheck()
         self.page.locator("#live-input").fill("Bengaluru")
         self.page.get_by_role("button", name="Type text").click()
         self.page.get_by_role("button", name="Return control and recheck").click()
         expect(self.page.get_by_text("No hosted run yet")).to_be_visible()
-        self.assertEqual([a for a in self.browser_actions if a != "frame"], ["open", "click", "text", "release"])
+        self.assertEqual([a for a in self.browser_actions if a != "frame"], ["open", "click", "scroll", "text", "release"])
         self.assertEqual(self.answers, [])
         self.assertEqual(self.errors, [])
