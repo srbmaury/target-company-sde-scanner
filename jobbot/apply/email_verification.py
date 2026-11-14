@@ -42,7 +42,7 @@ def email_login_step(self, page):
             self._click(page, confirm)
             page.wait_for_timeout(1500)
         return True
-    emails = [f for f in fields if f["kind"] == "text" and (f.get("type") == "email" or re.search(r"email", f["label"], re.I))]
+    emails = [f for f in fields if f.get("kind") == "text" and (f.get("type") == "email" or re.search(r"email", f["label"], re.I))]
     if not emails or page.locator("input[type=password]:visible").count():
         return False
     # Never use generic Continue on an account-creation or agreement page.
@@ -58,7 +58,27 @@ def email_login_step(self, page):
     return True
 
 
-def code_from_email(self, page):
+def code_fields(fields):
+    return [f for f in fields if f.get("kind") == "text" and (
+        f.get("autocomplete") == "one-time-code" or CODE_RE.search(
+            " ".join(f.get(key) or "" for key in ("label", "name", "placeholder"))
+        )
+    )]
+
+
+def fill_code(page, fields, code):
+    code = re.sub(r"\s+", "", code)
+    split = len(fields) > 1 and (all(f.get("maxlength") == 1 for f in fields) or len(fields) == len(code))
+    if not code or (split and len(code) != len(fields)):
+        return False
+    for field, value in zip(fields, code if split else [code]):
+        locator = page.locator(f'[data-jobbot-id="{field["id"]}"]')
+        if locator.input_value() != value:
+            locator.fill(value)
+    return True
+
+
+def code_from_email(self, page, *, since=None, provider=None):
     """Read a verification code from your latest email (Gmail, read-only), if Gmail is connected."""
     if not self.profile.get("automation.read_codes_from_email", True):
         return None
@@ -73,11 +93,15 @@ def code_from_email(self, page):
         self.ui.info("Waiting for the verification email (up to 90 s)…")
         if "myworkdayjobs" in host:
             hints.append("workday")
-        if getattr(self, "hosted", False):
+        sender_scope = {}
+        if provider == "greenhouse":
+            hints = ["greenhouse"]
+            sender_scope["sender_domains"] = ("greenhouse-mail.io", "greenhouse.io")
+        if getattr(self, "hosted", False) or since is not None:
             recipient = self.profile.get("personal.email")
             if not recipient or not hints:
                 return None
-            code = gmail.latest_code(getattr(self, "_started", time.time()), hint=hints, wait=90, recipient=recipient)
+            code = gmail.latest_code(since if since is not None else getattr(self, "_started", time.time()), hint=hints, wait=90, recipient=recipient, **sender_scope)
         else:
             code = gmail.latest_code(getattr(self, "_started", 0) - 120, hint=hints, wait=90)
     except Exception as e:   # Gmail unreachable or token revoked: fall back to asking

@@ -827,8 +827,8 @@ function renderPrompt(p) {
   } else if (p.kind === "wait") {
     html = `<div class="prompt"><h4>Your turn in Chrome</h4>${q}<div class="actions"><button class="primary" data-answer="null">Done, continue</button><button data-answer="skip">Skip this role</button></div></div>`;
   } else if (p.kind === "code") {
-    html = `<div class="prompt"><h4>Verification code</h4>${q}<input type="text" id="p-text" placeholder="Code from your email" autocomplete="one-time-code">
-      <div class="actions"><button class="primary" data-answer="text">Enter code</button><button data-answer="null">Skip</button></div></div>`;
+    html = `<div class="prompt"><h4>Verification code</h4>${q}<label for="p-text">Code from your email</label><input type="text" id="p-text" autocomplete="one-time-code" spellcheck="false" autocapitalize="off">
+      <div class="actions"><button class="primary" data-answer="text">Verify and continue</button><button data-answer="null">Skip this application</button></div></div>`;
   } else {
     const reason = `<div class="reason">${esc(p.reason || "")}${p.required ? " · required" : " · optional"}</div>`;
     if (p.options && p.options.length) {
@@ -882,7 +882,13 @@ async function answerPrompt(raw) {
   const p = state.run && state.run.prompt;
   if (!p || (raw === "submit" && (p.dry_run || !p.choices?.includes("submit")))) return;
   let value = null;
-  if (raw === "text") value = $("#p-text").value;
+  if (raw === "text") {
+    value = $("#p-text").value;
+    if (p.kind === "code" && !value.trim()) {
+      alertInline($("#prompt"), "Enter the verification code from your email.");
+      return;
+    }
+  }
   else if (raw === "true") value = true;
   else if (raw === "false") value = false;
   else if (raw !== "null") value = /^\d+$/.test(raw) && p.kind === "ask" ? Number(raw) : raw;
@@ -1534,6 +1540,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#sel-all-box").addEventListener("change", (ev) => selectAll(ev.target.checked));
   $("#prompt").addEventListener("change", (ev) => {
     if (ev.target.id === "correction-field") renderCorrection();
+  });
+  $("#prompt").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.target.id === "p-text" && state.run?.prompt?.kind === "code") {
+      event.preventDefault();
+      if (!$("#prompt button[data-answer='text']").disabled) answerPrompt("text");
+    }
   });
   $("#prompt").addEventListener("click", async (ev) => {
     const review = ev.target.closest("[data-submit-review], [data-submit-back]");

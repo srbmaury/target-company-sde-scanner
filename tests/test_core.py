@@ -1445,6 +1445,28 @@ class ValidationPromptTest(unittest.TestCase):
             self.assertIsNone(gmail.latest_code(0, hint=["greenhouse"], wait=0))   # the next application waits for its own
         gmail._USED_CODES.clear()
 
+    def test_post_submit_code_accepts_manual_input_in_hosted_unattended_run(self):
+        from unittest.mock import Mock, patch
+        from jobbot.apply.engine import Session, UnattendedUI
+
+        session = Session.__new__(Session)
+        session.hosted = True
+        session.ui = UnattendedUI(Mock())
+        session.ui.inner.ask_code.return_value = "012345"
+        session._code_from_email = Mock(return_value=None)
+        session._confirmation = Mock(side_effect=[None, "Thank you for applying"])
+        boxes = [{"kind": "text", "autocomplete": "one-time-code", "id": "otp"}]
+        session._fields = Mock(return_value=boxes)
+        session._click = Mock(return_value=True)
+        page = Mock()
+        with patch("jobbot.apply.email_verification.fill_code", return_value=True) as fill:
+            self.assertEqual(session._complete_email_submission(page, boxes, 100, "workday", "^submit$"),
+                             ("applied", "Thank you for applying"))
+        session._code_from_email.assert_called_once_with(page, since=100, provider="workday")
+        session.ui.inner.ask_code.assert_called_once()
+        fill.assert_called_once_with(page, boxes, "012345")
+        session._click.assert_called_once()
+
     def test_learned_answers_merge_across_workers(self):
         from jobbot.memory import Memory
         with tempfile.TemporaryDirectory() as d:

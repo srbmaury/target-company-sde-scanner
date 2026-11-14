@@ -41,7 +41,6 @@ CONFIRM_RE = re.compile(
     r"successfully (submitted|applied)|we.ve received your application", re.I)
 # Honeypot fields exist to catch bots; filling one gets the application flagged.
 TRAP_RE = re.compile(r"robots? only|for robots|do not (fill|enter)|leave (this )?(field )?(blank|empty)|honeypot", re.I)
-CODE_RE = email_verification.CODE_RE
 CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i confirm|confirm the statement|declare|"
                         r"^i understand\b|^i have (read|reviewed|marked)\b", re.I)
 
@@ -154,6 +153,37 @@ class Session:
             self.ready[url] = (page, ats)   # still open: fix it in the tab and try again, or submit it yourself
             return None, "the site did not accept it: " + "; ".join(after.lines()[:2])
         return "applied", "submitted; no confirmation text seen, check the tab"
+
+    def _complete_email_submission(self, page, code_boxes, since, ats, submit_re):
+        self.ui.info("The employer requested email verification after Submit.")
+        code = self._code_from_email(page, since=since, provider=ats)
+        if not code:
+            code_ui = self.ui.inner if self.hosted and isinstance(self.ui, UnattendedUI) else self.ui
+            code = code_ui.ask_code("Enter the verification code sent by the employer to finish this application.")
+        if not code or not email_verification.fill_code(page, code_boxes, code):
+            raise NeedsYou("Application verification code unavailable. Check Gmail or finish on the employer site.")
+        verify = r"^(verify( (email|code|and submit))?|confirm( (code|submission))?|submit code)$"
+        for _ in range(10):
+            confirmed = self._confirmation(page)
+            if confirmed:
+                return "applied", confirmed
+            if not email_verification.code_fields(self._fields(page)):
+                break
+            for pattern in (verify, submit_re):
+                if self._click(page, pattern):
+                    break
+            else:
+                page.wait_for_timeout(500)
+                continue
+            break
+        for _ in range(10):
+            page.wait_for_timeout(2500)
+            confirmed = self._confirmation(page)
+            if confirmed:
+                return "applied", confirmed
+            if check_page(page, [], [], []).captcha:
+                break
+        raise NeedsYou("The submission was not confirmed after email verification. Check the employer site before retrying.")
 
     def discard_ready(self, url):
         page, _ = self.ready.pop(url, (None, None))
@@ -331,6 +361,8 @@ class Session:
                 return None, "stopped before advancing"
             if choice == "submit" and not self.dry_run:
                 from playwright.sync_api import TimeoutError
+                existing_codes = {f["id"] for f in email_verification.code_fields(self._fields(page))}
+                submitted_at = time.time()
                 try:
                     clicked = self._click(page, submit_re)
                 except TimeoutError as exc:
@@ -343,23 +375,23 @@ class Session:
                     continue
                 # Slow sites (Workday, careers pages) confirm several seconds later: keep looking, never resubmit.
                 confirmed = None
+                code_boxes = []
                 for _ in range(10):
                     page.wait_for_timeout(2500)
                     confirmed = self._confirmation(page)
-                    if confirmed or check_page(page, [], [], []).errors:
+                    if confirmed:
+                        self.ui.info(f"Confirmation seen: “{confirmed}”")
+                        return "applied", confirmed
+                    code_boxes = [f for f in email_verification.code_fields(self._fields(page))
+                                  if f["id"] not in existing_codes]
+                    if code_boxes or check_page(page, [], [], []).errors:
                         break
-                if confirmed:
-                    self.ui.info(f"Confirmation seen: “{confirmed}”")
-                    return "applied", confirmed
+                if code_boxes:
+                    return self._complete_email_submission(page, code_boxes, submitted_at, ats, submit_re)
                 after = check_page(page, [], [], [])
                 if after.errors or after.captcha:
                     self.ui.warn("The site did not accept the submission: " + "; ".join(after.lines()[:3]))
                     self._reassert_missing(page, after.lines())
-                    continue
-                if any(CODE_RE.search(f.get("label") or "") and not f.get("value") for f in self._fields(page)):
-                    # Greenhouse, after several applications: "enter the security code we emailed you, then
-                    # resubmit". The next round reads the code from Gmail, enters it and submits again.
-                    self.ui.info("The site emailed a security code; entering it and submitting again.")
                     continue
                 if getattr(self, "hosted", False):
                     raise NeedsYou("Submission unconfirmed. Check the employer site or your email before trying again.")
@@ -735,19 +767,11 @@ class Session:
             records.append(record)
 
         fields = self._fields(page)
-        code_boxes = [f for f in fields if f["kind"] == "text" and not values.ambiguous_question(f) and CODE_RE.search(f["label"] or "")]
+        code_boxes = email_verification.code_fields(fields)
         if code_boxes and not all(f["value"] for f in code_boxes):
             code = self._code_from_email(page) or self.ui.ask_code(code_boxes[0]["label"])
-            if code:
-                code = re.sub(r"\s+", "", code)
-                # one box per character (Greenhouse: 8 boxes that do not all declare maxlength=1)
-                single = len(code_boxes) > 1 and (all(f.get("maxlength") == 1 for f in code_boxes) or len(code_boxes) == len(code))
-                if single:
-                    for f, ch in zip(code_boxes, code):
-                        page.locator(f'[data-jobbot-id="{f["id"]}"]').fill(ch)
-                else:
-                    page.locator(f'[data-jobbot-id="{code_boxes[0]["id"]}"]').fill(code)
-                filled.append(("verification code", "entered (you)"))
+            if code and email_verification.fill_code(page, code_boxes, code):
+                filled.append(("verification code", "entered"))
             else:
                 skipped.append("verification code from your email")
         code_ids = {f["id"] for f in code_boxes}
