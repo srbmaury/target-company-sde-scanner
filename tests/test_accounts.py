@@ -8,7 +8,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
 import mongomock
@@ -48,6 +48,28 @@ class AccountTests(unittest.TestCase):
                      patch.object(accounts, "current", return_value=self.account)):
             mock.start()
             self.addCleanup(mock.stop)
+
+    def test_hosted_answers_persist_in_account_profile(self):
+        from jobbot.answers import Resolver
+        from jobbot.memory import Memory
+
+        self.account.put_json("unrelated", {"kept": True})
+        self.account.write("profile", b"# Keep this comment\npersonal: {}\n")
+        candidate = profile.load()
+        model = Mock(enabled=True)
+        ask = Mock(return_value="Yes")
+        resolver = Resolver(candidate, model, ask=ask, profile_first=True,
+                            memory=Memory.for_profile(candidate, account=self.account))
+        question = "Do you have experience maintaining schema migrations?"
+        self.assertIsNone(resolver.resolve(question))
+        self.assertEqual(resolver.resolve(question, required=True).value, "Yes")
+        ask.assert_called_once()
+        model.draft.assert_not_called()
+        raw, _ = self.account.read("profile")
+        self.assertIn(b"# Keep this comment", raw)
+        fresh = profile.load()
+        self.assertEqual(Memory.for_profile(fresh).lookup(question), "Yes")
+        self.assertEqual(self.account.get_json("unrelated"), {"kept": True})
 
     def new_account(self, email="owner@example.com"):
         return accounts.Account(self.db, self.key, email, "https://jobbot.example.com",
@@ -230,6 +252,24 @@ class AccountTests(unittest.TestCase):
             self.assertEqual(json.loads(request("/api/apply?live=1", cookie=session)[1]), {"status": "idle"})
             self.assertEqual(request("/api/docs", cookie=session)[0], 200)
 
+        from contextlib import closing
+
+        with closing(tracker.connect()) as conn:
+            conn.executemany(
+                "INSERT INTO applications(company, title, status, updated_on) VALUES (?, ?, ?, ?)",
+                [(f"Employer {n:02}", "Engineer", "applied", "2026-11-01") for n in range(52)],
+            )
+            conn.commit()
+        query = "/api/applications?page=1&sort=company&direction=asc"
+        code, body, _ = request(query, cookie=session)
+        self.assertEqual(code, 200)
+        page = json.loads(body)
+        self.assertEqual((len(page["rows"]), page["next_offset"]), (50, 50))
+        code, body, _ = request(query + "&offset=50&version=" + page["version"], cookie=session)
+        self.assertEqual(code, 200)
+        self.assertEqual([row["company"] for row in json.loads(body)["rows"]], ["Employer 50", "Employer 51"])
+        self.assertEqual(request(query + "&offset=50&version=old", cookie=session)[0], 409)
+
         self.assertIn(b"Continue with Google", request("/")[1])
         self.assertIn(b"Your Jobbot session expired.", request("/?session=expired")[1])
         self.assertEqual(request("/favicon.svg")[0], 200)
@@ -350,7 +390,8 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(request("/api/apply", {"jobs": ["1"]}, cookie=session,
                                  origin="https://wrong.example.com")[0], 403)
         self.assertEqual(request("/api/apply", {"jobs": ["1"], "auto_submit": True, "dry_run": True}, cookie=session)[0], 400)
-        with patch.object(bridge, "Thread"), patch.dict(bridge.CURRENT, clear=True):
+        with (patch.object(bridge, "Thread"), patch.dict(bridge.CURRENT, clear=True),
+              patch.object(tracker, "connect", side_effect=AssertionError("Run controls must not open the tracker"))):
             started = request("/api/apply", {"jobs": ["1"], "dry_run": True}, cookie=session)
             self.assertEqual(started[0], 200)
             run = bridge.current(self.account)

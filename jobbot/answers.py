@@ -179,7 +179,9 @@ RESUME_FACT_RE = re.compile(
 
 
 class Resolver:
-    def __init__(self, profile, llm=None, job=None, resume_key=None, ask=None, memory=None, auto_drafts=False):
+    def __init__(self, profile, llm=None, job=None, resume_key=None, ask=None, memory=None, auto_drafts=False, profile_first=False, warn=None):
+        self.profile_first = profile_first
+        self.warn = warn
         self.p = profile
         self.llm = llm
         self.job = job or {}
@@ -343,7 +345,7 @@ class Resolver:
         # Order matters: specific yes/no policy questions first, so e.g. "relocation" never reaches the
         # location rule and "mobile development" never reaches the phone rule.
         return [
-            (r"sponsor", lambda: sponsorship(self._q)),
+            (r"sponsor|\brequir\w*\b.{0,80}\b(visa|work permit|right to work support)\b", lambda: sponsorship(self._q)),
             (r"(authori[sz]ed|eligible|right|permit(ted)?) to work|work authori[sz]ation|legally (able|eligible|authori[sz]ed)|"
              r"documentation establishing your identity", lambda: authorized_for(self._q)),
             (r"legal age|at least 18|over (the age of )?18", lambda: "Yes"),
@@ -517,7 +519,7 @@ class Resolver:
                 return None
             options = real_options(options or [])
             key = (question.lower(), kind, tuple(options), repr(context))
-            if applicable and self.llm and self.llm.enabled and kind != "checkbox" and not any(
+            if applicable and not self.profile_first and self.llm and self.llm.enabled and kind != "checkbox" and not any(
                     pattern.search(question) for pattern in self.always_ask):
                 draft = self._cached(("follow-up", *key), lambda: self._by_model(question, kind, options, None, context))
                 if draft is not None and draft is not MODEL_FAILED:
@@ -563,6 +565,8 @@ class Resolver:
             return self._fit(self.p.get(f"links.{SOCIAL_KEYS.get(social.group(1).lower(), social.group(1).lower())}"),
                              kind, options, "profile") if self.p.get(
                 f"links.{SOCIAL_KEYS.get(social.group(1).lower(), social.group(1).lower())}") else None
+        if self.profile_first:
+            return self._by_rules(question, kind, options, required, quick)
         if RESUME_FACT_RE.search(question):
             # Experience, skills and years/months come from your profile and resumes only: the model never
             # overrides them, so it cannot claim a tool your resumes do not show or put "Bangalore" in Experience.
@@ -713,6 +717,8 @@ class Resolver:
         eeo = bool(EEO_RE.match(question)) or any(re.search(r"decline|prefer not|don.?t wish", o, re.I) and
                                                   re.search(r"identify|answer|disclose", o, re.I) for o in options)
         if not eeo and any(p.search(question) for p in self.always_ask):
+            if self.profile_first and (quick or not required):
+                return None
             return self._once(question, kind, options, lambda: self._ask(
                 question, kind, options, required, None, reason="needs your confirmation", learn=False))
 
@@ -726,8 +732,10 @@ class Resolver:
         if kind == "checkbox":
             return None  # consent boxes are handled by the review step, never ticked silently
 
-        if HEAR_RE.search(question) and not quick:
-            return self._how_did_you_hear(question, kind, options)
+        if HEAR_RE.search(question) and (not quick or self.profile_first):
+            answer = self._how_did_you_hear(question, kind, options)
+            if answer is not None:
+                return answer
 
         employer = None if CONDITIONAL_RE.search(question) else self._employer_history(question)
         if employer is not None:
@@ -743,7 +751,7 @@ class Resolver:
             if kind == "choice":
                 hint = hint or (", ".join(value) if isinstance(value, list) else value)
 
-        if quick:
+        if quick or (self.profile_first and not required):
             return None
         return self._once(question, kind, options, lambda: self._slow(question, kind, options, required, hint))
 
@@ -759,7 +767,7 @@ class Resolver:
         """The model's reasoned answer (facts, or inference for preference questions), else yours.
 
         Optional questions get the model's answer too, but are left blank rather than asked."""
-        if self.llm and self.llm.enabled and not FACT_ONLY_RE.search(question) and not RESUME_FACT_RE.search(question):
+        if not self.profile_first and self.llm and self.llm.enabled and not FACT_ONLY_RE.search(question) and not RESUME_FACT_RE.search(question):
             try:
                 resume = self.p.resume_text(self.resume_key) if self.resume_key else ""
                 if kind == "choice" and options:
@@ -800,7 +808,7 @@ class Resolver:
                 idx = None
             if idx is not None:
                 return Answer(idx, "rule", options[idx])
-        if self.llm and self.llm.enabled:
+        if not self.profile_first and self.llm and self.llm.enabled:
             try:
                 idx = self.llm.choose(f"{question} (the candidate found the job on {preferred or 'the company website'})",
                                       options, self.p.summary(), "")
@@ -811,6 +819,8 @@ class Resolver:
         # Never an option that claims a person sent you ("Employee referral", "Recruiter"): that would be untrue.
         safe = [i for i, o in enumerate(options) if not re.search(r"referr|employee|friend|recruiter|colleague|agency|"
                                                                   r"staffing|headhunter", o, re.I)]
+        if self.profile_first:
+            return None
         other = next((i for i in safe if re.match(r"\s*other\b", options[i], re.I)), None)
         idx = other if other is not None else (safe[0] if safe else None)
         return Answer(idx, "rule", options[idx]) if idx is not None else None
@@ -850,6 +860,16 @@ class Resolver:
             return Answer(idx, source, options[idx]) if idx is not None else None
         return Answer(str(value), source)
 
+    def remember_answer(self, question, value):
+        if (self.memory and not any(p.search(question) for p in self.always_ask)
+                and not re.search(r"password|verification code|security code|one.time|\botp\b|\bconsent\b|\bsignature\b|\bour (company|team|role)\b", question, re.I)
+                and not FACT_ONLY_RE.search(question)):
+            try:
+                self.memory.remember(question, value, company=self.job.get("company"))
+            except Exception as exc:
+                if self.warn:
+                    self.warn(f"Could not save this learned answer ({type(exc).__name__}).")
+
     def _ask(self, question, kind, options, required, suggestion, reason, learn=True):
         if not self.ask:
             return None
@@ -865,5 +885,5 @@ class Resolver:
         else:
             ans = Answer(str(got), "you")
         if ans and learn and self.memory and got != suggestion:
-            self.memory.remember(question, ans.display or ans.value, company=self.job.get("company"))
+            self.remember_answer(question, ans.display or ans.value)
         return ans

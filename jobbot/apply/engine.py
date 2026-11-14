@@ -96,7 +96,8 @@ class Session:
         self._consent_declined = set()
         from ..memory import Memory
 
-        self.memory = Memory.for_profile(profile, persist=not hosted)
+        account = getattr(getattr(ui, "run", None), "account", None) if hosted else None
+        self.memory = Memory.for_profile(profile, persist=not dry_run and (not hosted or account is not None), account=account)
         self._pw = None
         self.ctx = None
 
@@ -204,9 +205,10 @@ class Session:
         if resume and self.upload:
             self._upload_resume(page, resume["path"], ats)
 
-        resolver = Resolver(self.profile, self.llm, job=job, resume_key=resume_key, ask=self.ui.ask,
+        resolver = Resolver(self.profile, self.llm, job=job, resume_key=resume_key, ask=self.ui.ask, warn=self.ui.warn,
                             memory=self.memory,
-                            auto_drafts=bool(self.profile.get("automation.auto_accept_drafts", True)))
+                            auto_drafts=bool(self.profile.get("automation.auto_accept_drafts", True)),
+                            profile_first=getattr(self, "hosted", False))
         self._consent_approved = bool(self.profile.get("automation.auto_consent", False))
         self._consent_allowed = set()
         self._consent_declined = set()
@@ -291,7 +293,7 @@ class Session:
                 continue
 
             if isinstance(choice, dict) and choice.get("action") == "correct":
-                self._correct_field(page, choice)
+                self._correct_field(page, choice, resolver)
                 continue
             if choice == "refill":
                 import importlib
@@ -406,10 +408,15 @@ class Session:
             page.wait_for_timeout(500)
             check = self.verify(page, total)
             changes = len(rep["filled"])
+            if resolver.profile_first and not getattr(self, "auto_submit", False):
+                if hasattr(self.ui, "audit"):
+                    self.ui.audit(step, rnd, self.audit_fields(page, total), check)
+                    self._preview_page(page)
+                return total, check, rnd
             if changes == 0 or rnd == MAX_ROUNDS:
                 # The profile check decides every field your profile answers; the model reviews the rest.
                 confirmed = consistency.apply(self, page, resolver, total, check)
-                if getattr(self, "auto_submit", False) or self.profile.get("automation.ollama_review_each_step", False):
+                if getattr(self, "auto_submit", False) or (not resolver.profile_first and self.profile.get("automation.ollama_review_each_step", False)):
                     self._ollama_review(page, resolver, total, check, step, confirmed)
             self._log(f"page {step} round {rnd}: {changes} change(s)", *[f"  set {l} = {a}" for l, a in rep["filled"]],
                       *[f"  ! {line}" for line in check.lines()])
@@ -426,7 +433,7 @@ class Session:
 
     _ollama_review = review.review_step
 
-    def _correct_field(self, page, action):
+    def _correct_field(self, page, action, resolver=None):
         """Apply a reviewed text/select correction, then verify its exact value next round."""
         f = next((f for f in self._fields(page) if f["id"] == action.get("field")), None)
         if not f or f["kind"] not in ("text", "textarea", "select", "radio", "yesno"):
@@ -454,6 +461,8 @@ class Session:
         self._manual_records[target_id] = {"id": target_id, "kind": f["kind"], "label": f["label"], "expected": value, "source": "you"}
         self._broken.discard(f["id"])
         self._mine.add(f["id"])
+        if resolver and not self.dry_run and not values.ambiguous_question(f):
+            resolver.remember_answer(f["label"], value)
         self.ui.info(f"Corrected {f['label']}; reading the value back again.")
 
     def _preview_page(self, page, *, during_fill=False):
@@ -761,7 +770,7 @@ class Session:
                 if f["required"] and not real_options([f.get("text") or f.get("shown") or
                                                        (f["value"] if isinstance(f["value"], str) else "")]) and not (
                         isinstance(f["value"], list) and any(f["value"])):
-                    skipped.append(f"{label} (question could not be identified)")
+                    skipped.append("Required control could not be identified. Check the employer page.")
                 continue
             if re.search(r"captcha|type (?:the |below )?image text", label, re.I):
                 if f["required"]:
@@ -911,7 +920,8 @@ class Session:
                 except Exception:
                     pass
 
-        consents = [c for c in consents if c["label"] not in self._consent_declined]
+        consents = [c for c in consents if c["label"] not in self._consent_declined
+                    and (not resolver.profile_first or c["required"] or self._consent_approved)]
         if self._dry_validation() and any(c["label"] not in self._consent_allowed for c in consents):
             self._consent_approved = False
         if consents and not self._consent_approved:
