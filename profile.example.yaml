@@ -103,9 +103,8 @@ automation:
   ollama_review_each_step: true  # legacy setting name: require configured LLM approval covering every field
   auto_accept_drafts: true   # use the configured model's drafts for free-text questions without asking
   auto_consent: false        # tick privacy/consent boxes without asking (true = no consent prompt)
-  create_accounts: false     # sign in to job sites, and sign up where you have no account, with the
-                             # password from `jobbot password` (Keychain); CAPTCHAs stay yours
-  sign_in: true              # sign in to job sites with the Keychain password (false = always wait for you)
+  create_accounts: true      # use the hosted employer secret or the local Keychain password
+  sign_in: true              # try password sign-in on supported employer forms
   numeric_salary_unit: ""    # unit for number-only salary boxes with no label hint: "LPA" or "INR"; blank = needs a hint
   allowed_demographic_fields: []   # demographic questions answered even in dry validation runs, e.g. [pronouns, veteran]
   auto_sign: false           # type your full name into "Signature" fields without asking

@@ -1,9 +1,9 @@
 """Job-site accounts: sign in first, sign up when there is no account, then email verification.
 
-Credentials go directly from Keychain to password inputs; never through the field scanner, model,
-dashboard, or logs. Sign-up runs only with automation.create_accounts on and a password you stored
-with `jobbot password`; CAPTCHAs and rejected passwords are handed to you, never retried.
+Credentials come from Keychain locally or a deployment secret in hosted mode. They are passed
+directly to password inputs. Hosted automation uses one credential attempt per employer and run.
 """
+import os
 import re
 import urllib.parse
 
@@ -42,13 +42,29 @@ def host_allowed(url, profile, job_url=None):
     and only on a known job platform or on a site of the company whose posting you are applying to."""
     parsed = urllib.parse.urlparse(url)
     host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or any(host == h or host.endswith("." + h) for h in IDENTITY_PROVIDERS):
+    if not host or parsed.scheme != "https" or any(host == h or host.endswith("." + h) for h in IDENTITY_PROVIDERS):
         return False
-    extras = profile.get("automation.sign_in_hosts", []) or []   # optional: rarely needed now
-    if any(host == h or host.endswith("." + h) for h in (*PROVIDERS, *extras)):
+    if any(host == h or host.endswith("." + h) for h in PROVIDERS):
         return True
     job_host = (urllib.parse.urlparse(job_url or "").hostname or "").lower()
     return bool(job_host) and site(host) == site(job_host)
+
+
+def hosted_auth_allowed(session, url):
+    """Use the deployment secret on the employer's HTTPS site or an ATS."""
+    return (
+        not session.dry_run
+        and host_allowed(url, session.profile, getattr(session, "_job_url", None))
+        and bool(session.profile.get("personal.email"))
+        and bool(os.getenv("JOBBOT_EMPLOYER_PASSWORD"))
+        and (session.profile.get("automation.sign_in", True) or session.profile.get("automation.create_accounts", False))
+    )
+
+
+def password_candidates(session, url, email):
+    if getattr(session, "hosted", False):
+        return [os.environ["JOBBOT_EMPLOYER_PASSWORD"]] if hosted_auth_allowed(session, url) else []
+    return credentials.candidates(email, host=urllib.parse.urlparse(url).hostname)
 
 
 def needs_account(page):
@@ -123,8 +139,10 @@ def password_sign_in(self, page, button=None, email_input=None, password_input=N
     attempted = getattr(self, "_auth_attempted", set())
     if key in attempted:
         return False  # avoid repeated rejected attempts and account lockouts
-    passwords_to_try = credentials.candidates(email, host=key[0])[:MAX_SIGN_IN_TRIES]
+    passwords_to_try = password_candidates(self, page.url, email)[:MAX_SIGN_IN_TRIES]
     if not passwords_to_try:
+        if getattr(self, "hosted", False):
+            return False
         self._auth_failure = "No existing password is stored in Keychain; store it with jobbot password."
         return False
     if email_input is None:
@@ -136,8 +154,12 @@ def password_sign_in(self, page, button=None, email_input=None, password_input=N
     workday = "myworkdayjobs.com" in (key[0] or "")
     refused = False
     for password in passwords_to_try:   # this site's own password, the main one, then alternates (at most 3)
-        email_input.fill(email)
         pw_box = password_input or page.locator('input[type="password"]:visible').first
+        if getattr(self, "hosted", False):
+            action = pw_box.evaluate("(input) => input.form?.action || location.href")
+            if not hosted_auth_allowed(self, action) or urllib.parse.urlparse(action).netloc != urllib.parse.urlparse(page.url).netloc:
+                return False
+        email_input.fill(email)
         pw_box.fill(password)
         press(button, pw_box)
         page.wait_for_timeout(2500)
@@ -162,7 +184,10 @@ def password_sign_in(self, page, button=None, email_input=None, password_input=N
         self.ui.info("Signed in with your existing account.")
         return True
     password = None
-    if refused and not workday:
+    if refused and (not workday or getattr(self, "hosted", False)):
+        if getattr(self, "hosted", False):
+            self._auth_failure = "The employer rejected sign-in. Sign in manually or create the account in the browser."
+            return False
         self._auth_failure = ("None of your stored passwords was accepted here (the account may use another one; "
                               "add it with `jobbot password --site HOST`). No reset was attempted.")
         return False
@@ -201,15 +226,17 @@ def sign_up(self, page):
     """Create the account on the site's own sign-up form with your Keychain password, after sign-in found
     no account. Fills only the sign-up form (email, password, confirm password, name), ticks only that
     form's terms box, and leaves CAPTCHAs to you. Returns True once the form was submitted."""
-    if not self.profile.get("automation.create_accounts", False) or not host_allowed(page.url, self.profile, getattr(self, "_job_url", None)):
+    if not self.profile.get("automation.create_accounts", getattr(self, "hosted", False)) or not host_allowed(page.url, self.profile, getattr(self, "_job_url", None)):
         return False
     email = self.profile.get("personal.email", "")
     host = urllib.parse.urlparse(page.url).hostname
     if (host, email) in getattr(self, "_signed_up", set()):
         return False   # one attempt per site and run: never loop on a rejected sign-up
     if check_page(page, [], [], []).captcha:
+        if getattr(self, "hosted", False):
+            return False
         raise NeedsYou("The sign-up form shows a CAPTCHA; complete it in the browser, then retry.")
-    stored = credentials.candidates(email, host=host)
+    stored = password_candidates(self, page.url, email)
     if not stored:
         self._auth_failure = "No password is stored for job-site accounts: run `jobbot password` once."
         return False
@@ -232,9 +259,17 @@ def sign_up(self, page):
         return False
     password = next((pw for pw in stored if meets_rules(pw, page.inner_text("body"))), None)
     if not password:
-        self._auth_failure = ("None of your stored passwords meets this site's password rules (shown on its sign-up "
-                              "form, e.g. 12+ characters); add one with `jobbot password --add`.")
+        self._auth_failure = (
+            "The configured employer password does not meet this site's signup rules."
+            if getattr(self, "hosted", False) else
+            "None of your stored passwords meets this site's signup rules. Add one with `jobbot password --add`."
+        )
         return False
+    if getattr(self, "hosted", False):
+        action = passwords.first.evaluate("(input) => input.form?.action || location.href")
+        if not hosted_auth_allowed(self, page.url) or not hosted_auth_allowed(self, action) or (
+                urllib.parse.urlparse(action).netloc != urllib.parse.urlparse(page.url).netloc):
+            return False
     self._signed_up = getattr(self, "_signed_up", set()) | {(host, email)}
     emails = page.locator('[data-automation-id="email"]:visible' if workday else
                           'input[type="email"]:visible, input[autocomplete="username"]:visible, input[name*="email" i]:visible')
@@ -249,7 +284,7 @@ def sign_up(self, page):
         if box.count() and not box.first.input_value():
             box.first.fill(str(self.profile.get(key, "")))
     _tick_signup_terms(page, workday)
-    self.ui.info(f"Creating your {host} account with your Keychain password.")
+    self.ui.info(f"Creating your account on {host}.")
     if workday:
         cover = page.locator('[data-automation-id="click_filter"][aria-label="Create Account" i]:visible')
         if not cover.count():
@@ -272,8 +307,9 @@ def sign_up(self, page):
                                             '[id*="error" i]:visible').all_inner_texts() if t.strip()]
     if (errors or said) and page.locator('input[type="password"]:visible').count() >= 2:
         # still on the sign-up form: quote what the site objected to (e.g. "A minimum of 12 characters")
-        self._auth_failure = "The site did not accept the new account: " + \
-            "; ".join(re.sub(r"\s+", " ", e)[:160] for e in (said or errors)[:2])
+        self._auth_failure = "The site did not accept the new account."
+        if not getattr(self, "hosted", False):
+            self._auth_failure += " " + "; ".join(re.sub(r"\s+", " ", e)[:160] for e in (said or errors)[:2])
         return False
     # The account exists now: the sign-in tried before it (and refused) must not block signing in to it.
     self._auth_attempted = getattr(self, "_auth_attempted", set()) - {(host, email)}
@@ -315,18 +351,28 @@ def go_to_sign_up(page):
     return False
 
 
-def ensure_signed_in(self, page, attempts=4):
-    """Sign in first; if the site has no account for you, sign up; then verify by email and continue."""
+def ensure_signed_in(self, page, attempts=5):
+    """Complete employer authentication, with signup first in hosted runs."""
+    from .email_verification import CODE_RE
+
+    hosted = getattr(self, "hosted", False)
+    if hosted:
+        # Keep the attempt across repeated calls during one application.
+        signup_checked = getattr(self, "_signup_checked", set())
     self._auth_failure, self._no_account = None, False
     for _ in range(attempts):
-        if not needs_account(page):
+        code_step = hosted and any(CODE_RE.search(f.get("label") or "") for f in self._fields(page))
+        if not (needs_account(page) or code_step):
             return True
-        if getattr(self, "hosted", False):
+        if hosted and not hosted_auth_allowed(self, page.url):
             self._wait_for_user(page, "The employer site requires sign-in. Take control to sign in.")
             continue
         if check_page(page, [], [], []).captcha:
+            if hosted:
+                self._wait_for_user(page, "Complete the employer's CAPTCHA in the browser.")
+                continue
             raise NeedsYou("Sign-in CAPTCHA requires your action; credentials were not retried.")
-        if self._email_login_step(page):
+        if (not hosted or code_step) and self._email_login_step(page):
             page.wait_for_timeout(1500)
             if not page.locator('input[type="password"]:visible').count() and _codes_filled(self, page):
                 return True   # the code is in; this page's own button (Submit or Next) follows the normal flow
@@ -335,24 +381,42 @@ def ensure_signed_in(self, page, attempts=4):
             from .email_verification import follow_activation_link
             if follow_activation_link(self, page):
                 continue
-        if self._workday_account(page) or password_sign_in(self, page):
+        if hosted and not code_step and self.profile.get("automation.create_accounts", True):
+            key = (getattr(self, "_job_url", None), urllib.parse.urlparse(page.url).hostname)
+            if key not in signup_checked:
+                signup_checked.add(key)
+                self._signup_checked = signup_checked
+                if sign_up(self, page) or (hosted_auth_allowed(self, page.url) and go_to_sign_up(page)
+                                           and sign_up(self, page)):
+                    continue
+                if hosted_auth_allowed(self, page.url) and page.locator('input[type="password"]:visible').count() != 1:
+                    login = page.get_by_role("link", name=re.compile(LOGIN_RE, re.I)).or_(
+                        page.get_by_role("button", name=re.compile(LOGIN_RE, re.I)))
+                    if login.count():
+                        login.first.click(timeout=5000)
+        if hosted and not code_step and self.profile.get("automation.sign_in", True) and self._email_login_step(page):
+            continue
+        if not code_step and (not hosted or hosted_auth_allowed(self, page.url)) and (
+                self._workday_account(page) or password_sign_in(self, page)):
             continue
         # Login may have advanced to a verification step without yet completing.
-        if not needs_account(page):
+        if not code_step and not needs_account(page):
             return True
-        if VERIFY_RE.search(page.inner_text("body")[:4000]) or self._fields(page) and any(
+        if not hosted and (VERIFY_RE.search(page.inner_text("body")[:4000]) or self._fields(page) and any(
                 re.search(r"verification code|one.?time|\botp\b", f.get("label", ""), re.I)
-                for f in self._fields(page)):
+                for f in self._fields(page))):
             continue
         # No account here (or sign-in was not possible): create one, then verify by email and sign in.
-        if self.profile.get("automation.create_accounts", False) and (getattr(self, "_no_account", False) or not self._auth_failure):
+        can_create = getattr(self, "_no_account", False) or (not hosted and not self._auth_failure)
+        if not hosted and self.profile.get("automation.create_accounts", False) and can_create:
             if sign_up(self, page) or (go_to_sign_up(page) and sign_up(self, page)):
                 self._no_account = False
                 continue
         reason = self._auth_failure or "The site requires an account or sign-in method jobbot cannot complete."
-        reason += _evidence(page)
+        if not hosted:
+            reason += _evidence(page)
         self._wait_for_user(page, reason + " Sign in or create the account in the browser; "
                             "jobbot then handles the verification email and resumes the application.")
-    if needs_account(page):
+    if needs_account(page) or (hosted and any(CODE_RE.search(f.get("label") or "") for f in self._fields(page))):
         raise NeedsYou("Sign-in did not complete after credential/email verification attempts.")
     return True

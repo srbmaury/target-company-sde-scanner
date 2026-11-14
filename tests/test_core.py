@@ -1429,6 +1429,48 @@ class ValidationPromptTest(unittest.TestCase):
         self.assertEqual(r.resolve("Currency", "choice", options=["USD", "INR - Indian Rupee"], quick=True).display,
                          "INR - Indian Rupee")
 
+    def test_hosted_auth_attempts_signup_before_password_login(self):
+        from unittest.mock import Mock, patch
+        from jobbot.apply import auth
+
+        session = Mock()
+        session.hosted = True
+        session.profile = Profile({"automation": {"create_accounts": True}}, "test")
+        session._signup_checked = set()
+        session._fields.return_value = []
+        session._email_login_step.return_value = False
+        session._workday_account.return_value = False
+        page = Mock(url="https://jobs.example.test/login")
+        page.inner_text.return_value = "Sign in"
+        page.locator.return_value.count.return_value = 1
+        order = []
+        with patch.object(auth, "needs_account", side_effect=[True, False]), \
+                patch.object(auth, "hosted_auth_allowed", return_value=True), \
+                patch.object(auth, "check_page", return_value=Mock(captcha=False)), \
+                patch.object(auth, "sign_up", side_effect=lambda *_: order.append("signup") or False), \
+                patch.object(auth, "go_to_sign_up", return_value=False), \
+                patch.object(auth, "password_sign_in", side_effect=lambda *_: order.append("login") or True):
+            self.assertTrue(auth.ensure_signed_in(session, page))
+        self.assertEqual(order, ["signup", "login"])
+
+    def test_hosted_employer_password_requires_https_and_live_run(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from jobbot.apply.auth import password_candidates
+
+        host = "employer.wd5.myworkdayjobs.com"
+        url = f"https://{host}/login"
+        profile = Profile({"personal": {"email": "candidate@example.test"},
+                           "automation": {}}, "test")
+        session = SimpleNamespace(hosted=True, dry_run=False, profile=profile)
+        with patch.dict(os.environ, {"JOBBOT_EMPLOYER_PASSWORD": "fixture-only"}):
+            self.assertEqual(password_candidates(session, url, "candidate@example.test"), ["fixture-only"])
+            for denied in ("http://" + host, "https://unrelated.example.test",
+                           "https://accounts.google.com"):
+                self.assertEqual(password_candidates(session, denied, "candidate@example.test"), [])
+            session.dry_run = True
+            self.assertEqual(password_candidates(session, url, "candidate@example.test"), [])
+
     def test_password_only_on_job_platforms_and_the_postings_own_site(self):
         from jobbot.apply.auth import host_allowed
         p = Profile({}, "x")

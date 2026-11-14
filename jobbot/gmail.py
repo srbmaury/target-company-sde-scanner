@@ -402,13 +402,13 @@ def latest_link(since, host_hint, wait=90, poll=5, recipient=None):
 _USED_CODES, _CODE_LOCK = set(), threading.Lock()
 
 
-def latest_code(since, hint="", wait=90, poll=5):
+def latest_code(since, hint="", wait=90, poll=5, recipient=None):
     """Like _latest_code, but each code is handed out once: with parallel workers a code never goes
     to two applications."""
-    return _latest_code(since, hint, wait, poll)   # claims the code under _CODE_LOCK; waiting happens unlocked
+    return _latest_code(since, hint, wait, poll, recipient)   # claims the code under _CODE_LOCK; waiting happens unlocked
 
 
-def _latest_code(since, hint="", wait=90, poll=5):
+def _latest_code(since, hint="", wait=90, poll=5, recipient=None):
     """Wait up to `wait` seconds for a verification email received after `since` (epoch seconds) and return
     its code. With a hint, only matching senders are eligible. None if none arrives.
 
@@ -419,10 +419,15 @@ def _latest_code(since, hint="", wait=90, poll=5):
         ids = [m["id"] for m in _get("messages", {"q": CODE_QUERY, "maxResults": 10}).get("messages", [])]
         found = []
         for mid in ids:
-            meta = _get(f"messages/{mid}", {"format": "metadata", "metadataHeaders": ["From", "Subject"]})
+            meta = _get(f"messages/{mid}", {"format": "metadata", "metadataHeaders": ["From", "Subject", "To", "Delivered-To"]})
             if int(meta.get("internalDate", "0")) / 1000 < since:
                 continue
             headers = {h["name"].lower(): h["value"] for h in meta.get("payload", {}).get("headers", [])}
+            if recipient:
+                from email.utils import getaddresses
+                addresses = getaddresses([headers.get("to", ""), headers.get("delivered-to", "")])
+                if recipient.casefold() not in {address.casefold() for _, address in addresses}:
+                    continue
             sender = headers.get("from", "")
             hints = [h for h in ([hint] if isinstance(hint, str) else list(hint)) if h]
             if hints and not any(h.lower() in sender.lower() for h in hints if h):
