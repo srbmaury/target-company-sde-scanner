@@ -339,9 +339,9 @@ def start(keys, dry_run=False, auto_next=True, resume=None, use_llm=True, force=
     """Start an apply run in a background thread. Raises ValueError if one is active."""
     if code_changed():
         raise ValueError("jobbot was updated after the dashboard started. Restart it (Ctrl+C, then ./jobbot.sh ui) before applying.")
+    if dry_run and auto_submit:
+        raise ValueError("Choose either dry run or automatic submission.")
     if account:
-        if auto_submit:
-            raise ValueError("Hosted applications require manual submission approval.")
         unattended = force = False
         validation = bool(dry_run)
     if validation:
@@ -455,8 +455,6 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
         if not prof.resumes():
             raise ValueError("Upload a resume and enable it for ranking in Profile." if run.account
                              else "No resume files found. Check your Profile YAML.")
-        if run.account:
-            prof.data.setdefault("automation", {}).update(sign_in=False, create_accounts=False)
         model = llm_mod.LLM(enabled=use_llm)
         if use_llm and model.enabled and not model.has_model():
             model.enabled = False
@@ -492,7 +490,7 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
 
         if validation and not auto_submit:   # a dry validation never consents; an approved auto-submit run keeps your auto_consent
             prof.data.setdefault("automation", {})["auto_consent"] = False
-        workers = max(1, min(int(prof.get("automation.parallel_workers", 1) or 1), len(targets))) if auto_submit else 1
+        workers = max(1, min(int(prof.get("automation.parallel_workers", 1) or 1), len(targets))) if auto_submit and not run.account else 1
         if workers > 1:
             _parallel(run, prof, model, ui, targets, workers, resume, on_result)
         else:
@@ -503,6 +501,7 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
                                                       unattended=unattended, browser_dir=browser_dir, hosted=bool(run.account)))
                 session.validation = validation
                 session.auto_submit = auto_submit
+                session.should_stop = lambda: run.stop_requested
                 results = run_jobs(session, conn, prof, targets, session.ui, resume=resume, dry_run=dry_run,
                                    confirm_possible=not validation or auto_submit, should_stop=lambda: run.stop_requested, on_job=on_job,
                                    on_result=on_result)

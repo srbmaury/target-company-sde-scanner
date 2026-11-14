@@ -108,7 +108,7 @@ The launcher loads the repository's `.env` when present, and file assignments ta
 
 **5. Sign in and set up your profile.** Open the printed HTTPS URL and choose **Continue with Google**. Open **Profile** to enter your details and scan preferences. Save a resume key for each variant, then upload its PDF under that key. Hosted mode reads the uploaded PDFs.
 
-In **Jobs**, try **Dry run** first. **Fill for review** requires explicit approval to submit. In **Runs**, choose **Take control** when a live run pauses, then **Return control and recheck** to resume review. You can handle employer sign-in or CAPTCHA on that same page if the site supports the hosted browser. Dry-run previews are read-only. See the [dashboard guide](docs/dashboard.md).
+In **Jobs**, try **Dry run** first. **Fill for review** asks for approval to submit. Enable **Auto-apply to selected roles** for verified submissions with a configured model. In **Runs**, choose **Take control** when a live run pauses, then **Return control and recheck** to resume review. You can handle employer sign-in or CAPTCHA on that same page if the site supports the hosted browser. Dry-run previews are read-only. See the [dashboard guide](docs/dashboard.md).
 
 ## Optional model setup
 

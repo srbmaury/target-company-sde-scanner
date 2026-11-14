@@ -73,21 +73,13 @@ ranking if necessary, without changing past applications. YAML remains under **A
 
 Set `JOBBOT_EMPLOYER_PASSWORD` in the host's private settings or the repository's private `.env`,
 then restart `./jobbot.sh ui`. The **Profile → Employer sign-in** panel shows whether the password
-is configured. Use your employer-account email in `personal.email` and enable the employer's exact
-HTTPS hostname in **Profile YAML**. Merge these settings into your existing profile.
+is configured. Use your employer-account email in `personal.email`. Hosted runs try signup first
+on supported employer forms, then try signing in if needed. Set `automation.create_accounts: false`
+to skip signup or `automation.sign_in: false` to skip password login.
 
-```yaml
-automation:
-  sign_in: true
-  create_accounts: true
-  sign_in_hosts:
-    - employer.wd5.myworkdayjobs.com
-```
-
-Jobbot tries the configured password once. It attempts signup when the employer explicitly reports
-that the account is missing. If the site rejects the password or needs CAPTCHA or unsupported sign-in,
-use **Take control** in **Runs**. Dry runs skip automated employer account actions. Application Submit
-still requires your approval.
+Connect Gmail under **Actions → Connect Gmail** to let Jobbot read verification emails. It looks
+for a recent code sent to your profile email. Use **Take control** in **Runs** for CAPTCHA, missing
+codes, or unsupported forms. Dry runs skip automated account actions. Enable **Auto-apply to selected roles** to submit after the configured model approves the checks.
 
 ## What's local and what's hosted
 
@@ -100,8 +92,7 @@ account's profile and uploaded resumes. Install the browser in the Codespace or 
 ```
 
 Select a role in **Jobs** and choose **Dry run** or **Fill for review**. Follow the page preview,
-filled answers, and prompts in **Runs**. Dry runs never submit. Live runs require manual approval
-before Jobbot submits. In a live run, **Take control** opens the current Chromium page when
+filled answers, and prompts in **Runs**. Dry runs never submit. Live runs require manual approval before Jobbot submits unless you enable **Auto-apply to selected roles**. In a live run, **Take control** opens the current Chromium page when
 Jobbot pauses for review, sign-in, or CAPTCHA. Click, scroll, or type in the view. **Return control
 and recheck** reads the current page without overwriting manual edits. During takeover you are
 operating the employer page directly, so actions you take there can send data to the employer.

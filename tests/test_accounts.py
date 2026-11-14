@@ -336,7 +336,7 @@ class AccountTests(unittest.TestCase):
                                  origin="https://wrong.example.com")[0], 403)
         self.assertEqual(request("/api/apply", {"jobs": ["1"]}, cookie=session,
                                  origin="https://wrong.example.com")[0], 403)
-        self.assertEqual(request("/api/apply", {"jobs": ["1"], "auto_submit": True}, cookie=session)[0], 400)
+        self.assertEqual(request("/api/apply", {"jobs": ["1"], "auto_submit": True, "dry_run": True}, cookie=session)[0], 400)
         with patch.object(bridge, "Thread"), patch.dict(bridge.CURRENT, clear=True):
             started = request("/api/apply", {"jobs": ["1"], "dry_run": True}, cookie=session)
             self.assertEqual(started[0], 200)

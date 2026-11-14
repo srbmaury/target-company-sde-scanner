@@ -73,7 +73,13 @@ def code_from_email(self, page):
         self.ui.info("Waiting for the verification email (up to 90 s)…")
         if "myworkdayjobs" in host:
             hints.append("workday")
-        code = gmail.latest_code(getattr(self, "_started", 0) - 120, hint=hints, wait=90)
+        if getattr(self, "hosted", False):
+            recipient = self.profile.get("personal.email")
+            if not recipient or not hints:
+                return None
+            code = gmail.latest_code(getattr(self, "_started", time.time()), hint=hints, wait=90, recipient=recipient)
+        else:
+            code = gmail.latest_code(getattr(self, "_started", 0) - 120, hint=hints, wait=90)
     except Exception as e:   # Gmail unreachable or token revoked: fall back to asking
         self.ui.warn(f"Could not read the code from email ({type(e).__name__}); please enter it.")
         return None

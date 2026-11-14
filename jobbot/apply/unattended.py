@@ -28,7 +28,7 @@ class UnattendedUI:
     def confirm(self, msg):
         return False                       # consent follows automation.auto_consent; never "submit anyway"
 
-    def wait_for_user(self, msg):
+    def wait_for_user(self, msg, **kwargs):
         raise NeedsYou(msg)
 
     def next_action(self, can_submit, can_next, dry_run, check_ok=True, final_page=False):
