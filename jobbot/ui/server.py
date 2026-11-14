@@ -146,8 +146,6 @@ def _new_jobs(conn):
 
 
 def summary_payload(conn):
-    from .. import llm
-
     stats = tracker.stats(conn)
     total = sum(stats.values())
     responded = sum(stats.get(k, 0) for k in ("assessment", "interview", "offer", "rejected"))
@@ -156,8 +154,19 @@ def summary_payload(conn):
         "response_rate": round(100 * responded / total) if total else 0,
         "interview_rate": round(100 * (stats.get("interview", 0) + stats.get("offer", 0)) / total) if total else 0,
         "open_jobs": _new_jobs(conn),
-        "gmail": gmail.is_connected(),
-        "account": accounts.enabled(),
+    }
+
+
+def workspace_payload(account):
+    from .. import llm
+
+    try:
+        gmail_connected = account.get_json("gmail") is not None if account else gmail.is_connected()
+    except (PyMongoError, accounts.AccountError, ValueError):
+        gmail_connected = None
+    return {
+        "gmail": gmail_connected,
+        "account": account is not None,
         "employer_password_configured": bool(os.getenv("JOBBOT_EMPLOYER_PASSWORD")),
         "llm_provider": llm.DEFAULT_PROVIDER,
         "llm_model": llm.OPENAI_MODEL if llm.DEFAULT_PROVIDER == "openai" else llm.DEFAULT_MODEL,
@@ -601,7 +610,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._static(url.path)
         if not self._valid_token():
             return self._send(403, {"error": "missing or wrong token"})
-        params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+        params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query, keep_blank_values=True).items()}
         parts = url.path.strip("/").split("/")[1:]
         if self.account and len(parts) == 4 and parts[:3] == ["account", "resume", "pdf"]:
             key = parts[3]
@@ -642,10 +651,14 @@ class Handler(BaseHTTPRequestHandler):
                                     "mtime": str(path.stat().st_mtime_ns) if path.exists() else ""})
         if parts == ["tasks"]:
             return self._send(200, sorted(TASKS.copy().values(), key=lambda t: (t["status"] == "running", t["started"]), reverse=True)[:20])
+        if parts == ["workspace"]:
+            return self._send(200, workspace_payload(self.account))
         if parts == ["apply"]:
             run = bridge.current(self.account)
             if run:
                 return self._send(200, run.snapshot())
+            if params.get("live") == "1":
+                return self._send(200, {"status": "idle"})
             last = bridge.latest_saved_run(self.account)
             return self._send(200, {**last, "history": True} if last else {"status": "idle"})
         if parts == ["runs"]:
@@ -668,14 +681,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._storage_error("tracker read", exc)
         try:
             stale = getattr(conn, "stale", False)
+            version = getattr(conn, "version", None)
+            if "version" in params and params["version"] != version:
+                return self._send(409, {"error": "The tracker changed. Refresh the list to continue."})
             if stale:
                 LOGGER.warning("Dashboard is serving a cached tracker after a MongoDB timeout")
             if parts == ["summary"]:
-                return self._send(200, summary_payload(conn))
+                counts = summary_payload(conn)
+                return self._send(200, counts if params.get("counts") == "1"
+                                  else {**counts, **workspace_payload(self.account)})
             if parts == ["jobs"]:
                 rows = jobs_payload(conn, params)
                 if "view" in params:
                     rows = jobs_page(rows, params)
+                    rows["version"] = version
                     if stale:
                         rows["stale"] = True
                 return self._send(200, rows)
@@ -686,6 +705,7 @@ class Handler(BaseHTTPRequestHandler):
                 if params.get("page") == "1":
                     rows = table_page(rows, params, {"id", "company", "title", "status", "resume", "applied_on",
                                                     "updated_on", "source"}, "applied_on")
+                    rows["version"] = version
                     if stale:
                         rows["stale"] = True
                 return self._send(200, rows)

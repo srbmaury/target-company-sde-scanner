@@ -5,6 +5,7 @@ const TOKEN = document.querySelector('meta[name="jobbot-token"]').content;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const APPLICATION_STATUSES = ["shortlisted", "applied", "assessment", "interview", "offer", "rejected", "withdrawn", "ghosted"];
 const state = { selected: new Set(), run: null, runPoll: null, tab: "jobs", jobs: [], apps: [], summary: null, jobSort: ["fit_score", -1], appSort: ["applied_on", -1], polling: null };
 
 async function api(path, body) {
@@ -38,7 +39,7 @@ async function api(path, body) {
     // A page left open across a restart holds the old access token: every call fails until it reloads.
     connection("jobbot was restarted, so this page is out of date.", true);
   } else connection(null);
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), {status: res.status});
   return data;
 }
 
@@ -103,7 +104,7 @@ function showTab(name) {
   });
   $$("main > [role=tabpanel]").forEach((p) => (p.hidden = p.id !== "tab-" + name));
   const pages = {
-    jobs: ["jobs", loadJobs],
+    jobs: ["jobs", async () => { await loadJobs(); refreshCounts(); }],
     apply: ["application runs", () => {
       state.viewing = false;
       loadHistory();
@@ -121,7 +122,7 @@ function showTab(name) {
 
 // ---------- summary ----------
 async function loadSummary() {
-  const s = (state.summary = await api("summary"));
+  const s = await api("summary?counts=1");
   const a = s.applications;
   const cards = [
     ["Open roles", s.open_jobs], ["Applications", s.total], ["Waiting response", a.applied || 0],
@@ -135,8 +136,19 @@ async function loadSummary() {
     "Response rate": "Applications that got any reply (assessment, interview, offer or rejection)",
   };
   $("#stats").innerHTML = cards.map(([l, v]) => `<div class="stat" title="${esc(tips[l] || "")}"><div class="label">${esc(l)}</div><div class="value">${esc(v)}</div></div>`).join("");
+}
+
+function refreshCounts() {
+  if (state.tab !== "jobs" || state.countsPending) return;
+  state.countsPending = loadSummary().catch(() => {
+    if (!$("#stats").hasChildNodes()) $("#stats").textContent = "Tracker counts unavailable.";
+  }).finally(() => { state.countsPending = null; });
+}
+
+async function loadWorkspace() {
+  const s = state.summary = await api("workspace");
   const dot = (ok) => `<span class="dot" style="background:${ok ? "var(--good)" : "var(--border)"}"></span>`;
-  $("#status").innerHTML = `<span>${dot(s.gmail)}Gmail ${s.gmail ? "connected" : "not connected"}</span>
+  $("#status").innerHTML = `<span>${dot(s.gmail)}Gmail ${s.gmail == null ? "status unavailable" : s.gmail ? "connected" : "not connected"}</span>
     <span>${dot(s.llm_available)}${esc(s.llm_provider === "openai" ? "OpenAI API" : "Ollama")} ${s.llm_available ? (s.llm_provider === "openai" ? "key configured" : "running") : "unavailable"}</span>`;
   $("#gmail-text").textContent = s.gmail
     ? "Import application emails, and read verification codes and links for sign-ups."
@@ -145,7 +157,7 @@ async function loadSummary() {
   $("#account-signout").hidden = !s.account;
   $("#gmail-disconnect").hidden = !(s.account && s.gmail);
   $("#gmail-login").hidden = !!(s.account && s.gmail);
-  $("#gmail-state").textContent = s.gmail ? "Connected" : "Not connected";
+  $("#gmail-state").textContent = s.gmail == null ? "Status unavailable" : s.gmail ? "Connected" : "Not connected";
   $("#gmail-state").classList.toggle("applied", Boolean(s.gmail));
   $("#workspace-mode").textContent = s.account ? "Hosted account" : "Local workspace";
   $("#workspace-mode").hidden = false;
@@ -192,6 +204,7 @@ async function loadTablePage(name, params, append, render) {
   $(".err", button.parentElement)?.remove();
   button.textContent = append ? "Loading…" : "Load more";
   params.set("offset", append ? page.next_offset : 0);
+  if (append && page.version != null) params.set("version", page.version);
   try {
     const result = await api((name === "apps" ? "applications" : name) + "?" + params);
     if (state[name + "Page"] !== page) return;
@@ -205,6 +218,19 @@ async function loadTablePage(name, params, append, render) {
     const notice = $("#" + name + "-storage");
     notice.hidden = !page.stale;
     render(page);
+  } catch (error) {
+    if (state[name + "Page"] !== page) return;
+    if (append && error.status === 409) {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.textContent = "Refresh list";
+      retry.addEventListener("click", () => showTab(name === "apps" ? "applications" : "jobs"));
+      button.hidden = true;
+      alertInline(button.parentElement, error.message);
+      $(".err", button.parentElement).append(" ", retry);
+      return;
+    }
+    throw error;
   } finally {
     if (state[name + "Page"] === page) {
       page.loading = false;
@@ -247,7 +273,8 @@ async function markNotDuplicates() {
   if (!keys.length) return;
   for (const k of keys) await api(`jobs/${k}/not-duplicate`, {});
   state.selected.clear();
-  await Promise.all([loadJobs(), loadSummary()]);
+  await loadJobs();
+  refreshCounts();
 }
 
 function renderViews() {
@@ -402,7 +429,7 @@ async function loadRun({strict = false, history = true} = {}) {
   const request = state.runRequest = (state.runRequest || 0) + 1;
   let run;
   try {
-    run = await api("apply");
+    run = await api(state.tab === "apply" ? "apply" : "apply?live=1");
     if (!run || typeof run.status !== "string") throw new Error("Invalid application run response.");
   } catch (e) {
     if (strict) throw e;
@@ -414,7 +441,7 @@ async function loadRun({strict = false, history = true} = {}) {
   $("#apply-badge").hidden = run.status !== "waiting";
   document.title = run.status === "waiting" ? "● jobbot needs you" : "jobbot";
   if (active && !state.runPoll) state.runPoll = setInterval(pollRun, 1000);
-  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary().catch(() => {}); state.historyStale = true; }
+  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; refreshCounts(); state.historyStale = true; }
   renderStrip(run, active);
   if (active) state.viewing = false;
   if (state.tab === "apply" && !state.viewing) renderRun(run);
@@ -939,7 +966,7 @@ function renderApps() {
 
 async function openApp(id) {
   const a = await api("applications/" + id);
-  const statuses = state.summary.statuses.map((s) => `<option ${s === a.status ? "selected" : ""}>${esc(s)}</option>`).join("");
+  const statuses = (state.summary?.statuses || APPLICATION_STATUSES).map((s) => `<option ${s === a.status ? "selected" : ""}>${esc(s)}</option>`).join("");
   const history = a.events.map((e) => `<li>${esc(e.at.replace("T", " "))} · <b>${esc(e.status)}</b> ${esc(e.note || "")}</li>`).join("");
   openDialog(`<h2>${esc(a.company)} — ${esc(a.title)}</h2>
     <div class="muted">${esc(a.location || "")} ${a.applied_on ? "· applied " + esc(a.applied_on) : ""} · via ${esc(a.source || "?")}</div>
@@ -959,13 +986,14 @@ async function openApp(id) {
         await api(`applications/${id}/edit`, { company: form.company.value, title: form.title.value, url: form.url.value });
       if (form.status.value !== a.status) await api(`applications/${id}/status`, { status: form.status.value, note: form.change_note.value });
       if (form.note.value !== (a.notes || "")) await api(`applications/${id}/note`, { note: form.note.value });
-      await Promise.all([loadApps(), loadSummary()]);
+      await loadApps();
+      refreshCounts();
       state.allJobs = null;   // matching may have changed
     });
 }
 
 function addApp() {
-  const statuses = state.summary.statuses.map((s) => `<option ${s === "applied" ? "selected" : ""}>${esc(s)}</option>`).join("");
+  const statuses = (state.summary?.statuses || APPLICATION_STATUSES).map((s) => `<option ${s === "applied" ? "selected" : ""}>${esc(s)}</option>`).join("");
   openDialog(`<h2>Add an application</h2>
     <p class="muted">For roles you applied to outside jobbot, so it never reopens them.</p>
     <div class="row"><label>Company</label><input type="text" name="company" required></div>
@@ -978,7 +1006,8 @@ function addApp() {
     async (form) => {
       await api("applications", { company: form.company.value, title: form.title.value, url: form.url.value,
         applied_on: form.applied_on.value, status: form.status.value, note: form.note.value });
-      await Promise.all([loadApps(), loadSummary()]);
+      await loadApps();
+      refreshCounts();
     });
 }
 
@@ -1084,8 +1113,11 @@ async function loadTasks(strict = false) {
     if (!active.length && state.polling) {
       clearInterval(state.polling);
       state.polling = null;
-      await loadSummary();
-      if (state.tab === "jobs") await loadJobs();
+      loadWorkspace().catch(() => {});
+      if (state.tab === "jobs") {
+        await loadJobs();
+        refreshCounts();
+      }
     }
   } catch (e) {
     if (strict) throw e;
@@ -1467,7 +1499,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("#gmail-disconnect").addEventListener("click", async () => {
     if (!confirm("Disconnect Gmail and revoke Jobbot’s access?")) return;
-    try { await api("account/gmail/disconnect", {}); await loadSummary(); }
+    try { await api("account/gmail/disconnect", {}); await loadWorkspace(); }
     catch (e) { alertInline($("#gmail-text"), e.message); }
   });
   $("#resume-list").addEventListener("click", changeResume);
@@ -1607,7 +1639,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const b = ev.target.closest("button[data-job]");
     if (!b) return;
     await api(`jobs/${b.dataset.job}/${b.dataset.act}`, {});
-    await Promise.all([loadJobs(), loadSummary()]);
+    await loadJobs();
+    refreshCounts();
   });
   $("#apps-q").addEventListener("input", debounce(() => tableAction("apps", loadApps)));
   $("#apps-status").addEventListener("change", () => tableAction("apps", loadApps));
@@ -1615,7 +1648,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#apps-table tbody").addEventListener("click", (ev) => {
     if (ev.target.closest("a")) return;
     const tr = ev.target.closest("tr[data-app]");
-    if (tr) openApp(tr.dataset.app);
+    if (tr) openApp(tr.dataset.app).catch((error) => alertInline($("#apps-page-controls"), error.message));
   });
   for (const [name, key, load] of [["jobs", "jobSort", loadJobs], ["apps", "appSort", loadApps]]) {
     const table = "#" + name + "-table";
@@ -1677,8 +1710,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#profile-save").addEventListener("click", saveProfile);
 
   showTab(tabs.some((tab) => tab.dataset.tab === recall("tab")) ? recall("tab") : "jobs");   // before any await, so a tab you click while it loads stays chosen
-  loadSummary().catch(() => { $("#status").textContent = "Workspace status unavailable."; });
+  loadWorkspace().catch(() => { $("#status").textContent = "Workspace status unavailable."; });
   if (state.tab !== "apply") loadRun();
-  // Keeps the counts fresh and notices a restarted or stopped dashboard even when nothing else polls.
-  setInterval(() => { if (!document.hidden) loadSummary().catch(() => {}); }, 30000);   // picks up a run that is already in progress (and keeps polling while it is)
+
 });
