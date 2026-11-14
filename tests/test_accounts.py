@@ -279,11 +279,9 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(first[0], 200)
         self.assertEqual(json.loads(first[1])["status"], "applied")
         self.assertEqual(json.loads(request(mark_url, {}, cookie=session)[1]), json.loads(first[1]))
-        with patch.object(self.account, "read", return_value=(b"personal: {first_name: Ada, password: secret}", "v")):
-            self.assertEqual(request("/api/fill-script-fields")[0], 401)
-            code, body, _ = request("/api/fill-script-fields", cookie=session)
-            self.assertEqual(code, 200)
-            self.assertEqual(json.loads(body), {"given-name": "Ada", "name": "Ada"})
+        code, body, _ = request("/api/jobs?view=applied&include_applied=1", cookie=session)
+        self.assertEqual(code, 200)
+        self.assertEqual([row["url"] for row in json.loads(body)["rows"]], ["https://example.com/job"])
 
         self.assertIn(b"Continue with Google", request("/")[1])
         self.assertIn(b"Your Jobbot session expired.", request("/?session=expired")[1])

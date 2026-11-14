@@ -611,17 +611,6 @@ class Handler(BaseHTTPRequestHandler):
                                     if isinstance(resumes, dict) else []})
         if self.account and parts == ["logs"]:
             return self._send(200, {"dates": [], "date": "", "lines": []})
-        if parts == ["fill-script-fields"]:
-            if self.account:
-                raw, _ = self.account.read("profile")
-                candidate = profile_mod.Profile(yaml.safe_load(raw or profile_mod.ACCOUNT_PROFILE), paths.PROFILE)
-            else:
-                candidate = profile_mod.load()
-            keys = {"given-name": "personal.first_name", "family-name": "personal.last_name",
-                    "name": "personal.full_name", "email": "personal.email", "tel": "personal.phone",
-                    "address-line1": "personal.address_line1", "postal-code": "personal.postal_code"}
-            return self._send(200, {field: str(value) for field, key in keys.items()
-                                    if (value := candidate.get(key))} | {"name": candidate.full_name})
         if parts == ["workspace"]:
             return self._send(200, workspace_payload(self.account))
         if parts == ["docs"]:
@@ -789,7 +778,7 @@ class Handler(BaseHTTPRequestHandler):
         conn = tracker.connect(account=self.account)
         try:
             if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "mark-applied":
-                job = tracker.get_job(conn, parts[1])
+                job = tracker.get_job(conn, urllib.parse.unquote(parts[1]))
                 if not job:
                     return self._send(404, {"error": "no such job"})
                 existing = tracker.find_application(conn, job["url"])

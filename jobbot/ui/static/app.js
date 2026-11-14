@@ -5,7 +5,7 @@ const TOKEN = document.querySelector('meta[name="jobbot-token"]').content;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const state = { selected: new Set(), run: null, runPoll: null, tab: "jobs", jobs: [], apps: [], summary: null, jobSort: ["fit_score", -1], appSort: ["applied_on", -1], polling: null };
+const state = { manuallyApplied: new Set(), selected: new Set(), run: null, runPoll: null, tab: "jobs", jobs: [], apps: [], summary: null, jobSort: ["fit_score", -1], appSort: ["applied_on", -1], polling: null };
 
 async function api(path, body) {
   const opts = { headers: { "X-Jobbot-Token": TOKEN } };
@@ -231,6 +231,30 @@ const VIEWS = [
   ["all", "All", () => true],
 ];
 
+async function markApplied(button) {
+  const key = button.dataset.markApplied;
+  button.disabled = true;
+  button.textContent = "Saving…";
+  try {
+    await api(`jobs/${encodeURIComponent(key)}/mark-applied`, {});
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Mark as applied";
+    alertInline(button.parentElement, error.message);
+    return;
+  }
+  state.selected.delete(key);
+  if (state.tab === "jobs") {
+    const job = state.jobCatalog?.get(key);
+    if (job) job.applied = "exact";
+    renderJobs();
+    loadTrackerTab("jobs", "jobs", async () => { await loadJobs(); refreshCounts(); });
+  } else {
+    button.textContent = "Applied";
+    state.manuallyApplied.add(key);
+  }
+}
+
 async function markNotDuplicates() {
   const keys = Array.from(state.selected);
   if (!keys.length) return;
@@ -244,41 +268,6 @@ function renderViews() {
   const all = state.allJobs || [];
   $("#jobs-views").innerHTML = VIEWS.map(([key, label, test]) =>
     `<button role="tab" data-view="${key}" aria-selected="${state.view === key}">${label} <span class="n">${state.jobsPage?.counts ? state.jobsPage.counts[key] || 0 : all.filter(test).length}</span></button>`).join("");
-}
-
-// Serialized into a self-contained script for the browser console on the employer page.
-function fillEmployerContactFields(values) {
-  const aliases = {
-    firstname: "given-name", lastname: "family-name", fullname: "name",
-    email: "email", emailaddress: "email", phone: "tel", phonenumber: "tel",
-    addressline1: "address-line1", streetaddress: "address-line1",
-    zipcode: "postal-code", postalcode: "postal-code",
-  };
-  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-  let filled = 0;
-  for (const field of document.querySelectorAll("input")) {
-    if (!["text", "email", "tel"].includes(field.type) || field.disabled || field.readOnly ||
-        field.value.trim() || !field.getClientRects().length ||
-        field.closest('[hidden], [aria-hidden="true"], [inert]') || getComputedStyle(field).visibility !== "visible") continue;
-    const key = field.autocomplete.trim().split(/\s+/).at(-1);
-    const labels = [field.name, field.id, field.getAttribute("aria-label"), ...Array.from(field.labels || [], (label) => label.textContent)];
-    const match = labels.map((label) => aliases[(label || "").toLowerCase().replace(/[^a-z]/g, "")]).find(Boolean);
-    const answer = Object.hasOwn(values, key) ? values[key] : values[match];
-    if (!answer) continue;
-    setValue.call(field, answer);
-    field.dispatchEvent(new Event("input", {bubbles: true}));
-    field.dispatchEvent(new Event("change", {bubbles: true}));
-    filled++;
-  }
-  console.info(`Jobbot filled ${filled} contact field(s). Review the form and continue on the employer page.`);
-}
-
-async function showFillScript() {
-  const fields = await api("fill-script-fields");
-  const dialog = $("#fill-script-dialog");
-  $("textarea", dialog).value = `(${fillEmployerContactFields.toString()})(${JSON.stringify(fields)});`;
-  $("[role=status]", dialog).textContent = "";
-  dialog.showModal();
 }
 
 function renderJobs() {
@@ -310,7 +299,7 @@ function renderJobs() {
       <td class="num" title="${esc(j.evidence)}">${esc(j.experience)}</td>
       <td>${esc(j.fit_resume || "")}</td>
       <td class="num"><label class="check"><input type="checkbox" data-select="${j.n}" ${state.selected.has(String(j.n)) ? "checked" : ""} ${j.dismissed ? "disabled" : lock}> Select</label>
-        <label class="check"><input type="checkbox" data-mark-applied="${j.n}" ${applied && j.applied !== "possible" ? "checked disabled" : ""}> Already applied</label>
+        ${j.applied === "exact" || j.applied === "likely" ? "" : `<button type="button" class="link" data-mark-applied="${j.n}">Mark as applied</button>`}
         <button class="link" data-job="${j.n}" data-act="${j.dismissed ? "restore" : "dismiss"}">${j.dismissed ? "Restore" : "Dismiss"}</button></td>
     </tr>`;
   }).join("") : `<tr><td colspan="8" class="empty">${state.view === "new" ? "No new roles match. Try <b>Refresh jobs</b>, or check the other views." : "Nothing in this view."}</td></tr>`;
@@ -436,7 +425,9 @@ async function loadRun(strict = false) {
   $("#apply-badge").hidden = run.status !== "waiting";
   document.title = run.status === "waiting" ? "● jobbot needs you" : "jobbot";
   if (active && !state.runPoll) state.runPoll = setInterval(pollRun, 1000);
-  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; refreshCounts(); state.historyStale = true; }
+  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null;
+    if (state.tab === "jobs") loadTrackerTab("jobs", "jobs", async () => { await loadJobs(); refreshCounts(); });
+    state.historyStale = true; }
   renderStrip(run, active);
   if (active) state.viewing = false;
   if (state.tab === "apply" && !state.viewing) renderRun(run);
@@ -755,7 +746,12 @@ function renderRun(run) {
     const gone = r && /^posting unavailable/.test(r.note || "");
     const label = gone ? "posting gone" : r && r.status;
     const pill = r ? `<span class="pill ${r.status === "applied" ? "applied" : r.status === "ready" ? "interview" : r.status === "needs you" ? "maybe" : gone ? "withdrawn" : "rejected"}" title="${esc(r.note || "")}">${esc(label)}</span>` : i === run.current ? `<span class="pill interview">now</span>` : "";
-    return `<li class="${i === run.current ? "now" : ""}">${esc(j.company)} ${pill}<span class="sub">${esc(j.title)}</span></li>`;
+    const key = String(j.n || j.url);
+    const mark = !active && !run.dry_run && r?.status !== "applied"
+      ? state.manuallyApplied.has(key) ? '<span class="pill applied">Applied</span>'
+        : `<button type="button" class="link" data-mark-applied="${esc(key)}">Mark as applied</button>`
+      : "";
+    return `<li class="${i === run.current ? "now" : ""}">${esc(j.company)} ${mark && state.manuallyApplied.has(key) ? "" : pill}<span class="sub">${esc(j.title)}</span>${mark}</li>`;
   }).join("");
   const feed = $("#feed");
   const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
@@ -1604,38 +1600,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const b = ev.target.closest("[data-view]");
     if (b) { state.view = b.dataset.view; tableAction("jobs", loadJobs); }
   });
-  $("#fill-script").addEventListener("click", () => showFillScript().catch((error) => alertInline($("#jobs-page-controls"), error.message)));
-  $("#copy-fill-script").addEventListener("click", async () => {
-    const dialog = $("#fill-script-dialog");
-    const source = $("textarea", dialog);
-    const status = $("[role=status]", dialog);
-    try {
-      await navigator.clipboard.writeText(source.value);
-      status.textContent = "Copied.";
-    } catch {
-      source.select();
-      status.textContent = "Use your browser’s copy shortcut.";
-    }
-  });
-  $("#jobs-table tbody").addEventListener("change", async (ev) => {
-    const applied = ev.target.closest("input[data-mark-applied]");
-    if (applied) {
-      if (!applied.checked) return;
-      applied.disabled = true;
-      const id = applied.dataset.markApplied;
-      try {
-        await api(`jobs/${id}/mark-applied`, {});
-      } catch (error) {
-        applied.checked = applied.disabled = false;
-        alertInline($("#jobs-page-controls"), error.message);
-        return;
-      }
-      state.selected.delete(id);
-      updateSelection();
-      await tableAction("jobs", loadJobs);
-      refreshCounts();
-      return;
-    }
+  $("#jobs-table tbody").addEventListener("change", (ev) => {
     const cb = ev.target.closest("input[data-select]");
     if (!cb) return;
     cb.checked ? state.selected.add(cb.dataset.select) : state.selected.delete(cb.dataset.select);
@@ -1687,6 +1652,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     }
   });
+  $("#queue").addEventListener("click", (event) => {
+    const mark = event.target.closest("button[data-mark-applied]");
+    if (mark) markApplied(mark);
+  });
   $("#run-stop").addEventListener("click", async (event) => {
     const button = event.currentTarget;
     button.disabled = true;
@@ -1700,11 +1669,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
   $("#jobs-table tbody").addEventListener("click", async (ev) => {
+    const mark = ev.target.closest("button[data-mark-applied]");
+    if (mark) { await markApplied(mark); return; }
     const b = ev.target.closest("button[data-job]");
     if (!b) return;
-    await api(`jobs/${b.dataset.job}/${b.dataset.act}`, {});
-    await loadJobs();
-    refreshCounts();
+    b.disabled = true;
+    try {
+      await api(`jobs/${b.dataset.job}/${b.dataset.act}`, {});
+      await tableAction("jobs", loadJobs);
+      refreshCounts();
+    } catch (error) {
+      alertInline(b.parentElement, error.message);
+    } finally {
+      b.disabled = false;
+    }
   });
   $("#apps-q").addEventListener("input", debounce(() => tableAction("apps", loadApps)));
   $("#apps-status").addEventListener("change", () => tableAction("apps", loadApps));
