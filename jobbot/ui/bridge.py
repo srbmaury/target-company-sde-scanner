@@ -49,7 +49,7 @@ class ApplyRun:
         self.account = account
         self.id = secrets.token_hex(4)
         self.status = "starting"      # starting | running | waiting | done | stopped | failed
-        self.started = dt.datetime.now().isoformat(timespec="seconds")
+        self.started = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         self.ended = None
         self.validation = False
         self.auto_submit = False
@@ -94,7 +94,11 @@ class ApplyRun:
 
     def _save(self):
         try:
-            stored = _load_runs(self.account) if self.account else _load_runs()
+            if self.account:
+                raw, version = self.account.read("browser-runs")
+                stored = _decode_runs(raw, self.account)
+            else:
+                stored = _load_runs()
             runs = [r for r in stored if r.get("id") != self.id]
             # the live screenshot is for watching a run, not for history: it was 6 MB of a 7 MB file rewritten per result
             snap = {**self.snapshot(), "events": self.events[-150:], "prompt": None, "preview": None}
@@ -102,13 +106,12 @@ class ApplyRun:
             if self.account:
                 # Keep job outcomes, not form answers, screenshots or raw browser logs, in MongoDB.
                 snap.update(events=[], audits=[])
-                self.account.write("browser-runs", json.dumps(runs[-20:]).encode())
+                self.account.write("browser-runs", json.dumps(runs[-20:]).encode(), expected=version)
                 return
-            paths.ensure_home()
-            RUNS_FILE().write_text(json.dumps(runs[-20:]), encoding="utf-8")
+            _write_local_runs(runs[-20:])
         except (accounts.AccountError, PyMongoError):
             self.log("warn", "Could not save the hosted run history.")
-        except OSError:
+        except (OSError, ValueError):
             pass
 
     # --- answering prompts from the page -------------------------------------------
@@ -167,12 +170,32 @@ def RUNS_FILE():
     return paths.HOME / "runs.json"
 
 
+def _write_local_runs(runs):
+    paths.ensure_home()
+    destination = RUNS_FILE()
+    with tempfile.NamedTemporaryFile(dir=destination.parent, mode="w", encoding="utf-8", delete=False) as file:
+        temporary = pathlib.Path(file.name)
+        try:
+            json.dump(runs, file)
+            file.flush()
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 def _load_runs(account=None):
     try:
         raw = account.read("browser-runs")[0] if account else RUNS_FILE().read_text(encoding="utf-8")
-        runs = json.loads(raw) if raw else []
-    except (OSError, ValueError):
+    except OSError:
         return []
+    try:
+        return _decode_runs(raw, account)
+    except ValueError:
+        return []
+
+
+def _decode_runs(raw, account):
+    runs = json.loads(raw) if raw else []
     run = current(account)
     live = run.id if run else None
     for r in runs:
@@ -194,8 +217,37 @@ def history(account=None):
     return out
 
 
+def latest_saved_run(account=None):
+    runs = _load_runs(account)
+    return runs[-1] if runs else None
+
+
 def saved_run(run_id, account=None):
     return next((r for r in _load_runs(account) if r.get("id") == run_id), None)
+
+
+def delete_run(run_id, account=None):
+    """Delete one finished run history entry, without altering the tracker."""
+    with START_LOCK, SAVE_LOCK:
+        run = current(account)
+        is_current = run is not None and run.id == run_id
+        if is_current and (run.status in ("starting", "running", "waiting") or not run.ended):
+            raise accounts.AccountError("An active run cannot be deleted.")
+        if account:
+            raw, version = account.read("browser-runs")
+            runs = _decode_runs(raw, account)
+        else:
+            runs = _load_runs()
+        remaining = [saved for saved in runs if saved["id"] != run_id]
+        if len(remaining) == len(runs):
+            return False
+        if account:
+            account.write("browser-runs", json.dumps(remaining).encode(), expected=version)
+        else:
+            _write_local_runs(remaining)
+        if is_current:
+            CURRENT.pop(account.owner if account else "run", None)
+        return True
 
 
 class WebUI:
@@ -532,6 +584,7 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
             conn.close()
         run.prompt = None
         run.current = None
-        run.ended = dt.datetime.now().isoformat(timespec="seconds")
-        run.log("info", f"Run {run.status}.")
-        run.save()
+        with SAVE_LOCK:
+            run.ended = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+            run.log("info", f"Run {run.status}.")
+            run._save()

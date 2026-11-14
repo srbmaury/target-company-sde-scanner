@@ -588,8 +588,8 @@ class Handler(BaseHTTPRequestHandler):
                 run = bridge.current(self.account)
                 if run:
                     return self._send(200, run.snapshot())
-                last = bridge.history(self.account)
-                return self._send(200, {**bridge.saved_run(last[0]["id"], self.account), "history": True} if last else {"status": "idle"})
+                last = bridge.latest_saved_run(self.account)
+                return self._send(200, {**last, "history": True} if last else {"status": "idle"})
             if parts == ["runs"]:
                 return self._send(200, bridge.history(self.account))
             if len(parts) == 2 and parts[0] == "runs":
@@ -622,6 +622,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._account_post(parts, self._json_body(7_000_000 if parts == ["account", "resume"] else 2_000_000))
         if self.account and parts == ["tasks", "gmail-login"]:
             return self._send(400, {"error": "Connect Gmail from the Actions tab."})
+        if len(parts) == 3 and parts[0] == "runs" and parts[2] == "delete":
+            self._json_body()
+            if bridge.delete_run(parts[1], self.account):
+                return self._send(200, {"ok": True})
+            return self._send(404, {"error": "Run history entry not found."})
         if parts == ["apply", "preview"]:
             run = bridge.current(self.account) if self.account else None
             if not run:

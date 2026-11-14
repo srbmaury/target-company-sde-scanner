@@ -1322,6 +1322,27 @@ class ValidationPromptTest(unittest.TestCase):
         row = tracker.add_application(conn, "Acme", "Engineer", url="https://acme.example/1", status="applied")
         self.assertEqual(row["status"], "rejected")
 
+    def test_finished_run_deletion_keeps_active_run_and_other_history(self):
+        from unittest.mock import patch
+        from jobbot.accounts import AccountError
+        from jobbot.ui import bridge
+
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(bridge, "RUNS_FILE", return_value=Path(directory) / "runs.json"), \
+                patch.dict(bridge.CURRENT):
+            run = bridge.ApplyRun()
+            bridge.CURRENT["run"] = run
+            bridge._write_local_runs([{"id": "older", "status": "done"}, run.snapshot()])
+            with self.assertRaises(AccountError):
+                bridge.delete_run(run.id)
+            self.assertTrue(bridge.delete_run("older"))
+            self.assertFalse(bridge.delete_run("older"))
+            run.status, run.ended = "done", run.started
+            run.save()
+            self.assertTrue(bridge.delete_run(run.id))
+            self.assertIsNone(bridge.current())
+            self.assertEqual(bridge.history(), [])
+
     def test_saved_runs_leave_out_screenshots(self):
         import json
         from unittest.mock import patch

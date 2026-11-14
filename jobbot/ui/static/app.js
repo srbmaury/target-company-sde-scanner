@@ -298,7 +298,9 @@ async function loadRun() {
   if (active && !state.runPoll) state.runPoll = setInterval(loadRun, 1000);
   if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary(); state.historyStale = true; }
   renderStrip(run, active);
+  if (active) state.viewing = false;
   if (state.tab === "apply" && !state.viewing) renderRun(run);
+  if (state.tab === "apply" && state.historyLoaded) renderHistory();
   if (state.tab === "apply" && (state.historyStale || !state.historyLoaded)) loadHistory();
 }
 
@@ -315,14 +317,52 @@ function renderStrip(run, active) {
     ` <button class="link" data-view-run>View run →</button>`;
 }
 
+const runActive = (status) => ["starting", "running", "waiting"].includes(status);
+const runStatus = (status) => ({
+  starting: "Starting", running: "Filling", waiting: "Needs review", done: "Finished",
+  failed: "Failed", stopped: "Stopped", interrupted: "Interrupted",
+})[status] || status;
+const runDate = (value) => {
+  if (!value) return "Unknown date";
+  // Older snapshots have no UTC offset. Preserve their original host time.
+  return /(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    ? taskTime.format(new Date(value))
+    : value.replace("T", " ") + " (host time)";
+};
+
+function historyMessage(message) {
+  $("#history-message").textContent = message;
+  $("#history-message").hidden = !message;
+}
+
 async function loadHistory() {
-  state.historyLoaded = true; state.historyStale = false;
-  let runs = [];
-  try { runs = await api("runs"); } catch (e) { return; }
-  const label = (r) => Object.entries(r.counts || {}).map(([k, v]) => `${v} ${k}`).join(", ") || "nothing finished";
-  $("#history").innerHTML = runs.length ? runs.map((r) => `<li><a href="#" data-run="${esc(r.id)}">${esc((r.started || "").replace("T", " ").slice(0, 16))}</a>
-      <span class="sub">${r.dry_run ? "dry run · " : ""}${r.unattended ? "unattended · " : ""}${esc(r.status || "")} · ${esc(label(r))}</span></li>`).join("")
-    : `<li class="muted">None yet.</li>`;
+  let runs;
+  try { runs = await api("runs"); } catch (e) { historyMessage(e.message); return; }
+  state.historyLoaded = true;
+  state.historyStale = false;
+  state.historyRuns = runs;
+  renderHistory();
+}
+
+function renderHistory() {
+  const runs = state.historyRuns || [];
+  const active = runActive(state.run?.status);
+  const markup = runs.length ? runs.map((run) => {
+    const selected = (state.viewing || state.run?.id) === run.id;
+    const outcomes = Object.entries(run.counts || {}).map(([key, count]) => `${count} ${key}`).join(" · ");
+    const label = [run.dry_run ? "Dry run" : "", runStatus(run.status), outcomes || `${run.total} queued`].filter(Boolean).join(" · ");
+    return `<li${selected ? ' class="selected"' : ""}>
+      <div><button type="button" class="link" data-run="${esc(run.id)}" ${active || runActive(run.status) ? "disabled" : ""}
+        ${selected ? 'aria-current="true"' : ""}>${esc(runDate(run.started))}</button>
+        <span class="sub">${esc(label)}</span></div>
+      ${!runActive(run.status) ? `<button type="button" class="run-delete" data-delete-run="${esc(run.id)}"
+        aria-label="Delete run from ${esc(runDate(run.started))}">Delete</button>` : ""}
+    </li>`;
+  }).join("") : '<li class="muted">No saved runs yet.</li>';
+  if (state.historyMarkup !== markup) {
+    $("#history").innerHTML = markup;
+    state.historyMarkup = markup;
+  }
 }
 
 const live = { prompt: null, control: null, frame: null, busy: false, timer: null, inputs: [] };
@@ -439,7 +479,11 @@ function wireLivePreview() {
 }
 
 function renderRun(run) {
+  state.displayedRun = run;
   renderLivePreview(run);
+  $("#run-current").hidden = !state.viewing;
+  $("#run-activity").hidden = !run.events?.length;
+  $("#run-queue-card").hidden = !run.jobs?.length;
   if (run.status === "idle") {
     $("#run-title").textContent = "No runs yet";
     $("#run-status").textContent = ""; $("#run-progress").textContent = "";
@@ -452,11 +496,10 @@ function renderRun(run) {
     return;
   }
   const active = ["starting", "running", "waiting"].includes(run.status);
-  const when = (run.started || "").replace("T", " ").slice(0, 16);
-  $("#run-title").textContent = (run.history ? (state.viewing ? "Run of " + when : "Last run · " + when) + " · " : "")
-    + (run.dry_run ? "Dry run" : run.unattended ? "Unattended run" : "Applying");
-  $("#run-status").textContent = ({ starting: "Starting", running: "Filling", waiting: "Needs review",
-    done: "Finished", failed: "Failed", stopped: "Stopped" })[run.status] || run.status;
+  const when = runDate(run.started);
+  $("#run-title").textContent = (run.history || !active ? when + " · " : "")
+    + (run.dry_run ? "Dry run" : run.unattended ? "Unattended run" : "Application run");
+  $("#run-status").textContent = runStatus(run.status);
   $("#run-status").className = "pill " + ({ waiting: "maybe", running: "interview", done: "applied", failed: "rejected", stopped: "withdrawn" }[run.status] || "");
   const done = Object.keys(run.results).length;
   $("#run-progress").textContent = run.jobs.length ? `${done} of ${run.jobs.length} finished` : "";
@@ -516,7 +559,7 @@ function renderNeeds(run, active) {
     <details open><summary><b>${esc(name)}</b> (${g.jobs.length})
       ${active ? "" : `<button class="link" data-retry-all="${esc(g.jobs.map((j) => j.n || j.url).join("\n"))}">Retry ${g.jobs.length > 1 ? "these " + g.jobs.length : "it"}</button>`}</summary>
       <p class="hint">${esc(g.hint)}</p>
-      <ul>${g.jobs.map((j) => `<li><b>${esc(j.company)}</b> — ${esc(j.title)}<div class="reason">${esc(results[j.url].note || "")}</div>
+      <ul>${g.jobs.map((j) => `<li><b>${esc(j.company)}</b> — ${esc(j.title)}<div class="reason">${esc((results[j.url].note || "").replace(/\s*Screenshot:\s+\S+\.png/gi, ""))}</div>
         <a href="${esc(j.url)}" target="_blank" rel="noopener">Open posting</a>
         ${active ? "" : `<button class="link" data-retry="${esc(String(j.n || j.url))}">Retry</button>`}</li>`).join("")}</ul></details>`).join("")
     + (active || needs.length < 2 ? "" : `<button data-retry-all="${esc(needs.map((j) => j.n || j.url).join("\n"))}">Retry all ${needs.length}</button>`)
@@ -524,10 +567,11 @@ function renderNeeds(run, active) {
 }
 
 async function retry(keys) {
+  const run = state.displayedRun;
   try {
     // a retry keeps the run's mode: auto-submit runs submit again, dry runs stay dry
-    await api("apply", state.run.auto_submit ? { jobs: keys, auto_submit: true }
-      : { jobs: keys, unattended: !state.run.validation, validation: !!state.run.validation, dry_run: !!state.run.dry_run });
+    await api("apply", run.auto_submit ? { jobs: keys, auto_submit: true }
+      : { jobs: keys, unattended: !run.validation, validation: !!run.validation, dry_run: !!run.dry_run });
     state.viewing = false;
     loadRun();
   } catch (e) { alertInline($("#needs"), e.message); }
@@ -1321,15 +1365,40 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#jobs-refresh").addEventListener("click", () => startTask("refresh"));
   $("#run-strip").addEventListener("click", (ev) => { if (ev.target.closest("[data-view-run]")) { state.viewing = false; showTab("apply"); } });
   $("#tab-apply").addEventListener("click", async (ev) => {
-    const r = ev.target.closest("[data-retry]"), all = ev.target.closest("[data-retry-all]"), h = ev.target.closest("a[data-run]");
+    const r = ev.target.closest("[data-retry]"), all = ev.target.closest("[data-retry-all]");
+    const item = ev.target.closest("[data-run]"), remove = ev.target.closest("[data-delete-run]");
     if (r) retry([r.dataset.retry]);
     if (all) retry(all.dataset.retryAll.split("\n"));
-    if (h) {
-      ev.preventDefault();
-      const saved = await api("runs/" + encodeURIComponent(h.dataset.run));
-      const current = state.run && !state.run.history && ["starting", "running", "waiting"].includes(state.run.status);
-      state.viewing = !current;
-      if (!current) renderRun(saved);
+    if (ev.target.closest("#run-current")) {
+      state.viewing = false;
+      await loadRun();
+    }
+    if (item || remove) {
+      historyMessage("");
+      try {
+        if (item && !runActive(state.run?.status)) {
+          const saved = await api("runs/" + encodeURIComponent(item.dataset.run));
+          if (runActive(state.run?.status)) return;
+          state.viewing = saved.id;
+          renderRun(saved);
+          renderHistory();
+          $("#run-title").scrollIntoView({block: "nearest"});
+        }
+        if (remove) {
+          const id = remove.dataset.deleteRun;
+          if (!window.confirm("Delete this run from history? Tracked applications will be kept.")) return;
+          remove.disabled = true;
+          await api("runs/" + encodeURIComponent(id) + "/delete", {});
+          if (state.viewing === id) state.viewing = false;
+          await loadHistory();
+          await loadRun();
+          $("#history").querySelector("[data-run]:enabled")?.focus({preventScroll: true});
+          historyMessage("Run deleted.");
+        }
+      } catch (e) {
+        if (remove) remove.disabled = false;
+        historyMessage(e.message);
+      }
     }
   });
   $("#tab-docs").addEventListener("click", (ev) => {
