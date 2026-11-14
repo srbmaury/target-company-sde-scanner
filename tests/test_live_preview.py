@@ -15,12 +15,13 @@ class LivePreviewTests(unittest.TestCase):
     def start_preview(self, *, dry=False):
         run = ApplyRun(SimpleNamespace(owner="fixture"))
         run.dry_run = dry
-        page = Mock(viewport_size={"width": 1000, "height": 600})
+        page = Mock(viewport_size={"width": 1000, "height": 600}, frames=[Mock()])
         result = queue.Queue()
         owner = []
 
-        def snapshot(**_):
+        def snapshot(**options):
             self.assertEqual(threading.get_ident(), owner[0])
+            self.assertEqual(options["mask"], [page.frames[0].locator.return_value])
             return b"jpeg"
 
         page.screenshot.side_effect = snapshot

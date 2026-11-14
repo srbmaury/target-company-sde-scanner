@@ -43,6 +43,13 @@ def validate(body):
     return out
 
 
+def capture(page):
+    """Capture the actual viewport and mask password and OTP input elements."""
+    masks = [frame.locator('input[type="password"], input[autocomplete="one-time-code"]') for frame in page.frames]
+    return page.screenshot(type="jpeg", quality=55, timeout=3500, animations="allow",
+                           scale="css", full_page=False, mask=masks)
+
+
 class Viewport:
     def __init__(self, page):
         self.page = page
@@ -70,8 +77,7 @@ class Viewport:
                 key = command["key"]
                 page.keyboard.press(" " if key == "Space" else key)
             page.wait_for_timeout(100)
-        frame = page.screenshot(type="jpeg", quality=55, timeout=3500, animations="allow",
-                                scale="css", full_page=False)
+        frame = capture(page)
         viewport = page.viewport_size
         self.size = (viewport["width"], viewport["height"]) if viewport else tuple(page.evaluate(
             "() => [window.innerWidth, window.innerHeight]"))

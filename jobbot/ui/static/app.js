@@ -397,6 +397,7 @@ function renderLivePreview(run) {
   $("#live-text").hidden = $("#live-direct").hidden = Boolean(run.dry_run);
   $("#live-refresh").hidden = $("#live-release").hidden = !live.control;
   $("#prompt").inert = Boolean(live.control);
+  $("#page-preview").hidden = Boolean(live.control) || !run.preview || Boolean(run.history);
 }
 
 async function browserCommand(action, extra = {}) {
@@ -519,10 +520,12 @@ function renderRun(run) {
   const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
   feed.innerHTML = run.events.map(renderEvent).join("");
   if (nearBottom) feed.scrollTop = feed.scrollHeight;
-  $("#page-preview").hidden = !run.preview;
-  if (run.preview && $("#page-preview-image").dataset.run !== run.id + ":" + run.events.length) {
-    $("#page-preview-image").src = "data:image/jpeg;base64," + run.preview;
-    $("#page-preview-image").dataset.run = run.id + ":" + run.events.length;
+  const preview = $("#page-preview-image");
+  if (run.preview && !run.history) {
+    const source = "data:image/jpeg;base64," + run.preview;
+    if (preview.getAttribute("src") !== source) preview.src = source;
+  } else {
+    preview.removeAttribute("src");
   }
   renderPrompt(run.history ? null : run.prompt);
   renderNeeds(run, active);
@@ -677,7 +680,7 @@ function renderPrompt(p) {
   if (p.kind === "action") {
     const audit = currentAudit();
     const editable = audit ? audit.fields.filter((f) => ["text", "textarea", "select", "radio", "yesno"].includes(f.kind) && !/consent|agree|terms|certify|gender|race|ethnic|veteran|disability|signature|password/i.test(f.label)) : [];
-    if (editable.length) html += `<details class="prompt"><summary>Correct a field and re-check</summary>${editable.map((f, i) => `<label>${esc(f.label)}${["select", "radio", "yesno"].includes(f.kind) ? `<select id="correction-${i}">${f.options.map((o) => `<option ${o === f.actual ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>` : `<input id="correction-${i}" type="text" value="${esc(f.actual)}">`}</label><button data-correct="${esc(f.id)}" data-input="correction-${i}">Correct: ${esc(f.label)}</button>`).join("")}</details>`;
+    if (editable.length) html += `<details class="prompt"><summary>Correct a field and re-check</summary>${editable.map((f, i) => `<div class="correction-row"><label>${esc(f.label)}${["select", "radio", "yesno"].includes(f.kind) ? `<select id="correction-${i}">${f.options.map((o) => `<option ${o === f.actual ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>` : `<input id="correction-${i}" type="text" value="${esc(f.actual)}">`}</label><button data-correct="${esc(f.id)}" data-input="correction-${i}" aria-label="Correct ${esc(f.label)}">Save and re-check</button></div>`).join("")}</details>`;
   }
   box.innerHTML = html;
   const input = $("#p-text", box);
@@ -697,6 +700,9 @@ async function answerPrompt(raw) {
     alertInline($("#prompt"), e.message);
     $$("#prompt button").forEach((b) => (b.disabled = false));
     return;
+  }
+  if ($("#prompt").dataset.pid === p.id) {
+    $("#prompt").innerHTML = '<p role="status">Answer sent to Jobbot…</p>';
   }
   await loadRun();
 }

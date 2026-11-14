@@ -55,3 +55,5 @@ callback. Hosted **Fill for review** and **Dry run** launch Chromium on the host
 installed. Review the results in **Runs**. Enable **Auto-apply to selected roles** to submit verified applications with a configured model. Use **Take control** at a live pause to interact
 with the employer page, and **Return control and recheck** to review it again. The dry-run live view
 is read-only.
+
+During a hosted run, **Employer page** shows periodic frames from the browser while Jobbot fills the form. At a review pause, use **Take control** to interact with that same page. Return control for a fresh check, then use **Confirm submission** to authorize the employer’s Submit action.
