@@ -221,6 +221,19 @@ class ResolverTest(unittest.TestCase):
 
 
 class ScanParsingTest(unittest.TestCase):
+    def test_source_location_metadata_is_removed(self):
+        from unittest.mock import patch
+        from jobbot import scan
+
+        self.assertEqual(scan.clean_location("Remote Job | Posted on 11/04/2026"), "Remote Job")
+        self.assertEqual(scan.clean_location("Bangalore | Hyderabad"), "Bangalore | Hyderabad")
+        with patch.object(scan, "http_json", return_value={"jobs": [
+            {"location": "Bangalore – Engineering", "department": "Engineering"},
+            {"location": "Remote – India", "department": "Engineering"},
+        ]}):
+            self.assertEqual([job["location"] for job in scan.ashby({"id": "uipath"})],
+                             ["Bangalore", "Remote – India"])
+
     def test_stated_years(self):
         self.assertEqual(stated_years("Requirements 2 to 5 years of Python engineering expertise")[0], 2)
         self.assertEqual(stated_years("Has 2-5 years of professional software engineering experience")[0], 2)
@@ -341,7 +354,7 @@ class AutonomyTest(unittest.TestCase):
         prof.resumes = lambda: {"backend": {}}
         r = Resolver(prof, ask=lambda *a: None)
         yn = ["Yes", "No"]
-        self.assertEqual(r.resolve("Have you worked with Debezium, PeerDB? ✱", "choice", options=yn).display, "No")
+        self.assertIsNone(r.resolve("Have you worked with Debezium, PeerDB? ✱", "choice", options=yn))
         self.assertEqual(r.resolve("Do you have experience with Java and Spring Boot?", "choice", options=yn).display, "Yes")
         self.assertIsNone(r.resolve("Are you familiar with our code of conduct?", "choice", options=yn))
         self.assertEqual(r.resolve("Signature", "text").value, "Asha Example")
@@ -361,7 +374,7 @@ class ReviewFixesTest(unittest.TestCase):
         prof.resume_text = lambda key: "Built a Google Cloud pipeline; good test coverage; Java."
         prof.resumes = lambda: {"backend": {}}
         r = Resolver(prof, ask=lambda *a: None)
-        self.assertEqual(r.resolve("Years of experience with Go", "text").value, "0")
+        self.assertIsNone(r.resolve("Years of experience with Go", "text"))
         self.assertEqual(r.resolve("Years of experience with Java", "text").value, "2")
 
     def test_hear_never_defaults_to_first_option(self):
@@ -1309,6 +1322,27 @@ class ValidationPromptTest(unittest.TestCase):
         row = tracker.add_application(conn, "Acme", "Engineer", url="https://acme.example/1", status="applied")
         self.assertEqual(row["status"], "rejected")
 
+    def test_finished_run_deletion_keeps_active_run_and_other_history(self):
+        from unittest.mock import patch
+        from jobbot.accounts import AccountError
+        from jobbot.ui import bridge
+
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(bridge, "RUNS_FILE", return_value=Path(directory) / "runs.json"), \
+                patch.dict(bridge.CURRENT):
+            run = bridge.ApplyRun()
+            bridge.CURRENT["run"] = run
+            bridge._write_local_runs([{"id": "older", "status": "done"}, run.snapshot()])
+            with self.assertRaises(AccountError):
+                bridge.delete_run(run.id)
+            self.assertTrue(bridge.delete_run("older"))
+            self.assertFalse(bridge.delete_run("older"))
+            run.status, run.ended = "done", run.started
+            run.save()
+            self.assertTrue(bridge.delete_run(run.id))
+            self.assertIsNone(bridge.current())
+            self.assertEqual(bridge.history(), [])
+
     def test_saved_runs_leave_out_screenshots(self):
         import json
         from unittest.mock import patch
@@ -1537,9 +1571,8 @@ class ValidationPromptTest(unittest.TestCase):
         prof.resumes = lambda: {"cloud": {"path": ""}}
         prof.resume_text = lambda key, limit=None: "Docker, AWS (EC2, S3, RDS), Python, Java"
         r = Resolver(prof, None, job={"company": "Fampay"})
-        self.assertEqual(r.resolve("Share your hands-on experience with AWS services like S3, EKS, or MSK. What was the use case?",
-                                   "textarea", quick=True).value,
-                         "I have hands-on experience with AWS and S3, as listed on my resume. I have not worked with EKS or MSK.")
+        self.assertIsNone(r.resolve("Share your hands-on experience with AWS services like S3, EKS, or MSK. What was the use case?",
+                                    "textarea", quick=True))
         self.assertEqual(r.resolve("Portfolio URL", "text", quick=True).value, "https://asha.dev")   # portfolio = your website
 
     def test_free_text_passes_exact_checks_and_hear_groups_tick_one_box(self):

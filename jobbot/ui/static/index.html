@@ -8,7 +8,7 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="dashboard-page">
   <div id="conn-banner" class="conn-banner" role="alert" hidden></div>
   <header class="top">
     <div class="brand"><span class="brand-mark" aria-hidden="true">J</span> Jobbot</div>
@@ -27,7 +27,7 @@
       <button role="tab" id="nav-profile" aria-controls="tab-profile" data-tab="profile" aria-selected="false" tabindex="-1">Profile</button>
       <button role="tab" id="nav-docs" aria-controls="tab-docs" data-tab="docs" aria-selected="false" tabindex="-1">Docs</button>
     </nav>
-    <main>
+    <main tabindex="0" aria-label="Workspace content">
       <!-- Jobs -->
       <section class="panel" id="tab-jobs" role="tabpanel" aria-labelledby="nav-jobs">
         <div class="page-heading">
@@ -84,18 +84,18 @@
       <!-- Apply (live run) -->
       <section class="panel" id="tab-apply" role="tabpanel" aria-labelledby="nav-apply" hidden>
         <div class="page-heading">
-          <span class="eyebrow">Workspace / Runs</span>
           <h1>Application runs</h1>
           <p>Follow progress, review answers, and see which applications need your input.</p>
         </div>
-        <div class="toolbar">
+        <div class="toolbar run-overview">
           <b id="run-title">No apply run yet</b>
           <span class="pill" id="run-status"></span>
           <span class="muted" id="run-progress"></span>
+          <button type="button" id="run-current" hidden>Back to latest run</button>
           <button id="run-stop" hidden>Stop after this step</button>
         </div>
         <div class="run-grid">
-          <div>
+          <div class="run-detail">
             <div id="prompt"></div>
             <div id="needs"></div>
             <section id="live-preview" class="live-preview" aria-label="Hosted browser" hidden>
@@ -117,14 +117,20 @@
               </div>
             </section>
             <details id="page-preview" hidden><summary>Application page preview</summary><img id="page-preview-image" alt="Current application page" style="width:100%;height:auto"></details>
-            <h3 class="section-title">Activity</h3>
-            <div id="feed" class="feed"></div>
+            <details id="run-activity" open hidden><summary>Activity</summary>
+              <div id="feed" class="feed"></div>
+            </details>
           </div>
-          <aside>
-            <h3 class="section-title">Queue</h3>
-            <ol id="queue" class="queue"></ol>
-            <h3 class="section-title">Earlier runs</h3>
-            <ol id="history" class="queue history"></ol>
+          <aside class="run-sidebar">
+            <section id="run-queue-card" hidden>
+              <h2>Queue</h2>
+              <ol id="queue" class="queue"></ol>
+            </section>
+            <section>
+              <h2>Run history</h2>
+              <p id="history-message" role="status" hidden></p>
+              <ul id="history" class="history run-history"></ul>
+            </section>
           </aside>
         </div>
       </section>
@@ -155,8 +161,7 @@
       <!-- Actions -->
       <section class="panel" id="tab-actions" role="tabpanel" aria-labelledby="nav-actions" hidden>
         <div class="page-heading">
-          <span class="eyebrow">Workspace / Actions</span>
-          <h1>Workspace actions</h1>
+          <h1>Actions</h1>
           <p>Find jobs, rank them against your resumes, and manage Gmail.</p>
         </div>
         <div class="cards">
@@ -171,7 +176,7 @@
             <button data-task="gmail-login" id="gmail-login">Connect Gmail</button>
             <button id="gmail-disconnect" hidden>Disconnect Gmail</button></div>
         </div>
-        <h3 class="section-title">Recent runs</h3>
+        <h2 class="section-title">Recent activity</h2>
         <div id="tasks"></div>
       </section>
 

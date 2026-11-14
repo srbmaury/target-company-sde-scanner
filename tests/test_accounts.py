@@ -217,6 +217,14 @@ class AccountTests(unittest.TestCase):
             conn.close()
             return result
 
+        self.account.put_json("browser-runs", [
+            {"id": "older", "status": "done"}, {"id": "newer", "status": "failed"},
+        ])
+        self.assertEqual(request("/api/runs/older/delete", {})[0], 401)
+        self.assertEqual(request("/api/runs/older/delete", {}, cookie=session)[0], 200)
+        self.assertEqual(request("/api/runs/older", cookie=session)[0], 404)
+        self.assertEqual([run["id"] for run in self.account.get_json("browser-runs")], ["newer"])
+
         self.assertIn(b"Continue with Google", request("/")[1])
         self.assertIn(b"Your Jobbot session expired.", request("/?session=expired")[1])
         self.assertEqual(request("/favicon.svg")[0], 200)

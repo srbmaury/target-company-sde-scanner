@@ -51,6 +51,7 @@ function recall(key) { try { return localStorage.getItem("jobbot." + key); } cat
 
 // ---------- tabs ----------
 function showTab(name) {
+  if (state.tab !== name) $("main").scrollTop = 0;
   state.tab = name;
   remember("tab", name);
   $$(".tabs [role=tab]").forEach((button) => {
@@ -301,7 +302,9 @@ async function loadRun() {
   if (active && !state.runPoll) state.runPoll = setInterval(loadRun, 1000);
   if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary(); state.historyStale = true; }
   renderStrip(run, active);
+  if (active) state.viewing = false;
   if (state.tab === "apply" && !state.viewing) renderRun(run);
+  if (state.tab === "apply" && state.historyLoaded) renderHistory();
   if (state.tab === "apply" && (state.historyStale || !state.historyLoaded)) loadHistory();
 }
 
@@ -318,14 +321,52 @@ function renderStrip(run, active) {
     ` <button class="link" data-view-run>View run →</button>`;
 }
 
+const runActive = (status) => ["starting", "running", "waiting"].includes(status);
+const runStatus = (status) => ({
+  starting: "Starting", running: "Filling", waiting: "Needs review", done: "Finished",
+  failed: "Failed", stopped: "Stopped", interrupted: "Interrupted",
+})[status] || status;
+const runDate = (value) => {
+  if (!value) return "Unknown date";
+  // Older snapshots have no UTC offset. Preserve their original host time.
+  return /(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    ? taskTime.format(new Date(value))
+    : value.replace("T", " ") + " (host time)";
+};
+
+function historyMessage(message) {
+  $("#history-message").textContent = message;
+  $("#history-message").hidden = !message;
+}
+
 async function loadHistory() {
-  state.historyLoaded = true; state.historyStale = false;
-  let runs = [];
-  try { runs = await api("runs"); } catch (e) { return; }
-  const label = (r) => Object.entries(r.counts || {}).map(([k, v]) => `${v} ${k}`).join(", ") || "nothing finished";
-  $("#history").innerHTML = runs.length ? runs.map((r) => `<li><a href="#" data-run="${esc(r.id)}">${esc((r.started || "").replace("T", " ").slice(0, 16))}</a>
-      <span class="sub">${r.dry_run ? "dry run · " : ""}${r.unattended ? "unattended · " : ""}${esc(r.status || "")} · ${esc(label(r))}</span></li>`).join("")
-    : `<li class="muted">None yet.</li>`;
+  let runs;
+  try { runs = await api("runs"); } catch (e) { historyMessage(e.message); return; }
+  state.historyLoaded = true;
+  state.historyStale = false;
+  state.historyRuns = runs;
+  renderHistory();
+}
+
+function renderHistory() {
+  const runs = state.historyRuns || [];
+  const active = runActive(state.run?.status);
+  const markup = runs.length ? runs.map((run) => {
+    const selected = (state.viewing || state.run?.id) === run.id;
+    const outcomes = Object.entries(run.counts || {}).map(([key, count]) => `${count} ${key}`).join(" · ");
+    const label = [run.dry_run ? "Dry run" : "", runStatus(run.status), outcomes || `${run.total} queued`].filter(Boolean).join(" · ");
+    return `<li${selected ? ' class="selected"' : ""}>
+      <div><button type="button" class="link" data-run="${esc(run.id)}" ${active || runActive(run.status) ? "disabled" : ""}
+        ${selected ? 'aria-current="true"' : ""}>${esc(runDate(run.started))}</button>
+        <span class="sub">${esc(label)}</span></div>
+      ${!runActive(run.status) ? `<button type="button" class="run-delete" data-delete-run="${esc(run.id)}"
+        aria-label="Delete run from ${esc(runDate(run.started))}">Delete</button>` : ""}
+    </li>`;
+  }).join("") : '<li class="muted">No saved runs yet.</li>';
+  if (state.historyMarkup !== markup) {
+    $("#history").innerHTML = markup;
+    state.historyMarkup = markup;
+  }
 }
 
 const live = { prompt: null, control: null, frame: null, busy: false, timer: null, inputs: [] };
@@ -442,7 +483,11 @@ function wireLivePreview() {
 }
 
 function renderRun(run) {
+  state.displayedRun = run;
   renderLivePreview(run);
+  $("#run-current").hidden = !state.viewing;
+  $("#run-activity").hidden = !run.events?.length;
+  $("#run-queue-card").hidden = !run.jobs?.length;
   if (run.status === "idle") {
     $("#run-title").textContent = "No runs yet";
     $("#run-status").textContent = ""; $("#run-progress").textContent = "";
@@ -455,11 +500,10 @@ function renderRun(run) {
     return;
   }
   const active = ["starting", "running", "waiting"].includes(run.status);
-  const when = (run.started || "").replace("T", " ").slice(0, 16);
-  $("#run-title").textContent = (run.history ? (state.viewing ? "Run of " + when : "Last run · " + when) + " · " : "")
-    + (run.dry_run ? "Dry run" : run.unattended ? "Unattended run" : "Applying");
-  $("#run-status").textContent = ({ starting: "Starting", running: "Filling", waiting: "Needs review",
-    done: "Finished", failed: "Failed", stopped: "Stopped" })[run.status] || run.status;
+  const when = runDate(run.started);
+  $("#run-title").textContent = (run.history || !active ? when + " · " : "")
+    + (run.dry_run ? "Dry run" : run.unattended ? "Unattended run" : "Application run");
+  $("#run-status").textContent = runStatus(run.status);
   $("#run-status").className = "pill " + ({ waiting: "maybe", running: "interview", done: "applied", failed: "rejected", stopped: "withdrawn" }[run.status] || "");
   const done = Object.keys(run.results).length;
   $("#run-progress").textContent = run.jobs.length ? `${done} of ${run.jobs.length} finished` : "";
@@ -519,7 +563,7 @@ function renderNeeds(run, active) {
     <details open><summary><b>${esc(name)}</b> (${g.jobs.length})
       ${active ? "" : `<button class="link" data-retry-all="${esc(g.jobs.map((j) => j.n || j.url).join("\n"))}">Retry ${g.jobs.length > 1 ? "these " + g.jobs.length : "it"}</button>`}</summary>
       <p class="hint">${esc(g.hint)}</p>
-      <ul>${g.jobs.map((j) => `<li><b>${esc(j.company)}</b> — ${esc(j.title)}<div class="reason">${esc(results[j.url].note || "")}</div>
+      <ul>${g.jobs.map((j) => `<li><b>${esc(j.company)}</b> — ${esc(j.title)}<div class="reason">${esc((results[j.url].note || "").replace(/\s*Screenshot:\s+\S+\.png/gi, ""))}</div>
         <a href="${esc(j.url)}" target="_blank" rel="noopener">Open posting</a>
         ${active ? "" : `<button class="link" data-retry="${esc(String(j.n || j.url))}">Retry</button>`}</li>`).join("")}</ul></details>`).join("")
     + (active || needs.length < 2 ? "" : `<button data-retry-all="${esc(needs.map((j) => j.n || j.url).join("\n"))}">Retry all ${needs.length}</button>`)
@@ -527,10 +571,11 @@ function renderNeeds(run, active) {
 }
 
 async function retry(keys) {
+  const run = state.displayedRun;
   try {
     // a retry keeps the run's mode: auto-submit runs submit again, dry runs stay dry
-    await api("apply", state.run.auto_submit ? { jobs: keys, auto_submit: true }
-      : { jobs: keys, unattended: !state.run.validation, validation: !!state.run.validation, dry_run: !!state.run.dry_run });
+    await api("apply", run.auto_submit ? { jobs: keys, auto_submit: true }
+      : { jobs: keys, unattended: !run.validation, validation: !!run.validation, dry_run: !!run.dry_run });
     state.viewing = false;
     loadRun();
   } catch (e) { alertInline($("#needs"), e.message); }
@@ -754,24 +799,84 @@ async function startTask(name) {
   loadTasks();
 }
 
+const taskNames = {
+  scan: "Job scan", rank: "Job ranking", refresh: "Refresh jobs",
+  resumes: "Resume scan", "sync-gmail": "Gmail sync", "gmail-login": "Gmail sign-in",
+};
+const taskTime = new Intl.DateTimeFormat(undefined, {
+  month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
+});
+
+function renderTask(t) {
+  const activity = Object.values(t.activity || {});
+  const scan = t.activity?.scan;
+  const resumes = t.activity?.resumes?.resumes;
+  const lines = t.lines.filter((line) => line.trim() && !line.startsWith("$ "));
+  const latest = lines.at(-1);
+  const status = {done: "Completed", failed: "Failed", running: "Running"}[t.status];
+  const tone = {done: "applied", failed: "rejected", running: "interview"}[t.status];
+  return `<div class="task" data-run-task="${esc(t.id)}">
+    <div class="task-head"><div><b>${esc(taskNames[t.name] || t.name)}</b>
+      <time class="when" datetime="${esc(t.started)}">${esc(taskTime.format(new Date(t.started)))}</time></div>
+      <span class="pill ${tone}">${status}</span></div>
+    <div class="task-body">
+      ${activity.map((entry) => `<p>${esc(entry.summary)}</p>${entry.detail ? `<p>${esc(entry.detail)}</p>` : ""}`).join("")}
+      ${t.status === "running" && !latest ? "<p>Starting…</p>" : ""}
+      ${latest && (t.status !== "done" || !activity.length) ? `<p>${esc(latest)}</p>` : ""}
+      ${scan?.jobs.length ? `<details data-task-detail="results"><summary>Scan results</summary>
+        <ul class="task-results">${scan.jobs.map((job) => `<li><div><b>${esc(job.title)}</b>
+        <small>${esc(job.company)} · ${esc(job.location)}${job.new ? " · New" : ""}</small></div>
+        <span>${esc(job.experience)}</span></li>`).join("")}</ul>
+        ${scan.total > scan.jobs.length ? `<p>Showing ${scan.jobs.length} of ${scan.total} matches.</p>` : ""}
+        <button type="button" data-go="jobs">View Jobs</button></details>` : ""}
+      ${resumes?.length ? `<details data-task-detail="resumes"><summary>Resume variants</summary>
+        <ul>${resumes.map((key) => `<li>${esc(key)}</li>`).join("")}</ul></details>` : ""}
+      ${lines.length ? `<details data-task-detail="output"><summary>Task output</summary>
+        <pre>${esc(t.lines.join("\n"))}</pre></details>` : ""}
+    </div></div>`;
+}
+
 async function loadTasks() {
-  const tasks = await api("tasks");
-  $("#tasks").innerHTML = tasks.length ? tasks.map((t) => `<div class="task">
-      <div class="task-head"><b>${esc(t.name)}</b><span class="pill ${t.status === "done" ? "applied" : t.status === "failed" ? "rejected" : "interview"}">${esc(t.status)}</span>
-        <span class="when">${esc(t.started.replace("T", " "))}</span></div>
-      <pre>${esc(t.lines.slice(-200).join("\n")) || "…"}</pre></div>`).join("")
-    : `<div class="empty">Nothing has run yet in this session.</div>`;
-  $$(".task pre").forEach((p) => (p.scrollTop = p.scrollHeight));
-  renderRefresh(tasks);
-  const running = tasks.some((t) => t.status === "running");
-  $$("[data-task]").forEach((b) => (b.disabled = running && !b.dataset.task.startsWith("gmail") ? true : b.disabled));
-  if (running && !state.polling) state.polling = setInterval(loadTasks, 1500);
-  if (!running && state.polling) {
-    clearInterval(state.polling);
-    state.polling = null;
-    $$("[data-task]").forEach((b) => (b.disabled = false));
-    await loadSummary();
-    if (state.tab === "jobs") await loadJobs();
+  if (state.loadingTasks) return;
+  state.loadingTasks = true;
+  try {
+    const tasks = await api("tasks");
+    const id = (detail) => detail.closest("[data-run-task]").dataset.runTask + ":" + detail.dataset.taskDetail;
+    const root = $("#tasks");
+    const open = new Map($$("details[open]", root).map((d) => [id(d), d.querySelector("pre")?.scrollTop]));
+    const focused = document.activeElement?.closest("details");
+    const focusKey = focused && root.contains(focused) && document.activeElement.matches("summary") ? id(focused) : null;
+    const markup = tasks.length ? tasks.map(renderTask).join("") : '<div class="empty">No recent activity.</div>';
+    if (state.taskMarkup !== markup) {
+      root.innerHTML = markup;
+      state.taskMarkup = markup;
+      $$("details", root).forEach((detail) => {
+        detail.open = open.has(id(detail));
+        if (detail.open && detail.querySelector("pre")) detail.querySelector("pre").scrollTop = open.get(id(detail)) || 0;
+        if (id(detail) === focusKey) detail.querySelector("summary").focus({preventScroll: true});
+      });
+    }
+    root.querySelector(":scope > .err")?.remove();
+    renderRefresh(tasks);
+    const active = tasks.filter((t) => t.status === "running").map((t) => t.name);
+    const jobTasks = ["scan", "rank", "refresh"];
+    $$("[data-task]").forEach((button) => {
+      const name = button.dataset.task;
+      button.disabled = active.includes(name) ||
+        (jobTasks.includes(name) && active.some((task) => jobTasks.includes(task))) ||
+        (name === "sync-gmail" && (!state.summary?.gmail || active.includes("refresh")));
+    });
+    if (active.length && !state.polling) state.polling = setInterval(loadTasks, 1500);
+    if (!active.length && state.polling) {
+      clearInterval(state.polling);
+      state.polling = null;
+      await loadSummary();
+      if (state.tab === "jobs") await loadJobs();
+    }
+  } catch (e) {
+    alertInline($("#tasks"), e.message);
+  } finally {
+    state.loadingTasks = false;
   }
 }
 
@@ -780,19 +885,20 @@ function renderRefresh(tasks) {
   const t = tasks.find((x) => ["refresh", "scan", "rank"].includes(x.name));
   const el = $("#refresh-status"), btn = $("#jobs-refresh");
   const busy = t && t.status === "running";
-  btn.disabled = busy;
+  btn.disabled = Boolean(busy || tasks.some((task) => task.name === "sync-gmail" && task.status === "running"));
   const steps = { track: ["Syncing Gmail…", "Reading application emails"], scan: ["Scanning…", "Scanning job boards"], rank: ["Ranking…", "Ranking new roles"] };
   const order = t && t.name === "refresh" ? ["track", "scan", "rank"] : [];
   const [short, long] = (t && steps[t.step]) || steps.scan;
   const of = order.includes(t && t.step) ? ` (${order.indexOf(t.step) + 1}/3)` : "";
   btn.textContent = busy ? short : "Refresh jobs";
   if (!t) { el.hidden = true; return; }
-  const last = t.lines.filter((l) => l.trim() && !l.startsWith("$ ")).slice(-1)[0] || "";
+  const last = (t.status === "done" && Object.values(t.activity || {}).at(-1)?.summary) ||
+    t.lines.filter((l) => l.trim() && !l.startsWith("$ ")).at(-1) || "";
   el.hidden = false;
   el.className = "refresh-status " + (t.status === "failed" ? "bad" : "");
   el.textContent = busy ? `${long}${of}… ${last}`
     : t.status === "failed" ? `${t.name} failed: ${last} (details in Actions)`
-    : `Last ${t.name} finished ${t.ended ? t.ended.slice(11, 16) : ""}. ${last}`;
+    : `Last ${t.name} finished ${t.ended ? taskTime.format(new Date(t.ended)) : ""}. ${last}`;
 }
 
 // ---------- logs ----------
@@ -1263,15 +1369,40 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#jobs-refresh").addEventListener("click", () => startTask("refresh"));
   $("#run-strip").addEventListener("click", (ev) => { if (ev.target.closest("[data-view-run]")) { state.viewing = false; showTab("apply"); } });
   $("#tab-apply").addEventListener("click", async (ev) => {
-    const r = ev.target.closest("[data-retry]"), all = ev.target.closest("[data-retry-all]"), h = ev.target.closest("a[data-run]");
+    const r = ev.target.closest("[data-retry]"), all = ev.target.closest("[data-retry-all]");
+    const item = ev.target.closest("[data-run]"), remove = ev.target.closest("[data-delete-run]");
     if (r) retry([r.dataset.retry]);
     if (all) retry(all.dataset.retryAll.split("\n"));
-    if (h) {
-      ev.preventDefault();
-      const saved = await api("runs/" + encodeURIComponent(h.dataset.run));
-      const current = state.run && !state.run.history && ["starting", "running", "waiting"].includes(state.run.status);
-      state.viewing = !current;
-      if (!current) renderRun(saved);
+    if (ev.target.closest("#run-current")) {
+      state.viewing = false;
+      await loadRun();
+    }
+    if (item || remove) {
+      historyMessage("");
+      try {
+        if (item && !runActive(state.run?.status)) {
+          const saved = await api("runs/" + encodeURIComponent(item.dataset.run));
+          if (runActive(state.run?.status)) return;
+          state.viewing = saved.id;
+          renderRun(saved);
+          renderHistory();
+          $("#run-title").scrollIntoView({block: "nearest"});
+        }
+        if (remove) {
+          const id = remove.dataset.deleteRun;
+          if (!window.confirm("Delete this run from history? Tracked applications will be kept.")) return;
+          remove.disabled = true;
+          await api("runs/" + encodeURIComponent(id) + "/delete", {});
+          if (state.viewing === id) state.viewing = false;
+          await loadHistory();
+          await loadRun();
+          $("#history").querySelector("[data-run]:enabled")?.focus({preventScroll: true});
+          historyMessage("Run deleted.");
+        }
+      } catch (e) {
+        if (remove) remove.disabled = false;
+        historyMessage(e.message);
+      }
     }
   });
   $("#tab-docs").addEventListener("click", (ev) => {
