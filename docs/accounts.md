@@ -101,7 +101,7 @@ If the employer blocks the hosted browser or requires an unsupported interaction
 employer site.
 
 Browser sessions are temporary. MongoDB keeps run outcomes, but not screenshots or field audit
-history. Learned answers from hosted runs are not saved back to the profile. The **Logs** tab is
+history. Reusable answers you enter during hosted live runs are saved under `learned_answers` in your account profile. Optional fields without a known answer stay blank. The **Logs** tab is
 for local browser logs. Use **Runs** for hosted browser progress and **Actions** for task output.
 The local tracker remains separate, and hosted browser runs start from the dashboard.
 

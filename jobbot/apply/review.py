@@ -17,8 +17,10 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
     `confirmed` are fields the profile check (consistency.py) proved match your profile: they count as
     reviewed, and a model complaint about one of them is a false flag, not a block."""
     fields = self.audit_fields(page, report)
+    if getattr(resolver, "profile_first", False) is True:
+        fields = [field for field in fields if field.get("required") and field["id"] not in confirmed]
     provider = getattr(self.llm, "provider", "Ollama") if self.llm else "LLM"
-    self.ui.info(f"{provider} is reviewing every field on page {step} before any Next or Submit.")
+    self.ui.info(f"{provider} is reviewing fields on page {step} before any Next or Submit.")
     try:
         if not self.llm or not self.llm.enabled:
             raise RuntimeError("LLM is unavailable")
@@ -60,7 +62,7 @@ def review_step(self, page, resolver, report, check, step, confirmed=frozenset()
         ids = {f["id"] for f in fields}
         covered |= set(confirmed)   # a field the model skipped but the profile check decided is reviewed
         if ids <= covered and not issues and not rejected:
-            self.ui.info(f"LLM reviewed all {len(fields)} fields on page {step}: approved.")
+            self.ui.info(f"LLM reviewed {len(fields)} fields on page {step}: approved.")
             return
         if not ids <= covered:
             check.errors.append("LLM review did not cover every field.")

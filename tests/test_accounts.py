@@ -8,7 +8,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
 import mongomock
@@ -48,6 +48,28 @@ class AccountTests(unittest.TestCase):
                      patch.object(accounts, "current", return_value=self.account)):
             mock.start()
             self.addCleanup(mock.stop)
+
+    def test_hosted_answers_persist_in_account_profile(self):
+        from jobbot.answers import Resolver
+        from jobbot.memory import Memory
+
+        self.account.put_json("unrelated", {"kept": True})
+        self.account.write("profile", b"# Keep this comment\npersonal: {}\n")
+        candidate = profile.load()
+        model = Mock(enabled=True)
+        ask = Mock(return_value="Yes")
+        resolver = Resolver(candidate, model, ask=ask, profile_first=True,
+                            memory=Memory.for_profile(candidate, account=self.account))
+        question = "Do you have experience maintaining schema migrations?"
+        self.assertIsNone(resolver.resolve(question))
+        self.assertEqual(resolver.resolve(question, required=True).value, "Yes")
+        ask.assert_called_once()
+        model.draft.assert_not_called()
+        raw, _ = self.account.read("profile")
+        self.assertIn(b"# Keep this comment", raw)
+        fresh = profile.load()
+        self.assertEqual(Memory.for_profile(fresh).lookup(question), "Yes")
+        self.assertEqual(self.account.get_json("unrelated"), {"kept": True})
 
     def new_account(self, email="owner@example.com"):
         return accounts.Account(self.db, self.key, email, "https://jobbot.example.com",
