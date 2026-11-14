@@ -1429,6 +1429,24 @@ class ValidationPromptTest(unittest.TestCase):
         self.assertEqual(r.resolve("Currency", "choice", options=["USD", "INR - Indian Rupee"], quick=True).display,
                          "INR - Indian Rupee")
 
+    def test_hosted_employer_password_requires_opt_in_and_live_run(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from jobbot.apply.auth import password_candidates
+
+        host = "employer.wd5.myworkdayjobs.com"
+        url = f"https://{host}/login"
+        profile = Profile({"personal": {"email": "candidate@example.test"},
+                           "automation": {"sign_in_hosts": [host]}}, "test")
+        session = SimpleNamespace(hosted=True, dry_run=False, profile=profile)
+        with patch.dict(os.environ, {"JOBBOT_EMPLOYER_PASSWORD": "fixture-only"}):
+            self.assertEqual(password_candidates(session, url, "candidate@example.test"), ["fixture-only"])
+            for denied in ("http://" + host, "https://other.wd5.myworkdayjobs.com",
+                           "https://accounts.google.com"):
+                self.assertEqual(password_candidates(session, denied, "candidate@example.test"), [])
+            session.dry_run = True
+            self.assertEqual(password_candidates(session, url, "candidate@example.test"), [])
+
     def test_password_only_on_job_platforms_and_the_postings_own_site(self):
         from jobbot.apply.auth import host_allowed
         p = Profile({}, "x")

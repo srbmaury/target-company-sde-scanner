@@ -97,6 +97,9 @@ async function loadSummary() {
   $("#local-run-options").hidden = Boolean(s.account);
   $("#local-run-hint").hidden = Boolean(s.account);
   setAccountProfile(Boolean(s.account));
+  $("#employer-auth").hidden = !s.account;
+  $("#employer-auth-state").textContent = s.employer_password_configured
+    ? "Employer password configured on the host." : "Employer password is missing. Sign in manually during runs.";
   setRunAvailability();
   $("#gmail-sync").disabled = !s.gmail;
   const sel = $("#apps-status");

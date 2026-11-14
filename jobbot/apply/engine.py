@@ -241,7 +241,7 @@ class Session:
             self._decline_cookies(page)
             needs_account = self._needs_account(page)
             if getattr(self, "hosted", False) and needs_account:
-                self._wait_for_user(page, "The employer site requires sign-in. Take control to sign in.")
+                self._ensure_signed_in(page)
                 continue
             if reread:
                 # Read the employer's current values without overwriting the owner's edits.

@@ -213,6 +213,15 @@
           </div>
           <p id="resume-list-msg" role="status" hidden></p>
         </section>
+        <section class="card" id="employer-auth" hidden>
+          <h2>Employer sign-in</h2>
+          <p id="employer-auth-state"></p>
+          <p>Jobbot uses your profile email on the employer hosts you enable. Set <code>automation.sign_in_hosts</code>
+            to a list of exact hostnames in Profile YAML. Enable <code>automation.create_accounts</code> to let Jobbot
+            create an account when the site says one is missing.</p>
+          <p class="hint">Set <code>JOBBOT_EMPLOYER_PASSWORD</code> in the host settings or the repository’s private
+            <code>.env</code>, then restart the dashboard.</p>
+        </section>
         <details id="profile-advanced" class="profile-advanced" open>
           <summary id="profile-editor-heading">Profile YAML</summary>
           <div class="toolbar"><span class="muted" id="profile-path"></span>

@@ -69,6 +69,26 @@ change the display name or key. A key change moves the profile entry and preserv
 **Remove from ranking** keeps the file. **Delete PDF** asks for confirmation and removes it from
 ranking if necessary, without changing past applications. YAML remains under **Advanced settings**.
 
+## Automate employer sign-in
+
+Set `JOBBOT_EMPLOYER_PASSWORD` in the host's private settings or the repository's private `.env`,
+then restart `./jobbot.sh ui`. The **Profile → Employer sign-in** panel shows whether the password
+is configured. Use your employer-account email in `personal.email` and enable the employer's exact
+HTTPS hostname in **Profile YAML**. Merge these settings into your existing profile.
+
+```yaml
+automation:
+  sign_in: true
+  create_accounts: true
+  sign_in_hosts:
+    - employer.wd5.myworkdayjobs.com
+```
+
+Jobbot tries the configured password once. It attempts signup when the employer explicitly reports
+that the account is missing. If the site rejects the password or needs CAPTCHA or unsupported sign-in,
+use **Take control** in **Runs**. Dry runs skip automated employer account actions. Application Submit
+still requires your approval.
+
 ## What's local and what's hosted
 
 Hosted Jobbot can scan, rank, import Gmail, track applications, and fill forms using the
