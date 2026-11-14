@@ -15,7 +15,8 @@ async function api(path, body) {
     opts.body = JSON.stringify(body);
   }
   const reading = body === undefined;
-  opts.signal = AbortSignal.timeout(reading ? 12000 : 25000);
+  const trackerRead = /^(jobs|applications|summary)(?:[/?]|$)/.test(path);
+  opts.signal = AbortSignal.timeout(reading ? (trackerRead ? 32000 : 15000) : 25000);
   let res, data;
   try {
     res = await fetch("/api/" + path, opts);

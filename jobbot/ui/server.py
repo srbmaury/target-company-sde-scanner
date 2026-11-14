@@ -14,11 +14,13 @@ import binascii
 import datetime as dt
 import errno
 import json
+import logging
 import mimetypes
 import os
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -33,6 +35,8 @@ from .. import accounts, gmail, paths, profile as profile_mod, tracker
 from pymongo import timeout as mongo_timeout
 from pymongo.errors import PyMongoError
 from . import bridge
+
+LOGGER = logging.getLogger(__name__)
 
 STATIC = Path(__file__).resolve().parent / "static"
 TASKS = {}            # id -> {"cmd", "status", "lines", "started", "ended"}
@@ -54,17 +58,17 @@ def _row(r):
     return {k: r[k] for k in r.keys()}
 
 
-def _excluded_companies():
+def _excluded_companies(conn):
     """preferences.exclude_companies, so the page can show which roles apply will skip."""
     try:
-        return list(profile_mod.load().get("preferences.exclude_companies") or [])
+        return list(profile_mod.load(account=getattr(conn, "account", None)).get("preferences.exclude_companies") or [])
     except Exception:   # missing or invalid profile: nothing is excluded
         return []
 
 
 def jobs_payload(conn, params):
     from ..apply.runner import excluded
-    exclude = _excluded_companies()
+    exclude = _excluded_companies(conn)
     include_applied = params.get("include_applied") == "1"
     include_dismissed = params.get("include_dismissed") == "1"
     rows = tracker.list_jobs(conn, include_applied=True, include_dismissed=include_dismissed, include_gone=True)
@@ -136,7 +140,7 @@ def jobs_page(rows, params):
 def _new_jobs(conn):
     """Roles you can apply to: not dismissed, not applied, not possibly applied, not at an excluded company."""
     from ..apply.runner import excluded
-    match, exclude = tracker.job_matcher(conn), _excluded_companies()
+    match, exclude = tracker.job_matcher(conn), _excluded_companies(conn)
     return sum(1 for r in tracker.list_jobs(conn, include_applied=True)
                if not excluded(r["company"], exclude) and match(r)[0] is None)
 
@@ -538,12 +542,23 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("request too large")
         return json.loads(self.rfile.read(length) or b"{}")
 
+    def _storage_error(self, stage, exc):
+        LOGGER.warning("Dashboard storage failure during %s (%s)", stage, type(exc).__name__)
+        if isinstance(exc, accounts.AccountError):
+            message = str(exc)
+        elif isinstance(exc, PyMongoError) and exc.timeout:
+            message = f"MongoDB timed out during {stage}."
+        elif isinstance(exc, sqlite3.DatabaseError):
+            message = "The stored tracker could not be opened as a SQLite database."
+        else:
+            message = f"MongoDB failed during {stage} ({type(exc).__name__})."
+        return self._send(503, {"error": message})
+
     def do_GET(self):
         try:
-            with mongo_timeout(8):
-                return self._get()
-        except (PyMongoError, accounts.AccountError):
-            return self._send(503, {"error": "Account storage is unavailable. Try again shortly."})
+            return self._get()
+        except (PyMongoError, accounts.AccountError) as exc:
+            return self._storage_error("dashboard read", exc)
         except ValueError as exc:
             return self._send(400, {"error": str(exc)})
 
@@ -552,14 +567,26 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, {"error": "forbidden host"})
         url = urllib.parse.urlparse(self.path)
         if self.account and url.path.startswith("/auth/"):
-            return self._auth_get(url)
-        if self.account and not self.account.session(self._session()):
+            with mongo_timeout(8):
+                return self._auth_get(url)
+        try:
+            with mongo_timeout(5):
+                signed_in = not self.account or self.account.session(self._session())
+        except (PyMongoError, accounts.AccountError) as exc:
+            return self._storage_error("session lookup", exc)
+        if not signed_in:
             if url.path in ("/", "/index.html"):
                 expired = urllib.parse.parse_qs(url.query).get("session") == ["expired"]
                 return self._static("/login.html", expired=expired)
             if url.path in ("/style.css", "/favicon.svg"):
                 return self._static(url.path)
             return self._send(401, {"error": "Sign in to Jobbot."})
+        tracker_read = url.path in ("/api/jobs", "/api/applications", "/api/summary") or url.path.startswith(
+            "/api/applications/")
+        with mongo_timeout(20 if tracker_read else 8):
+            return self._get_authenticated(url)
+
+    def _get_authenticated(self, url):
         if self.account and url.path.startswith("/resume-file/"):
             key = url.path.removeprefix("/resume-file/")
             if not profile_mod.valid_resume_key(key):
@@ -633,7 +660,10 @@ class Handler(BaseHTTPRequestHandler):
             len(parts) == 2 and parts[0] == "applications" and parts[1].isdigit()
         ):
             return self._send(404, {"error": "not found"})
-        conn = tracker.connect(cached_snapshot=True)
+        try:
+            conn = tracker.connect(account=self.account, cached_snapshot=True)
+        except (PyMongoError, accounts.AccountError, sqlite3.DatabaseError) as exc:
+            return self._storage_error("tracker read", exc)
         try:
             if parts == ["summary"]:
                 return self._send(200, summary_payload(conn))
@@ -743,7 +773,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
         if parts[:1] not in (["jobs"], ["applications"]):
             return self._send(404, {"error": "not found"})
-        conn = tracker.connect()
+        conn = tracker.connect(account=self.account)
         try:
             if len(parts) == 3 and parts[0] == "jobs" and parts[2] in ("not-duplicate", "maybe-duplicate"):
                 job = tracker.set_not_duplicate(conn, parts[1], parts[2] == "not-duplicate")

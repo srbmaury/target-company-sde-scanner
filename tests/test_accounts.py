@@ -288,7 +288,20 @@ class AccountTests(unittest.TestCase):
                              ((f"Company {n:02}", "Engineer", "applied", "2026-11-01") for n in range(52)))
             conn.commit()
         query = "/api/applications?page=1&sort=company&direction=asc"
-        first_page = json.loads(request(query, cookie=session)[1])
+        with patch.object(accounts, "current", side_effect=AssertionError("Dashboard must use its own account")):
+            status, body, _ = request(query, cookie=session)
+            self.assertEqual(status, 200)
+            first_page = json.loads(body)
+            status, body, _ = request("/api/jobs?view=new", cookie=session)
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["rows"], [])
+        from pymongo.errors import NetworkTimeout
+        with patch.object(self.account, "read_tracker_snapshot", side_effect=NetworkTimeout("private details")):
+            with self.assertLogs(server.LOGGER, level="WARNING") as log:
+                status, body, _ = request(query, cookie=session)
+            self.assertEqual(status, 503)
+            self.assertEqual(json.loads(body)["error"], "MongoDB timed out during tracker read.")
+            self.assertNotIn("private details", "\n".join(log.output))
         self.assertEqual((len(first_page["rows"]), first_page["total"], first_page["next_offset"]), (50, 52, 50))
         last_page = json.loads(request(query + "&offset=50", cookie=session)[1])
         self.assertEqual([row["company"] for row in last_page["rows"]], ["Company 50", "Company 51"])

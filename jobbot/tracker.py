@@ -84,17 +84,22 @@ class AccountConnection(sqlite3.Connection):
             self.synced_changes = self.total_changes
 
 
-def connect(path=None, *, cached_snapshot=False):
-    if path is None:
+def connect(path=None, *, account=None, cached_snapshot=False):
+    if path is None and account is None:
         from .accounts import current, enabled
         if enabled():
             account = current()
-            snapshot, version = account.read_tracker_snapshot() if cached_snapshot else account.read("tracker")
-            conn = sqlite3.connect(":memory:", factory=AccountConnection)
+    if path is None and account is not None:
+        snapshot, version = account.read_tracker_snapshot() if cached_snapshot else account.read("tracker")
+        conn = sqlite3.connect(":memory:", factory=AccountConnection)
+        try:
             conn.account, conn.version, conn.synced_changes = account, version, 0
             if snapshot is not None:
                 conn.deserialize(snapshot)
             return _prepare(conn)
+        except Exception:
+            conn.close()
+            raise
 
     paths.ensure_home()
     return _prepare(sqlite3.connect(path or paths.DB))

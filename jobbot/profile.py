@@ -131,10 +131,10 @@ def valid_resume_key(key):
     return isinstance(key, str) and bool(re.fullmatch(r"[A-Za-z0-9_-]{1,48}", key))
 
 
-def load(path=None):
+def load(path=None, *, account=None):
     from .accounts import current, enabled
-    if enabled():
-        raw, _ = current().read("profile")
+    if account is not None or enabled():
+        raw, _ = (account if account is not None else current()).read("profile")
         return Profile(yaml.safe_load(raw if raw is not None else ACCOUNT_PROFILE), paths.PROFILE)
     path = Path(path or paths.PROFILE)
     if not path.exists() and path == paths.PROFILE and paths.LEGACY_PROFILE.exists():
