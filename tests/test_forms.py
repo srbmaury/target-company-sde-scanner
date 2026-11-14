@@ -176,6 +176,28 @@ class FormTests(unittest.TestCase):
         self.assertIn("Thank you for applying", note)
         self.assertIsNone(ui.final)  # authorized submission did not ask for a second approval
 
+    def test_hosted_confirmation_with_review_warning_submits_once(self):
+        class HostedReview(RecordingUI):
+            def next_action(self, can_submit, can_next, dry_run, check_ok=True, final_page=False, *, page=None):
+                self.final = (can_submit, check_ok, page is not None)
+                return "submit"
+
+        ui = HostedReview({"Why do you want": "I like building backend systems."})
+        session = self.session(ui)
+        session.hosted = True
+        original_review = session.review_page
+
+        def review_with_warning(*args, **kwargs):
+            report, check, rounds = original_review(*args, **kwargs)
+            check.errors.append("Example review warning")
+            return report, check, rounds
+
+        session.review_page = review_with_warning
+        status, note = session.apply(self.job(self.base + "/greenhouse.html"), "backend")
+        self.assertEqual(ui.final, (True, False, True))
+        self.assertEqual(status, "applied")
+        self.assertIn("Thank you for applying", note)
+
     @staticmethod
     def approving_model(session):
         from unittest.mock import Mock

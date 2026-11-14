@@ -96,8 +96,6 @@
         </div>
         <div class="run-grid">
           <div class="run-detail">
-            <div id="prompt"></div>
-            <div id="needs"></div>
             <section id="live-preview" class="live-preview" aria-label="Hosted browser" hidden>
               <div class="toolbar">
                 <button type="button" class="primary" id="live-open">Take control</button>
@@ -116,7 +114,11 @@
                 </form>
               </div>
             </section>
-            <details id="page-preview" hidden><summary>Application page preview</summary><img id="page-preview-image" alt="Current application page" style="width:100%;height:auto"></details>
+            <details id="page-preview" open hidden><summary>Employer page</summary>
+              <img id="page-preview-image" alt="Latest view of the employer’s browser page">
+            </details>
+            <div id="prompt"></div>
+            <div id="needs"></div>
             <details id="run-activity" open hidden><summary>Activity</summary>
               <div id="feed" class="feed"></div>
             </details>

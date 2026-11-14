@@ -286,7 +286,7 @@ class Session:
             reread = choice == "recheck"
             if reread:
                 continue
-            if choice == "submit" and not check.ok and not self.ui.confirm(
+            if choice == "submit" and not check.ok and not getattr(self, "hosted", False) and not self.ui.confirm(
                     "The check still shows problems. Submit anyway?"):
                 continue
 
@@ -328,7 +328,17 @@ class Session:
             if choice in ("next", "submit") and getattr(self, "should_stop", lambda: False)():
                 return None, "stopped before advancing"
             if choice == "submit" and not self.dry_run:
-                self._click(page, submit_re)
+                from playwright.sync_api import TimeoutError
+                try:
+                    clicked = self._click(page, submit_re)
+                except TimeoutError as exc:
+                    raise NeedsYou("The employer did not respond to Submit. Check the page before retrying.") from exc
+                if not clicked:
+                    if self.unattended or not getattr(self, "hosted", False):
+                        raise NeedsYou("The employer's Submit button could not be clicked.")
+                    self._wait_for_user(page, "The employer's Submit button could not be clicked. Check the form, then return control to re-check.")
+                    reread = True
+                    continue
                 # Slow sites (Workday, careers pages) confirm several seconds later: keep looking, never resubmit.
                 confirmed = None
                 for _ in range(10):
@@ -446,14 +456,21 @@ class Session:
         self._mine.add(f["id"])
         self.ui.info(f"Corrected {f['label']}; reading the value back again.")
 
-    def _preview_page(self, page):
-        if hasattr(self.ui, "preview_page"):
-            try:
-                import base64
-                data = page.screenshot(type="jpeg", quality=65, full_page=True, timeout=10000)
-                self.ui.preview_page(base64.b64encode(data).decode())
-            except Exception:
-                self.ui.warn("Could not capture the application preview; inspect the Chrome window.")
+    def _preview_page(self, page, *, during_fill=False):
+        if not hasattr(self.ui, "preview_page"):
+            return
+        hosted = getattr(self, "hosted", False)
+        if during_fill and (not hosted or time.monotonic() - getattr(self, "_last_preview", 0) < 1):
+            return
+        self._last_preview = time.monotonic()
+        try:
+            import base64
+            from ..ui.live_preview import capture
+            data = capture(page) if hosted else page.screenshot(type="jpeg", quality=65, full_page=True, timeout=10000)
+            self.ui.preview_page(base64.b64encode(data).decode())
+        except Exception:
+            if not during_fill:
+                self.ui.warn("Could not capture the application preview.")
 
     def _wait_for_user(self, page, message):
         self._preview_page(page)
@@ -730,6 +747,7 @@ class Session:
                               for x in fields)
         for f in fields:
             self._check_deadline()
+            self._preview_page(page, during_fill=True)
             kind, label = f["kind"], f["label"] or "(unlabelled field)"
             if f.get("context", {}).get("parent") and records:
                 # A preceding control may have changed since the initial scan.

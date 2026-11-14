@@ -533,6 +533,7 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
 
         def on_job(n, total, job):
             run.current = n - 1
+            run.preview = None
             run.log("job", f"[{n}/{total}] {job['company']} — {job['title']}", url=job["url"])
 
         def on_result(job, status, note, app_id):
@@ -583,6 +584,7 @@ def _work(run, keys, dry_run, auto_next, resume, use_llm, force, unattended=Fals
             conn.close()
         run.prompt = None
         run.current = None
+        run.preview = None
         with SAVE_LOCK:
             run.ended = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
             run.log("info", f"Run {run.status}.")
