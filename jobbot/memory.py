@@ -46,14 +46,15 @@ _SAVE_LOCK = threading.Lock()
 
 
 class Memory:
-    def __init__(self, profile_path=None, items=None, *, persist=True):
+    def __init__(self, profile_path=None, items=None, *, persist=True, account=None):
         self.path = profile_path or paths.PROFILE
         self.items = list(items or [])
         self.persist = persist
+        self.account = account
 
     @classmethod
-    def for_profile(cls, profile, *, persist=True):
-        return cls(profile.path, profile.get("learned_answers") or [], persist=persist)
+    def for_profile(cls, profile, *, persist=True, account=None):
+        return cls(profile.path, profile.get("learned_answers") or [], persist=persist, account=account)
 
     def lookup(self, question, options=None):
         """Best stored answer for this question, or None. For choices the option must still exist."""
@@ -84,15 +85,43 @@ class Memory:
         self.items = [i for i in self.items if _tokens(i.get("question")) != key]
         self.items.append({"question": re.sub(r"\s+", " ", question).strip()[:400], "answer": str(answer)})
         if self.persist:
-            self._save()
+            self._save(self.items[-1])
         return True
 
-    def _save(self):
+    def _save(self, entry):
         """Rewrite only the trailing `learned_answers:` block so comments elsewhere survive. Parallel workers
         each hold a Memory: merge what is on disk first, under a lock, so none loses another's answers."""
         with _SAVE_LOCK:
+            if self.account:
+                self._save_account(entry)
+                return
             self._merge_from_disk()
             self._write()
+
+    def _save_account(self, entry):
+        from io import StringIO
+
+        from ruamel.yaml import YAML
+        from ruamel.yaml.scalarstring import DoubleQuotedScalarString
+        from .accounts import AccountError
+        from .profile import ACCOUNT_PROFILE
+
+        editor = YAML()
+        entry = {**entry, "answer": DoubleQuotedScalarString(entry["answer"])}
+        for attempt in range(3):
+            raw, version = self.account.read("profile")
+            profile = editor.load((raw or ACCOUNT_PROFILE).decode())
+            learned = profile.get("learned_answers") or []
+            key = _tokens(entry["question"])
+            profile["learned_answers"] = [item for item in learned if _tokens(item.get("question")) != key] + [entry]
+            output = StringIO()
+            editor.dump(profile, output)
+            try:
+                self.account.write("profile", output.getvalue().encode(), expected=version)
+                return
+            except AccountError:
+                if attempt == 2:
+                    raise
 
     def _merge_from_disk(self):
         try:

@@ -10,6 +10,7 @@ import csv
 import datetime as dt
 import re
 import sqlite3
+from functools import lru_cache
 
 from . import paths
 
@@ -83,17 +84,22 @@ class AccountConnection(sqlite3.Connection):
             self.synced_changes = self.total_changes
 
 
-def connect(path=None):
-    if path is None:
+def connect(path=None, *, account=None):
+    if path is None and account is None:
         from .accounts import current, enabled
         if enabled():
             account = current()
-            snapshot, version = account.read("tracker")
-            conn = sqlite3.connect(":memory:", factory=AccountConnection)
+    if path is None and account is not None:
+        snapshot, version = account.read("tracker")
+        conn = sqlite3.connect(":memory:", factory=AccountConnection)
+        try:
             conn.account, conn.version, conn.synced_changes = account, version, 0
             if snapshot is not None:
                 conn.deserialize(snapshot)
             return _prepare(conn)
+        except Exception:
+            conn.close()
+            raise
 
     paths.ensure_home()
     return _prepare(sqlite3.connect(path or paths.DB))
@@ -182,8 +188,8 @@ def list_jobs(conn, unranked=False, include_applied=False, include_dismissed=Fal
     sql += " ORDER BY fit_score IS NULL, fit_score DESC, first_seen DESC"
     rows = conn.execute(sql).fetchall()
     if not include_applied:
-        apps = conn.execute("SELECT * FROM applications").fetchall()
-        rows = [r for r in rows if job_level(conn, r, apps)[0] not in ("exact", "likely")]
+        match = job_matcher(conn)
+        rows = [r for r in rows if match(r)[0] not in ("exact", "likely")]
     return rows[: int(limit)] if limit else rows
 
 
@@ -261,7 +267,7 @@ def titles_match(a, b):
     return len(ta & tb) / len(ta | tb) >= 0.8
 
 
-def applied_match(conn, url=None, company=None, title=None, _apps=None, first_seen=None, posted=None):
+def applied_match(conn, url=None, company=None, title=None, _apps=None, first_seen=None, posted=None, *, company_apps=None):
     """How sure are we that this role was already applied to?
 
     Returns (level, application row): "exact" (same URL), "likely" (same company and
@@ -274,12 +280,11 @@ def applied_match(conn, url=None, company=None, title=None, _apps=None, first_se
             return "exact", row
     if not company:
         return None, None
-    apps = _apps if _apps is not None else conn.execute("SELECT * FROM applications").fetchall()
-    key = norm_company(company)
-    if not key:
-        return None, None
-    # "Cisco Systems" is Cisco, "PHONEPE LIMITED" is PhonePe: the same test as everywhere else
-    at_company = [a for a in apps if norm_company(a["company"]) == key or same_company(a["company"], company)]
+    if company_apps is None:
+        apps = _apps if _apps is not None else conn.execute("SELECT * FROM applications").fetchall()
+        at_company = _applications_at_company(apps, company)
+    else:
+        at_company = company_apps(company)
     for a in at_company:
         if titles_match(a["title"], title):
             if a["url"] and url and a["url"] != url:
@@ -291,6 +296,24 @@ def applied_match(conn, url=None, company=None, title=None, _apps=None, first_se
         if a["title"].startswith("(role not stated"):
             return "possible", a
     return None, None
+
+
+def _applications_at_company(apps, company):
+    key = norm_company(company)
+    if not key:
+        return []
+    return [app for app in apps if norm_company(app["company"]) == key or same_company(app["company"], company)]
+
+
+def job_matcher(conn):
+    """Reuse company candidates within one scan of the tracker."""
+    apps = conn.execute("SELECT * FROM applications").fetchall()
+
+    @lru_cache(maxsize=None)
+    def company_apps(company):
+        return _applications_at_company(apps, company)
+
+    return lambda job: job_level(conn, job, company_apps=company_apps)
 
 
 def _reposted(app, posted, first_seen):
@@ -313,11 +336,11 @@ def _older_than(applied_on, first_seen, days):
     return (f - a).days > days
 
 
-def job_level(conn, job, apps=None):
+def job_level(conn, job, apps=None, *, company_apps=None):
     """applied_match for a stored job row, honouring "not a duplicate" when you said so."""
     level, app = applied_match(conn, job["url"], job["company"], job["title"], _apps=apps,
                                first_seen=job["first_seen"] if "first_seen" in job.keys() else None,
-                               posted=job["posted"] if "posted" in job.keys() else None)
+                               posted=job["posted"] if "posted" in job.keys() else None, company_apps=company_apps)
     if level == "possible" and "not_duplicate" in job.keys() and job["not_duplicate"]:
         return None, None
     return level, app

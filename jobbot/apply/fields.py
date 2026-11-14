@@ -41,11 +41,11 @@ SCAN_JS = r"""
   };
   const parentOf = el => el.parentElement || (el.getRootNode && el.getRootNode().host) || null;
   const visible = el => {
-    if (!el.getClientRects().length) return false;
+    if (el.closest('[hidden], [inert], [aria-hidden="true"]') || !el.getClientRects().length) return false;
     const st = getComputedStyle(el);
     if (st.visibility === 'hidden' || st.display === 'none') return false;
     // react-select and similar widgets keep an invisible input just for form validation
-    if (el.getAttribute('aria-hidden') === 'true' || (el.tabIndex === -1 && parseFloat(st.opacity) === 0)) return false;
+    if (el.getAttribute('aria-hidden') === 'true' || ((el.tabIndex === -1 || !el.matches('[type=checkbox], [type=radio]')) && parseFloat(st.opacity) === 0)) return false;
     return true;
   };
   // A fresh prefix per scan: fields from an earlier step of a multi-page form keep their old ids, and a
@@ -198,6 +198,9 @@ SCAN_JS = r"""
         id: tag(el), kind: t === 'select' ? 'select' : combo ? 'combo' : (t === 'textarea' ? 'textarea' : 'text'),
         type, ...metadata(el, title), required: required(el, label), value: el.value || '', maxlength: el.maxLength || -1,
         inputmode: el.getAttribute('inputmode') || '',
+        autocomplete: el.getAttribute('autocomplete') || '',
+        name: el.name || el.id || '',
+        placeholder: el.getAttribute('placeholder') || '',
         unit: (el.closest('.form-group, .field, [data-field-path]')?.innerText || '').match(/\bLPA\b|\blakhs?\b|₹|\bINR\b/i)?.[0] || '',
         text: t === 'select' && el.selectedIndex >= 0 ? clean(el.options[el.selectedIndex].text) : '',
         shown: combo ? shownValue(el) : '',
@@ -252,19 +255,21 @@ SCAN_JS = r"""
 
 BUTTONS_JS = r"""
 (args) => {
-  const [pattern, links] = Array.isArray(args) ? args : [args, false];
+  const [pattern, links, preview] = Array.isArray(args) ? args : [args, false, false];
   const re = new RegExp(pattern, 'i');
   const hits = [];
-  const sel = 'button, input[type=submit], a[role=button], [role=button]' + (links ? ', a[href]' : '');
+  const sel = 'button, input[type=submit], [role=button]' + (preview ? ', input[type=button], input[type=reset], input[type=image]' : '') + (links ? ', a[href]' : '');
   // Every open shadow root, however deeply nested (SmartRecruiters draws its whole form in web components),
   // as the field scanner does: otherwise Next/Submit inside a nested component are never found.
   const walk = root => {
     root.querySelectorAll(sel).forEach(el => {
-      const text = (el.innerText || el.value || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
-      if (re.test(text) && el.getClientRects().length && !el.disabled) {
+      const text = (el.innerText || el.value || el.getAttribute('aria-label') || (preview && (el.alt || el.title)) || '').replace(/\s+/g, ' ').trim();
+      const disabled = el.matches(':disabled') || !!el.closest('[aria-disabled="true"]');
+      if (preview && (el.closest('[hidden], [inert], [aria-hidden="true"]') || getComputedStyle(el).visibility !== 'visible')) return;
+      if (re.test(text) && el.getClientRects().length && (preview || !disabled)) {
         const id = 'b' + Math.random().toString(36).slice(2, 9);
         el.setAttribute('data-jobbot-btn', id);
-        hits.push({ id, text });
+        hits.push(preview ? { id, text, disabled } : { id, text });
       }
     });
     root.querySelectorAll('*').forEach(el => { if (el.shadowRoot) walk(el.shadowRoot); });

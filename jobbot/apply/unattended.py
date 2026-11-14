@@ -31,5 +31,5 @@ class UnattendedUI:
     def wait_for_user(self, msg, **kwargs):
         raise NeedsYou(msg)
 
-    def next_action(self, can_submit, can_next, dry_run, check_ok=True, final_page=False):
+    def next_action(self, can_submit, can_next, dry_run, check_ok=True, final_page=False, *, page=None):
         return "hold" if final_page and check_ok else "quit"

@@ -169,7 +169,7 @@ def check_page(page, records, unresolved, fields_now):
                     continue  # conditional fields may have disappeared legitimately
             if not record_matches(r, got.get("value", "")):
                 result.mismatches.append((r["label"], r["expected"], got.get("value", "")))
-    result.missing.extend(unresolved)
+    result.missing.extend(dict.fromkeys(unresolved))
     # A "how did you hear about us" group marks every option required but needs only one ticked.
     heard = any(f["kind"] == "checkbox" and f.get("value") and f["value"][0] and HEAR_OPTION_RE.fullmatch((f.get("label") or "").strip(" *"))
                 for f in fields_now)
@@ -186,7 +186,7 @@ def check_page(page, records, unresolved, fields_now):
                 (kind == "listbutton" and not real_options([value])) or \
                 (kind == "combo" and not real_options([value or f.get("shown") or ""]))
         if empty:
-            label = f["label"] or "(unlabelled field)"
+            label = f["label"] or "Required control could not be identified. Check the employer page."
             if not any(m == label or m.startswith(label + " (") for m in result.missing):
                 result.missing.append(label)
     problems = page.evaluate(PAGE_PROBLEMS_JS)

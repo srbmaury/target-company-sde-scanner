@@ -402,13 +402,13 @@ def latest_link(since, host_hint, wait=90, poll=5, recipient=None):
 _USED_CODES, _CODE_LOCK = set(), threading.Lock()
 
 
-def latest_code(since, hint="", wait=90, poll=5, recipient=None):
+def latest_code(since, hint="", wait=90, poll=5, recipient=None, *, sender_domains=()):
     """Like _latest_code, but each code is handed out once: with parallel workers a code never goes
     to two applications."""
-    return _latest_code(since, hint, wait, poll, recipient)   # claims the code under _CODE_LOCK; waiting happens unlocked
+    return _latest_code(since, hint, wait, poll, recipient, sender_domains=sender_domains)   # claims the code under _CODE_LOCK; waiting happens unlocked
 
 
-def _latest_code(since, hint="", wait=90, poll=5, recipient=None):
+def _latest_code(since, hint="", wait=90, poll=5, recipient=None, *, sender_domains=()):
     """Wait up to `wait` seconds for a verification email received after `since` (epoch seconds) and return
     its code. With a hint, only matching senders are eligible. None if none arrives.
 
@@ -429,6 +429,11 @@ def _latest_code(since, hint="", wait=90, poll=5, recipient=None):
                 if recipient.casefold() not in {address.casefold() for _, address in addresses}:
                     continue
             sender = headers.get("from", "")
+            if sender_domains:
+                from email.utils import parseaddr
+                domain = parseaddr(sender)[1].rpartition("@")[2].lower()
+                if not any(domain == allowed or domain.endswith("." + allowed) for allowed in sender_domains):
+                    continue
             hints = [h for h in ([hint] if isinstance(hint, str) else list(hint)) if h]
             if hints and not any(h.lower() in sender.lower() for h in hints if h):
                 continue

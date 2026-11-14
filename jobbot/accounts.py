@@ -174,7 +174,7 @@ def current(port=None):
         return value
 
     origin = hosted_origin(port)
-    client = MongoClient(required("JOBBOT_MONGODB_URI"), serverSelectionTimeoutMS=5000)
+    client = MongoClient(required("JOBBOT_MONGODB_URI"), serverSelectionTimeoutMS=5000, compressors="zlib")
     db = client[os.getenv("JOBBOT_MONGODB_DB", "jobbot")]
     try:
         return Account(db, required("JOBBOT_DATA_KEY"), required("JOBBOT_ACCOUNT_EMAIL").casefold(), origin,

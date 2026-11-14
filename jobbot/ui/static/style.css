@@ -330,9 +330,16 @@ dialog ol.history { padding-left: 18px; color: var(--muted); max-height: 220px; 
 #page-preview { margin: 0 0 14px; }
 #page-preview > summary { cursor: pointer; font-weight: 650; margin-bottom: 8px; }
 #page-preview-image { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
-.correction-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; margin-top: 12px; }
-.correction-row label { display: grid; gap: 4px; min-width: 0; }
-@media (max-width: 600px) {
-  .correction-row { grid-template-columns: minmax(0, 1fr); }
-  .correction-row button { justify-self: start; }
-}
+.correction-panel summary { cursor: pointer; font-weight: 650; }
+.correction-editor { display: grid; gap: 8px; margin-top: 12px; min-width: 0; }
+.correction-editor label { font-weight: 600; }
+.correction-editor select, .correction-editor input, .correction-editor textarea { width: 100%; min-width: 0; }
+.correction-editor .actions { margin-top: 4px; }
+#correction-status { color: var(--muted); }
+.field-review dl { max-height: min(45vh, 420px); overflow-y: auto; scrollbar-gutter: stable; }
+
+.live-spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: live-spin .8s linear infinite; }
+@keyframes live-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .live-spinner { animation: none; } }
+#live-image { user-select: none; -webkit-user-drag: none; cursor: crosshair; }
