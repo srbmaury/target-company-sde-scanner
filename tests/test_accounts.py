@@ -72,6 +72,18 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(Memory.for_profile(fresh).lookup(question), "Yes")
         self.assertEqual(self.account.get_json("unrelated"), {"kept": True})
 
+    def test_hosted_always_ask_prompts_only_for_required_fields(self):
+        from jobbot.answers import Resolver
+
+        self.account.write("profile", b"personal: {}\nalways_ask: [disclosure]\n")
+        ask = Mock(return_value="Yes")
+        resolver = Resolver(profile.load(), ask=ask, profile_first=True)
+        self.assertIsNone(resolver.resolve("Disclosure", required=False))
+        self.assertIsNone(resolver.resolve("Disclosure", required=True, quick=True))
+        ask.assert_not_called()
+        self.assertEqual(resolver.resolve("Disclosure", required=True).value, "Yes")
+        ask.assert_called_once()
+
     def new_account(self, email="owner@example.com"):
         return accounts.Account(self.db, self.key, email, "https://jobbot.example.com",
                                 {"client_id": "client", "client_secret": "secret"})
@@ -156,6 +168,20 @@ class AccountTests(unittest.TestCase):
             tracker.add_application(writer, "Second", "Engineer")
         with closing(tracker.connect(cached_snapshot=True)) as conn:
             self.assertEqual({row["company"] for row in tracker.list_applications(conn)}, {"First", "Second"})
+
+    def test_tracker_refresh_does_not_hold_cache_lock_during_storage_read(self):
+        self.account.write("tracker", b"old")
+        self.assertEqual(self.account.read_tracker_snapshot()[0], b"old")
+        self.account.write("tracker", b"new")
+        read = self.account.read
+
+        def check_lock(name):
+            self.assertTrue(self.account._tracker_lock.acquire(blocking=False))
+            self.account._tracker_lock.release()
+            return read(name)
+
+        with patch.object(self.account, "read", side_effect=check_lock):
+            self.assertEqual(self.account.read_tracker_snapshot()[0], b"new")
 
     def test_tracker_survives_connections_and_rejects_stale_writes(self):
         first, second = tracker.connect(), tracker.connect()
@@ -382,7 +408,8 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(request("/api/apply", {"jobs": ["1"]}, cookie=session,
                                  origin="https://wrong.example.com")[0], 403)
         self.assertEqual(request("/api/apply", {"jobs": ["1"], "auto_submit": True, "dry_run": True}, cookie=session)[0], 400)
-        with patch.object(bridge, "Thread"), patch.dict(bridge.CURRENT, clear=True):
+        with (patch.object(bridge, "Thread"), patch.dict(bridge.CURRENT, clear=True),
+              patch.object(tracker, "connect", side_effect=AssertionError("Run controls must not open tracker"))):
             started = request("/api/apply", {"jobs": ["1"], "dry_run": True}, cookie=session)
             self.assertEqual(started[0], 200)
             run = bridge.current(self.account)
@@ -391,6 +418,9 @@ class AccountTests(unittest.TestCase):
             self.assertEqual(json.loads(request("/api/apply", cookie=session)[1])["id"], run.id)
             run.prompt = {"id": "review", "kind": "action", "choices": ["quit"]}
             self.assertEqual(request("/api/apply/answer", {"prompt_id": "review", "value": "submit"}, cookie=session)[0], 400)
+            correction = {"action": "correct", "field": "location", "value": "Bengaluru"}
+            self.assertEqual(request("/api/apply/answer", {"prompt_id": "review", "value": correction}, cookie=session)[0], 200)
+            self.assertEqual(run._answer, correction)
             self.assertEqual(request("/api/apply/stop", {}, cookie=session)[0], 200)
             self.assertTrue(run.stop_requested)
         redirect = request("/auth/google")

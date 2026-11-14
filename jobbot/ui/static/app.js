@@ -15,14 +15,15 @@ async function api(path, body) {
     opts.body = JSON.stringify(body);
   }
   const reading = body === undefined;
-  if (reading) opts.signal = AbortSignal.timeout(12000);
+  opts.signal = AbortSignal.timeout(reading ? 12000 : 25000);
   let res, data;
   try {
     res = await fetch("/api/" + path, opts);
     data = await res.json();
   } catch (e) {
     if (e.name === "TimeoutError" || e.name === "AbortError") {
-      throw new Error("The dashboard request timed out. Try again.");
+      throw new Error(reading ? "The dashboard request timed out. Try again." :
+        "The dashboard did not confirm the action. Check its status before retrying.");
     }
     if (res && e instanceof SyntaxError) throw new Error("The dashboard returned an unreadable response.");
     connection("Can't reach jobbot. Is <code>./jobbot.sh ui</code> still running?");
@@ -357,6 +358,8 @@ async function pollRun() {
 }
 
 async function loadRun({strict = false, history = true} = {}) {
+  // The initial Runs view owns its loading and error state until it settles.
+  if (!strict && pageLoads.has("apply")) return;
   const request = state.runRequest = (state.runRequest || 0) + 1;
   let run;
   try {
@@ -372,7 +375,7 @@ async function loadRun({strict = false, history = true} = {}) {
   $("#apply-badge").hidden = run.status !== "waiting";
   document.title = run.status === "waiting" ? "● jobbot needs you" : "jobbot";
   if (active && !state.runPoll) state.runPoll = setInterval(pollRun, 1000);
-  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary(); state.historyStale = true; }
+  if (!active && state.runPoll) { clearInterval(state.runPoll); state.runPoll = null; loadSummary().catch(() => {}); state.historyStale = true; }
   renderStrip(run, active);
   if (active) state.viewing = false;
   if (state.tab === "apply" && !state.viewing) renderRun(run);
@@ -1529,7 +1532,18 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     }
   });
-  $("#run-stop").addEventListener("click", async () => { await api("apply/stop", {}); loadRun(); });
+  $("#run-stop").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await api("apply/stop", {});
+      await loadRun();
+    } catch (error) {
+      alertInline($("#run-stop").parentElement, error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
   $("#jobs-table tbody").addEventListener("click", async (ev) => {
     const b = ev.target.closest("button[data-job]");
     if (!b) return;

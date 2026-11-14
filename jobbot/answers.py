@@ -717,6 +717,8 @@ class Resolver:
         eeo = bool(EEO_RE.match(question)) or any(re.search(r"decline|prefer not|don.?t wish", o, re.I) and
                                                   re.search(r"identify|answer|disclose", o, re.I) for o in options)
         if not eeo and any(p.search(question) for p in self.always_ask):
+            if self.profile_first and (quick or not required):
+                return None
             return self._once(question, kind, options, lambda: self._ask(
                 question, kind, options, required, None, reason="needs your confirmation", learn=False))
 

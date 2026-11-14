@@ -68,17 +68,17 @@ def jobs_payload(conn, params):
     include_applied = params.get("include_applied") == "1"
     include_dismissed = params.get("include_dismissed") == "1"
     rows = tracker.list_jobs(conn, include_applied=True, include_dismissed=include_dismissed, include_gone=True)
-    apps = conn.execute("SELECT * FROM applications").fetchall()
+    match = tracker.job_matcher(conn)
     q = (params.get("q") or "").lower()
     min_fit = int(params["min_fit"]) if params.get("min_fit", "").isdigit() else None
     out = []
     for r in rows:
-        level, app = tracker.job_level(conn, r, apps)
-        if level in ("exact", "likely") and not include_applied:
-            continue
         if q and q not in f"{r['company']} {r['title']} {r['location']} {r['ats'] or ''}".lower():
             continue
         if min_fit is not None and (r["fit_score"] or 0) < min_fit:
+            continue
+        level, app = match(r)
+        if level in ("exact", "likely") and not include_applied:
             continue
         item = {k: r[k] for k in ("n", "url", "company", "title", "location", "ats", "experience", "evidence",
                                   "posted", "first_seen", "fit_score", "fit_resume", "fit_reason", "dismissed",
@@ -95,9 +95,9 @@ def jobs_payload(conn, params):
 def _new_jobs(conn):
     """Roles you can apply to: not dismissed, not applied, not possibly applied, not at an excluded company."""
     from ..apply.runner import excluded
-    apps, exclude = conn.execute("SELECT * FROM applications").fetchall(), _excluded_companies()
+    match, exclude = tracker.job_matcher(conn), _excluded_companies()
     return sum(1 for r in tracker.list_jobs(conn, include_applied=True)
-               if tracker.job_level(conn, r, apps)[0] is None and not excluded(r["company"], exclude))
+               if not excluded(r["company"], exclude) and match(r)[0] is None)
 
 
 def summary_payload(conn):
@@ -611,7 +611,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            return self._post()
+            with mongo_timeout(8):
+                return self._post()
         except accounts.AccountError as exc:
             return self._send(409, {"error": str(exc)})
         except PyMongoError:
@@ -641,9 +642,61 @@ class Handler(BaseHTTPRequestHandler):
             if not run:
                 return self._send(404, {"error": "No hosted browser run."})
             return self._send(200, run.control(self._json_body(48_000)))
+        body = self._json_body()
+        if parts == ["profile"]:
+            text = body.get("text", "")
+            data = yaml.safe_load(text)   # refuse to save YAML that does not parse
+            if not isinstance(data, dict) or "personal" not in data:
+                return self._send(400, {"error": "The profile must be a YAML mapping with a `personal` section."})
+            try:
+                profile_mod.Profile(data, paths.PROFILE).scan_experience()
+            except profile_mod.ProfileError as exc:
+                return self._send(400, {"error": str(exc)})
+            if self.account:
+                if not isinstance(body.get("mtime"), str):
+                    return self._send(400, {"error": "Reload the account profile before saving."})
+                version = self.account.write("profile", text.encode(), expected=body["mtime"])
+                resumes = data.get("resumes")
+                return self._send(200, {"ok": True, "mtime": version,
+                                        "resume_keys": [key for key in resumes if profile_mod.valid_resume_key(key)]
+                                        if isinstance(resumes, dict) else []})
+            if paths.PROFILE.exists() and body.get("mtime") and str(body["mtime"]) != str(paths.PROFILE.stat().st_mtime_ns):
+                # e.g. an apply run saved a learned answer since you opened the page: don't overwrite it.
+                # (sent as a string: nanosecond timestamps are too large for JavaScript numbers)
+                return self._send(409, {"error": "profile.yaml changed on disk since you opened it (an apply run may "
+                                                 "have saved a learned answer). Copy your edits, reload, and save again."})
+            if paths.PROFILE.exists():
+                shutil.copy(paths.PROFILE, paths.PROFILE.with_suffix(".yaml.bak"))
+            paths.PROFILE.write_text(text, encoding="utf-8")
+            os.chmod(paths.PROFILE, 0o600)
+            return self._send(200, {"ok": True, "mtime": str(paths.PROFILE.stat().st_mtime_ns)})
+        if len(parts) == 2 and parts[0] == "tasks":
+            return self._send(200, start_task(parts[1]))
+        if parts == ["apply"]:
+            keys = [str(k) for k in body.get("jobs", []) if str(k).strip()]
+            if not keys:
+                return self._send(400, {"error": "Choose at least one role."})
+            run = bridge.start(keys, dry_run=bool(body.get("dry_run")), auto_next=body.get("auto_next", True),
+                               resume=body.get("resume") or None, use_llm=body.get("llm", True) is not False,
+                               force=bool(body.get("force")), unattended=bool(body.get("unattended")),
+                               validation=bool(body.get("validation")), auto_submit=bool(body.get("auto_submit")),
+                               account=self.account)
+            return self._send(200, run.snapshot())
+        if parts == ["apply", "answer"]:
+            run = bridge.current(self.account)
+            if not run:
+                return self._send(400, {"error": "No apply run."})
+            run.answer(body.get("prompt_id"), body.get("value"))
+            return self._send(200, {"ok": True})
+        if parts == ["apply", "stop"]:
+            run = bridge.current(self.account)
+            if run:
+                run.stop()
+            return self._send(200, {"ok": True})
+        if parts[:1] not in (["jobs"], ["applications"]):
+            return self._send(404, {"error": "not found"})
         conn = tracker.connect()
         try:
-            body = self._json_body()
             if len(parts) == 3 and parts[0] == "jobs" and parts[2] in ("not-duplicate", "maybe-duplicate"):
                 job = tracker.set_not_duplicate(conn, parts[1], parts[2] == "not-duplicate")
                 return self._send(200, {"ok": True}) if job else self._send(404, {"error": "no such job"})
@@ -681,59 +734,7 @@ class Handler(BaseHTTPRequestHandler):
                              (app["id"], tracker.now(), app["status"], f"note: {note[:200]}"))
                 conn.commit()
                 return self._send(200, {"ok": True})
-            if parts == ["profile"]:
-                text = body.get("text", "")
-                data = yaml.safe_load(text)   # refuse to save YAML that does not parse
-                if not isinstance(data, dict) or "personal" not in data:
-                    return self._send(400, {"error": "The profile must be a YAML mapping with a `personal` section."})
-                try:
-                    profile_mod.Profile(data, paths.PROFILE).scan_experience()
-                except profile_mod.ProfileError as exc:
-                    return self._send(400, {"error": str(exc)})
-                if self.account:
-                    if not isinstance(body.get("mtime"), str):
-                        return self._send(400, {"error": "Reload the account profile before saving."})
-                    version = self.account.write("profile", text.encode(), expected=body["mtime"])
-                    resumes = data.get("resumes")
-                    return self._send(200, {"ok": True, "mtime": version,
-                                            "resume_keys": [key for key in resumes if profile_mod.valid_resume_key(key)]
-                                            if isinstance(resumes, dict) else []})
-                if paths.PROFILE.exists() and body.get("mtime") and str(body["mtime"]) != str(paths.PROFILE.stat().st_mtime_ns):
-                    # e.g. an apply run saved a learned answer since you opened the page: don't overwrite it.
-                    # (sent as a string: nanosecond timestamps are too large for JavaScript numbers)
-                    return self._send(409, {"error": "profile.yaml changed on disk since you opened it (an apply run may "
-                                                     "have saved a learned answer). Copy your edits, reload, and save again."})
-                if paths.PROFILE.exists():
-                    shutil.copy(paths.PROFILE, paths.PROFILE.with_suffix(".yaml.bak"))
-                paths.PROFILE.write_text(text, encoding="utf-8")
-                os.chmod(paths.PROFILE, 0o600)
-                return self._send(200, {"ok": True, "mtime": str(paths.PROFILE.stat().st_mtime_ns)})
-            if len(parts) == 2 and parts[0] == "tasks":
-                return self._send(200, start_task(parts[1]))
-            if parts == ["apply"]:
-                keys = [str(k) for k in body.get("jobs", []) if str(k).strip()]
-                if not keys:
-                    return self._send(400, {"error": "Choose at least one role."})
-                run = bridge.start(keys, dry_run=bool(body.get("dry_run")), auto_next=body.get("auto_next", True),
-                                   resume=body.get("resume") or None, use_llm=body.get("llm", True) is not False,
-                                   force=bool(body.get("force")), unattended=bool(body.get("unattended")),
-                                   validation=bool(body.get("validation")), auto_submit=bool(body.get("auto_submit")),
-                                   account=self.account)
-                return self._send(200, run.snapshot())
-            if parts == ["apply", "answer"]:
-                run = bridge.current(self.account)
-                if not run:
-                    return self._send(400, {"error": "No apply run."})
-                run.answer(body.get("prompt_id"), body.get("value"))
-                return self._send(200, {"ok": True})
-            if parts == ["apply", "stop"]:
-                run = bridge.current(self.account)
-                if run:
-                    run.stop()
-                return self._send(200, {"ok": True})
             return self._send(404, {"error": "not found"})
-        except (KeyError, ValueError, yaml.YAMLError) as e:
-            return self._send(400, {"error": str(e)})
         finally:
             conn.close()
 

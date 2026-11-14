@@ -63,12 +63,15 @@ class Account:
         """Reuse the decrypted tracker while its durable version is current."""
         with self._tracker_lock:
             cached = self._tracker_snapshot
-            if cached is not None:
-                row = self.db.account_data.find_one({"_id": self.owner + ":tracker"}, {"version": 1})
-                if cached[1] == (row["version"] if row else ""):
-                    return cached
-            self._tracker_snapshot = self.read("tracker")
-            return self._tracker_snapshot
+        if cached is not None:
+            row = self.db.account_data.find_one({"_id": self.owner + ":tracker"}, {"version": 1})
+            if cached[1] == (row["version"] if row else ""):
+                return cached
+        snapshot = self.read("tracker")
+        with self._tracker_lock:
+            if self._tracker_snapshot is cached:
+                self._tracker_snapshot = snapshot
+        return snapshot
 
     def write(self, name, value, expected=None, label=None):
         key = self.owner + ":" + name
