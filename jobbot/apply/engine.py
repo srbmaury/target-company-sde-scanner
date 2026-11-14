@@ -250,7 +250,8 @@ class Session:
         visits, began, check = {}, time.time(), None
         reread = False
         manual_step = getattr(self.ui, "application_step", None) if getattr(self, "hosted", False) and not self.dry_run else None
-        manual_submit_at = None
+        manual_code_since = None
+        prompted_code_fields = None
         while step <= MAX_PAGES:
             if not reread and (self.unattended or getattr(self, "hosted", False)):
                 # Never get stuck on one application: the same page 3 times (Next not moving, Submit
@@ -274,21 +275,23 @@ class Session:
                 raise NeedsYou(f"{ats.title()} is down for maintenance; retry this role later.")
             self._decline_cookies(page)
             needs_account = self._needs_account(page)
-            if getattr(self, "hosted", False) and needs_account:
-                self._ensure_signed_in(page)
-                continue
-            if manual_step and manual_submit_at is not None:
+            if manual_step:
                 if self._had_form and self._confirmation(page):
                     return "applied", "Employer confirmation seen after manual browser control."
-                boxes = email_verification.code_fields(self._fields(page))
-                if boxes and not all(field.get("value") for field in boxes):
-                    code = self._code_from_email(page, since=manual_submit_at, provider=ats)
+                boxes = email_verification.challenge_fields(page, self._fields(page))
+                signature = (page.url, tuple(field["id"] for field in boxes)) if boxes else None
+                if signature != prompted_code_fields and boxes and not all(field.get("value") for field in boxes):
+                    prompted_code_fields = signature
+                    code = self._code_from_email(page, since=manual_code_since or self._started, provider=ats)
                     if not code:
                         code = self.ui.ask_code("Enter the code from the employer email, or skip to enter it on the employer page.")
                     if code:
                         email_verification.fill_code(page, boxes, code)
+                if boxes:
                     reread = True
-                manual_submit_at = None
+            if getattr(self, "hosted", False) and needs_account and not (manual_step and boxes):
+                self._ensure_signed_in(page)
+                continue
             if reread:
                 # Read the employer's current values without overwriting the owner's edits.
                 report, check, rounds = {"filled": [], "skipped": [], "records": []}, self.verify(page, {}), 0
@@ -327,8 +330,8 @@ class Session:
                     raise NeedsYou("Application paused for manual completion. Check the employer site before retrying.")
                 if self._had_form and self._confirmation(page):
                     return "applied", "Employer confirmation seen after manual browser control."
+                manual_code_since = ready_at
                 if can_submit:
-                    manual_submit_at = ready_at
                     reread = True
                     self.ui.info("Checking the employer page for verification or submission confirmation.")
                 else:

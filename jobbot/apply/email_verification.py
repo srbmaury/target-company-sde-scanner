@@ -28,7 +28,7 @@ def follow_activation_link(self, page):
 def email_login_step(self, page):
     """Complete an existing email/code login step, without creating credentials or accepting terms."""
     fields = self._fields(page)
-    codes = [f for f in fields if f["kind"] == "text" and CODE_RE.search(f["label"] or "")]
+    codes = challenge_fields(page, fields)
     if codes and not all(f.get("value") for f in codes):
         code = self._code_from_email(page)
         if not code:
@@ -64,6 +64,18 @@ def code_fields(fields):
             " ".join(f.get(key) or "" for key in ("label", "name", "placeholder"))
         )
     )]
+
+
+def challenge_fields(page, fields):
+    """Recognize unlabelled split inputs only on an explicit email verification step."""
+    direct = code_fields(fields)
+    slots = [field for field in fields if field.get("kind") == "text" and field.get("maxlength") == 1]
+    if not 4 <= len(slots) <= 8 or any(field not in slots for field in direct):
+        return direct
+    instructions = page.locator("body").inner_text(timeout=3000)
+    if re.search(r"confirm your identity|(?:verification|security) code (?:was |has been )?sent", instructions, re.I):
+        return slots
+    return direct
 
 
 def fill_code(page, fields, code):

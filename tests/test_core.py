@@ -1445,6 +1445,20 @@ class ValidationPromptTest(unittest.TestCase):
             self.assertIsNone(gmail.latest_code(0, hint=["greenhouse"], wait=0))   # the next application waits for its own
         gmail._USED_CODES.clear()
 
+    def test_identity_challenge_detects_unlabelled_split_code_fields(self):
+        from unittest.mock import Mock
+        from jobbot.apply.email_verification import challenge_fields, fill_code
+
+        page = Mock()
+        slots = [{"id": str(i), "kind": "text", "maxlength": 1} for i in range(6)]
+        page.locator.return_value.inner_text.return_value = "Confirm Your Identity. The verification code was sent by email."
+        self.assertEqual(challenge_fields(page, slots), slots)
+        page.locator.return_value.input_value.return_value = ""
+        self.assertTrue(fill_code(page, slots, "012345"))
+        self.assertEqual([call.args[0] for call in page.locator.return_value.fill.call_args_list], list("012345"))
+        page.locator.return_value.inner_text.return_value = "Enter your contact information"
+        self.assertEqual(challenge_fields(page, slots), [])
+
     def test_post_submit_code_accepts_manual_input_in_hosted_unattended_run(self):
         from unittest.mock import Mock, patch
         from jobbot.apply.engine import Session, UnattendedUI
