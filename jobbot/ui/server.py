@@ -116,7 +116,6 @@ def summary_payload(conn):
         "llm_provider": llm.DEFAULT_PROVIDER,
         "llm_model": llm.OPENAI_MODEL if llm.DEFAULT_PROVIDER == "openai" else llm.DEFAULT_MODEL,
         "llm_available": llm.LLM.available(),
-        "ollama": llm.LLM.available("ollama"),
         "profile": str(paths.PROFILE),
         "statuses": list(tracker.STATUSES),
     }
@@ -556,6 +555,38 @@ class Handler(BaseHTTPRequestHandler):
                                     if isinstance(resumes, dict) else []})
         if self.account and parts == ["logs"]:
             return self._send(200, {"dates": [], "date": "", "lines": []})
+        if parts == ["docs"]:
+            return self._send(200, docs_index())
+        if len(parts) == 2 and parts[0] == "docs":
+            page = doc_page(parts[1])
+            return self._send(200, page) if page else self._send(404, {"error": "no such page"})
+        if parts == ["logs"]:
+            dates = log_dates()
+            day = params.get("date") or (dates[0] if dates else "")
+            path = paths.HOME / "logs" / f"{day}.log"
+            text = path.read_text(encoding="utf-8") if day and re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) \
+                and path.exists() else ""
+            return self._send(200, {"dates": dates, "date": day, "lines": text.splitlines()[-2000:]})
+        if parts == ["profile"]:
+            path = paths.PROFILE
+            return self._send(200, {"path": str(path), "text": path.read_text(encoding="utf-8") if path.exists() else "",
+                                    "mtime": str(path.stat().st_mtime_ns) if path.exists() else ""})
+        if parts == ["tasks"]:
+            return self._send(200, sorted(TASKS.copy().values(), key=lambda t: (t["status"] == "running", t["started"]), reverse=True)[:20])
+        if parts == ["apply"]:
+            run = bridge.current(self.account)
+            if run:
+                return self._send(200, run.snapshot())
+            last = bridge.latest_saved_run(self.account)
+            return self._send(200, {**last, "history": True} if last else {"status": "idle"})
+        if parts == ["runs"]:
+            return self._send(200, bridge.history(self.account))
+        if len(parts) == 2 and parts[0] == "runs":
+            saved = bridge.saved_run(parts[1], self.account)
+            return self._send(200, {**saved, "history": True}) if saved else self._send(404, {"error": "no such run"})
+        if len(parts) == 2 and parts[0] == "tasks":
+            task = TASKS.get(parts[1])
+            return self._send(200, task) if task else self._send(404, {"error": "no such task"})
         conn = tracker.connect()
         try:
             if parts == ["summary"]:
@@ -571,38 +602,6 @@ class Handler(BaseHTTPRequestHandler):
                 if not app:
                     return self._send(404, {"error": "no such application"})
                 return self._send(200, {**_row(app), "events": [_row(e) for e in tracker.events_for(conn, app["id"])]})
-            if parts == ["docs"]:
-                return self._send(200, docs_index())
-            if len(parts) == 2 and parts[0] == "docs":
-                page = doc_page(parts[1])
-                return self._send(200, page) if page else self._send(404, {"error": "no such page"})
-            if parts == ["logs"]:
-                dates = log_dates()
-                day = params.get("date") or (dates[0] if dates else "")
-                path = paths.HOME / "logs" / f"{day}.log"
-                text = path.read_text(encoding="utf-8") if day and re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) \
-                    and path.exists() else ""
-                return self._send(200, {"dates": dates, "date": day, "lines": text.splitlines()[-2000:]})
-            if parts == ["profile"]:
-                path = paths.PROFILE
-                return self._send(200, {"path": str(path), "text": path.read_text(encoding="utf-8") if path.exists() else "",
-                                        "mtime": str(path.stat().st_mtime_ns) if path.exists() else ""})
-            if parts == ["tasks"]:
-                return self._send(200, sorted(TASKS.copy().values(), key=lambda t: (t["status"] == "running", t["started"]), reverse=True)[:20])
-            if parts == ["apply"]:
-                run = bridge.current(self.account)
-                if run:
-                    return self._send(200, run.snapshot())
-                last = bridge.latest_saved_run(self.account)
-                return self._send(200, {**last, "history": True} if last else {"status": "idle"})
-            if parts == ["runs"]:
-                return self._send(200, bridge.history(self.account))
-            if len(parts) == 2 and parts[0] == "runs":
-                saved = bridge.saved_run(parts[1], self.account)
-                return self._send(200, {**saved, "history": True}) if saved else self._send(404, {"error": "no such run"})
-            if len(parts) == 2 and parts[0] == "tasks":
-                task = TASKS.get(parts[1])
-                return self._send(200, task) if task else self._send(404, {"error": "no such task"})
             return self._send(404, {"error": "not found"})
         finally:
             conn.close()

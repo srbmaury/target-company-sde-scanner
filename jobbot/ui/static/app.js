@@ -50,6 +50,38 @@ function remember(key, value) { try { localStorage.setItem("jobbot." + key, valu
 function recall(key) { try { return localStorage.getItem("jobbot." + key); } catch (e) { return null; } }
 
 // ---------- tabs ----------
+const pageLoads = new Map();
+
+function loadPage(name, label, load) {
+  if (pageLoads.has(name)) return pageLoads.get(name);
+  const panel = $("#tab-" + name);
+  let status = panel.querySelector(".page-load");
+  if (!status) {
+    status = document.createElement("div");
+    status.className = "page-load";
+    status.setAttribute("role", "status");
+    panel.querySelector(".page-heading").after(status);
+  }
+  status.hidden = false;
+  status.innerHTML = `<span class="live-spinner" aria-hidden="true"></span> Loading ${label}…`;
+  panel.setAttribute("aria-busy", "true");
+  const pending = Promise.resolve().then(load).then(() => {
+    status.hidden = true;
+  }).catch((error) => {
+    status.textContent = `Could not load ${label}. ${error.message} `;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "Retry";
+    retry.addEventListener("click", () => loadPage(name, label, load));
+    status.append(retry);
+  }).finally(() => {
+    panel.removeAttribute("aria-busy");
+    pageLoads.delete(name);
+  });
+  pageLoads.set(name, pending);
+  return pending;
+}
+
 function showTab(name) {
   if (state.tab !== name) $("main").scrollTop = 0;
   state.tab = name;
@@ -60,7 +92,20 @@ function showTab(name) {
     button.tabIndex = active ? 0 : -1;
   });
   $$("main > [role=tabpanel]").forEach((p) => (p.hidden = p.id !== "tab-" + name));
-  ({ jobs: () => { loadJobs(); loadTasks(); }, apply: () => { state.viewing = false; loadRun(); }, applications: loadApps, actions: loadTasks, logs: loadLogs, profile: loadProfile, docs: () => loadDocs() }[name])();
+  const pages = {
+    jobs: ["jobs", loadJobs],
+    apply: ["application runs", () => {
+      state.viewing = false;
+      return Promise.all([loadRun({strict: true, history: false}), loadHistory(true)]);
+    }],
+    applications: ["applications", loadApps],
+    actions: ["activity", () => loadTasks(true)],
+    logs: ["logs", loadLogs],
+    profile: ["profile", () => loadProfile(true)],
+    docs: ["documentation", loadDocs],
+  };
+  if (name === "jobs") loadTasks();
+  return loadPage(name, ...pages[name]);
 }
 
 // ---------- summary ----------
@@ -293,7 +338,7 @@ async function confirmRun() {
 }
 
 async function pollRun() {
-  if (document.hidden || state.pollingRun) return;
+  if (document.hidden || state.pollingRun || pageLoads.has("apply")) return;
   state.pollingRun = true;
   try {
     await loadRun();
@@ -302,10 +347,10 @@ async function pollRun() {
   }
 }
 
-async function loadRun() {
+async function loadRun({strict = false, history = true} = {}) {
   const request = state.runRequest = (state.runRequest || 0) + 1;
   let run;
-  try { run = await api("apply"); } catch (e) { return; }
+  try { run = await api("apply"); } catch (e) { if (strict) throw e; return; }
   if (request !== state.runRequest) return;
   state.run = run;
   const active = ["starting", "running", "waiting"].includes(run.status);
@@ -317,7 +362,7 @@ async function loadRun() {
   if (active) state.viewing = false;
   if (state.tab === "apply" && !state.viewing) renderRun(run);
   if (state.tab === "apply" && state.historyLoaded) renderHistory();
-  if (state.tab === "apply" && (state.historyStale || !state.historyLoaded)) loadHistory();
+  if (history && state.tab === "apply" && (state.historyStale || !state.historyLoaded)) loadHistory();
 }
 
 // The Jobs tab's one-line view of a run in progress.
@@ -329,7 +374,7 @@ function renderStrip(run, active) {
   strip.hidden = false;
   strip.className = "run-strip" + (waiting ? " waiting" : "");
   strip.innerHTML = (total ? `${run.dry_run ? "Dry run" : "Applying"} ${Math.min(done + 1, total)}/${total}` : "Starting a run…") +
-    (waiting ? " · <b>a question is waiting for you</b>" : " · working in Chrome") +
+    (waiting ? " · <b>a question is waiting for you</b>" : state.summary?.account ? " · working in hosted Chromium" : "") +
     ` <button class="link" data-view-run>View run →</button>`;
 }
 
@@ -351,9 +396,9 @@ function historyMessage(message) {
   $("#history-message").hidden = !message;
 }
 
-async function loadHistory() {
+async function loadHistory(strict = false) {
   let runs;
-  try { runs = await api("runs"); } catch (e) { historyMessage(e.message); return; }
+  try { runs = await api("runs"); } catch (e) { if (strict) throw e; historyMessage(e.message); return; }
   state.historyLoaded = true;
   state.historyStale = false;
   state.historyRuns = runs;
@@ -928,7 +973,7 @@ function renderTask(t) {
     </div></div>`;
 }
 
-async function loadTasks() {
+async function loadTasks(strict = false) {
   if (state.loadingTasks) return;
   state.loadingTasks = true;
   try {
@@ -966,6 +1011,7 @@ async function loadTasks() {
       if (state.tab === "jobs") await loadJobs();
     }
   } catch (e) {
+    if (strict) throw e;
     alertInline($("#tasks"), e.message);
   } finally {
     state.loadingTasks = false;
@@ -1037,15 +1083,16 @@ function resumeNotice(message, failed = false) {
   box.classList.toggle("resume-error", failed);
 }
 
-async function loadProfile() {
+async function loadProfile(strict = false) {
   try {
     const p = await api("profile");
     setAccountProfile(Array.isArray(p.resume_keys));
     $("#profile-path").textContent = p.path;
     // Switching tabs must not discard unsaved edits.
     if (state.savedProfile === undefined || $("#profile-text").value === state.savedProfile) applyProfile(p);
-    if (state.profileHosted) await loadResumeKeys();
+    if (state.profileHosted && !await loadResumeKeys() && strict) throw new Error("Resume library unavailable.");
   } catch (e) {
+    if (strict) throw e;
     $("#profile-msg").textContent = e.message;
     if (state.profileHosted) resumeNotice(e.message, true);
   }
@@ -1517,7 +1564,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const a = ev.target.closest("a[data-doc], a[data-anchor]");
     if (!a) return;
     ev.preventDefault();
-    if (a.dataset.doc) loadDocs(a.dataset.doc, a.dataset.anchor);
+    if (a.dataset.doc) loadPage("docs", "documentation", () => loadDocs(a.dataset.doc, a.dataset.anchor));
     else document.getElementById(a.dataset.anchor)?.scrollIntoView({ block: "start" });
   });
   $("#logs-date").addEventListener("change", () => loadLogs($("#logs-date").value));
@@ -1525,8 +1572,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#profile-save").addEventListener("click", saveProfile);
 
   showTab(tabs.some((tab) => tab.dataset.tab === recall("tab")) ? recall("tab") : "jobs");   // before any await, so a tab you click while it loads stays chosen
-  await loadSummary();
-  loadRun();
+  loadSummary().catch(() => { $("#status").textContent = "Workspace status unavailable."; });
+  if (state.tab !== "apply") loadRun();
   // Keeps the counts fresh and notices a restarted or stopped dashboard even when nothing else polls.
   setInterval(() => { if (!document.hidden) loadSummary().catch(() => {}); }, 30000);   // picks up a run that is already in progress (and keeps polling while it is)
 });

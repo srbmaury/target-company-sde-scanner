@@ -63,7 +63,7 @@
           <div class="toolbar run-options" id="hosted-run-options" hidden>
             <label class="check"><input type="checkbox" id="hosted-auto-submit"> Auto-apply to selected roles</label>
           </div>
-          <div class="toolbar run-options" id="local-run-options">
+          <div class="toolbar run-options" id="local-run-options" hidden>
             <label class="check" title="Never stop: jobs that need you are listed at the end, and each finished application waits for your Submit"><input type="checkbox" id="unattended"> Don't stop for me</label>
             <label class="check" title="Fill and check every page, but never submit"><input type="checkbox" id="validate-steps"> Validate every step (no submission)</label>
             <label class="check" title="Runs without prompts and submits only after the configured LLM approves every field"><input type="checkbox" id="auto-submit" checked> Submit verified applications</label>
@@ -78,7 +78,7 @@
           </tr></thead>
           <tbody></tbody>
         </table></div>
-        <p class="hint" id="local-run-hint">Applications open in jobbot's own Chrome window. Automatic submission requires the configured LLM to approve every page. Jobs needing your action are listed while the batch continues.</p>
+        <p class="hint" id="local-run-hint" hidden>Applications open in jobbot's own Chrome window. Automatic submission requires the configured LLM to approve every page. Jobs needing your action are listed while the batch continues.</p>
       </section>
 
       <!-- Apply (live run) -->
@@ -88,7 +88,7 @@
           <p>Follow progress, review answers, and see which applications need your input.</p>
         </div>
         <div class="toolbar run-overview">
-          <b id="run-title">No apply run yet</b>
+          <b id="run-title">Application run</b>
           <span class="pill" id="run-status"></span>
           <span class="muted" id="run-progress"></span>
           <button type="button" id="run-current" hidden>Back to latest run</button>

@@ -343,3 +343,8 @@ dialog ol.history { padding-left: 18px; color: var(--muted); max-height: 220px; 
 @keyframes live-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .live-spinner { animation: none; } }
 #live-image { user-select: none; -webkit-user-drag: none; cursor: crosshair; }
+
+.page-load { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;
+  padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--muted); }
+#tab-apply[aria-busy="true"] .run-overview:has(#run-status:empty),
+#tab-apply[aria-busy="true"] .run-detail:has(#prompt:empty) { display: none; }

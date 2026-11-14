@@ -78,6 +78,18 @@ class DashboardUITests(unittest.TestCase):
         expect(self.page.locator("#workspace-mode")).to_have_text(
             "Hosted account" if self.hosted else "Local workspace")
 
+    def test_runs_retry_when_initial_data_request_fails(self):
+        self.page.add_init_script("localStorage.setItem('jobbot.tab', 'apply')")
+        self.page.route("**/api/apply", lambda route: route.fulfill(status=503, json={"error": "Try again"}), times=1)
+        self.open()
+        panel = self.page.locator("#tab-apply")
+        expect(panel.get_by_text("Could not load application runs.", exact=False)).to_be_visible()
+        expect(panel.get_by_text("No runs yet", exact=True)).to_have_count(0)
+        panel.get_by_role("button", name="Retry", exact=True).click()
+        expect(panel.get_by_text("No runs yet", exact=True)).to_be_visible()
+        expect(self.page.locator("#local-run-options")).to_be_hidden()
+        self.assertEqual(self.errors, [])
+
     def test_hosted_pages_and_keyboard_navigation(self):
         self.open()
         self.page.locator("[data-select]").check()
