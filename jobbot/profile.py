@@ -35,6 +35,19 @@ class Profile:
             node = node[part]
         return node
 
+    def scan_experience(self, min_yoe=None, max_yoe=None):
+        from .scan import DEFAULT_MAX_YOE, DEFAULT_MIN_YOE, validate_experience_range
+
+        if min_yoe is None:
+            min_yoe = self.get("preferences.min_yoe", DEFAULT_MIN_YOE)
+        if max_yoe is None:
+            max_yoe = self.get("preferences.max_yoe", DEFAULT_MAX_YOE)
+        try:
+            validate_experience_range(min_yoe, max_yoe)
+        except ValueError as exc:
+            raise ProfileError(f"Invalid scan experience range in preferences or CLI flags. {exc}") from exc
+        return min_yoe, max_yoe
+
     @property
     def full_name(self):
         return f"{self.get('personal.first_name', '')} {self.get('personal.last_name', '')}".strip()

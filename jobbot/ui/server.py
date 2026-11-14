@@ -668,6 +668,10 @@ class Handler(BaseHTTPRequestHandler):
                 data = yaml.safe_load(text)   # refuse to save YAML that does not parse
                 if not isinstance(data, dict) or "personal" not in data:
                     return self._send(400, {"error": "The profile must be a YAML mapping with a `personal` section."})
+                try:
+                    profile_mod.Profile(data, paths.PROFILE).scan_experience()
+                except profile_mod.ProfileError as exc:
+                    return self._send(400, {"error": str(exc)})
                 if self.account:
                     if not isinstance(body.get("mtime"), str):
                         return self._send(400, {"error": "Reload the account profile before saving."})

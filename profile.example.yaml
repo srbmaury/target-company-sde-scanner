@@ -79,6 +79,8 @@ eeo:            # set any value to "Decline" to pick the decline-to-answer optio
 
 preferences:
   locations: "hyderabad|bengaluru|bangalore|noida|gurugram|gurgaon|delhi|remote.*india|india.*remote"
+  # Target experience range for discovery, in whole years. Use 0 for entry-level scans.
+  min_yoe: 1
   max_yoe: 3
   exclude_companies: [Example Corp]
   how_did_you_hear: Company website

@@ -10,7 +10,7 @@ def _terms(text):
     return {w for w in re.findall(r"[a-z][a-z0-9+#.]{1,}", (text or "").lower()) if w not in STOP}
 
 
-def keyword_rank(job, resumes):
+def keyword_rank(job, resumes, experience_years=None):
     """Fallback ranking without a model: term overlap plus an experience bonus."""
     jd = _terms(f"{job['title']} {job['description']}")
     best_key, best = None, -1.0
@@ -18,9 +18,14 @@ def keyword_rank(job, resumes):
         overlap = len(jd & _terms(text)) / max(1, min(len(jd), 120))
         if overlap > best:
             best_key, best = key, overlap
-    score = min(100, int(best * 140))
-    if job["experience"].startswith(("1+", "2+", "0+")):
-        score = min(100, score + 10)
+    score = max(0, min(100, int(best * 140)))
+    from .scan import YEARS, experience_bounds
+
+    match = YEARS.match(job.get("experience") or "")
+    if match and type(experience_years) in (int, float):
+        low, high = experience_bounds(match)
+        if low <= experience_years <= high:
+            score = min(100, score + 10)
     shared = sorted(jd & _terms(resumes.get(best_key, "")))[:8] if best_key else []
     return score, best_key, f"keyword overlap: {', '.join(shared)}" if shared else "low keyword overlap"
 
@@ -33,13 +38,14 @@ def rank_jobs(conn, profile, llm, limit=None, rerank=False, on_progress=None):
         raise RuntimeError("No resume files found; check `resumes:` in your profile.")
     jobs = tracker.list_jobs(conn, unranked=not rerank, limit=limit)
     summary = profile.summary()
+    experience_years = profile.get("work.total_experience_years")
     done = []
     for i, job in enumerate(jobs, 1):
         job = dict(job)
         try:
-            score, resume, reason = llm.rank(job, resumes, summary) if llm.enabled else keyword_rank(job, resumes)
+            score, resume, reason = llm.rank(job, resumes, summary) if llm.enabled else keyword_rank(job, resumes, experience_years)
         except Exception as e:  # model hiccup: fall back rather than abort the batch
-            score, resume, reason = keyword_rank(job, resumes)
+            score, resume, reason = keyword_rank(job, resumes, experience_years)
             reason = f"{reason} (model error: {type(e).__name__})"
         tracker.set_fit(conn, job["url"], score, resume, reason)
         done.append((job, score, resume, reason))

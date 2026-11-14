@@ -12,7 +12,7 @@ contact details and CTC, so it is never committed. The main sections:
 | `education` | school, degree, field, GPA, years |
 | `eligibility` | work authorization, sponsorship, relocation, background check, military service |
 | `eeo` | gender, ethnicity, veteran and disability answers (`Decline` picks the decline option) |
-| `preferences` | location regex, `max_yoe`, excluded companies, "how did you hear about us", preferred work locations (for location dropdowns) |
+| `preferences` | location regex, `min_yoe` and `max_yoe` (target range for scans), excluded companies, "how did you hear about us", preferred work locations (for location dropdowns) |
 | `resumes` | each resume variant: a key, the PDF path, and a short focus hint for ranking |
 | `answers` | your fixed answers: a regex matched against the question, and the answer to give |
 | `always_ask` | regexes for questions jobbot must always ask you about |

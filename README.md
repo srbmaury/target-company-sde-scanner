@@ -5,8 +5,8 @@
 **Find, rank, and track software-engineering jobs across 300+ target companies. Fill applications in your own browser when you're ready.**
 
 Jobbot scans company job boards and career sites, filters roles using your profile, and ranks them
-against your resume variants. It's tuned for candidates with roughly 1–3 years of experience, but
-locations, experience limits, and company exclusions are configurable. Use the CLI, the dashboard,
+against your resume variants. The default target is 1–3 years of experience. Set your target range,
+locations, and company exclusions in your profile. Use the CLI, the dashboard,
 or the [AI-assistant skill](docs/skill.md).
 
 ## Choose how to run it
@@ -41,6 +41,18 @@ resumes:
     path: /absolute/path/to/fullstack.pdf
     focus: React, TypeScript, product engineering
 ```
+
+Set the experience you want to target under `preferences`. For example:
+
+```yaml
+preferences:
+  min_yoe: 4
+  max_yoe: 7
+```
+
+The CLI and dashboard keep roles whose stated experience range overlaps yours. Use
+`./jobbot.sh scan --min-yoe 4 --max-yoe 7` to override the saved range for one scan. See
+[experience filtering](docs/finding-jobs.md) for title fallbacks and unstated requirements.
 
 Use paths that exist **on the machine running Jobbot**. If your PDFs are in Google Drive, download
 or upload them to that machine first. A Drive share link isn't a local PDF path. In a Codespace,
@@ -95,9 +107,8 @@ set +a
 ./jobbot.sh doctor
 ```
 
-Git ignores `.env`. For the dashboard, `./jobbot.sh ui` loads the repository's `.env` if
-`JOBBOT_MONGODB_URI` is not already exported. If it is exported, Jobbot uses the deployment
-environment instead. Use the host's secret settings in a deployed service.
+Git ignores `.env`. When present, the repository's `.env` is loaded by `./jobbot.sh ui` and its
+assignments take precedence. For deployed services configured through host settings, leave the file absent.
 
 `doctor` checks whether the OpenAI key is configured, not whether it can make a successful
 request. After scanning and adding a resume, try `./jobbot.sh rank --limit 1` on an unranked job.
