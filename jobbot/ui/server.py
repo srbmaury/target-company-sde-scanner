@@ -30,6 +30,7 @@ from pathlib import Path
 import yaml
 
 from .. import accounts, gmail, paths, profile as profile_mod, tracker
+from pymongo import timeout as mongo_timeout
 from pymongo.errors import PyMongoError
 from . import bridge
 
@@ -249,11 +250,8 @@ class Handler(BaseHTTPRequestHandler):
     def _session(self):
         return self._cookie(self.session_cookie)
 
-    def _authorized(self):
-        if not self._allowed_host() or not secrets.compare_digest(self.headers.get("X-Jobbot-Token", ""), self.token):
-            return False
-        return not self.account or (self.account.session(self._session()) and (
-            self.command != "POST" or self._allowed_origin()))
+    def _valid_token(self):
+        return secrets.compare_digest(self.headers.get("X-Jobbot-Token", ""), self.token)
 
     def _auth_get(self, url):
         if url.path == "/auth/google":
@@ -501,7 +499,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            return self._get()
+            with mongo_timeout(8):
+                return self._get()
         except (PyMongoError, accounts.AccountError):
             return self._send(503, {"error": "Account storage is unavailable. Try again shortly."})
 
@@ -530,7 +529,7 @@ class Handler(BaseHTTPRequestHandler):
                               [("Content-Disposition", f'{mode}; filename="{key}.pdf"')], frameable=True)
         if not url.path.startswith("/api/"):
             return self._static(url.path)
-        if not self._authorized():
+        if not self._valid_token():
             return self._send(403, {"error": "missing or wrong token"})
         params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
         parts = url.path.strip("/").split("/")[1:]
@@ -587,7 +586,11 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 2 and parts[0] == "tasks":
             task = TASKS.get(parts[1])
             return self._send(200, task) if task else self._send(404, {"error": "no such task"})
-        conn = tracker.connect()
+        if parts not in (["summary"], ["jobs"], ["applications"]) and not (
+            len(parts) == 2 and parts[0] == "applications" and parts[1].isdigit()
+        ):
+            return self._send(404, {"error": "not found"})
+        conn = tracker.connect(cached_snapshot=True)
         try:
             if parts == ["summary"]:
                 return self._send(200, summary_payload(conn))
@@ -617,9 +620,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {"error": str(exc)})
 
     def _post(self):
-        if self.account and self._allowed_host() and not self.account.session(self._session()):
+        if not self._allowed_host():
+            return self._send(403, {"error": "forbidden host"})
+        if self.account and not self.account.session(self._session()):
             return self._send(401, {"error": "Sign in to Jobbot."})
-        if not self._authorized():
+        if not self._valid_token() or (self.account and not self._allowed_origin()):
             return self._send(403, {"error": "missing or wrong token"})
         parts = urllib.parse.urlparse(self.path).path.strip("/").split("/")[1:]
         if self.account and parts[:1] == ["account"]:

@@ -1,6 +1,7 @@
 """Hosted account tests with an in-process MongoDB substitute and mocked Google."""
 
 import base64
+from contextlib import closing
 import http.client
 import json
 import os
@@ -141,6 +142,20 @@ class AccountTests(unittest.TestCase):
         with patch.object(gmail, "_post", side_effect=refresh), self.assertRaises(gmail.GmailError):
             gmail.access_token()
         self.assertFalse(gmail.is_connected())
+
+    def test_dashboard_tracker_reuses_snapshot_and_refreshes_after_write(self):
+        with closing(tracker.connect()) as writer:
+            tracker.add_application(writer, "First", "Engineer")
+        with patch.object(self.account, "read", wraps=self.account.read) as read:
+            for _ in range(2):
+                with closing(tracker.connect(cached_snapshot=True)) as conn:
+                    self.assertEqual(len(tracker.list_applications(conn)), 1)
+            read.assert_called_once_with("tracker")
+
+        with closing(tracker.connect()) as writer:
+            tracker.add_application(writer, "Second", "Engineer")
+        with closing(tracker.connect(cached_snapshot=True)) as conn:
+            self.assertEqual({row["company"] for row in tracker.list_applications(conn)}, {"First", "Second"})
 
     def test_tracker_survives_connections_and_rejects_stale_writes(self):
         first, second = tracker.connect(), tracker.connect()

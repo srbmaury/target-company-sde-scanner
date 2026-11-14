@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import secrets
+import threading
 from functools import lru_cache
 from urllib.parse import urlsplit
 
@@ -34,6 +35,8 @@ class Account:
         self.email, self.origin, self.oauth_client = email, origin, oauth_client
         self.owner = digest(email)
         self.callback = origin + "/auth/google/callback"
+        self._tracker_lock = threading.Lock()
+        self._tracker_snapshot = None
 
     def initialize(self):
         for name in ("sessions", "oauth_flows"):
@@ -55,6 +58,17 @@ class Account:
     def read(self, name):
         row = self.db.account_data.find_one({"_id": self.owner + ":" + name})
         return (self._unseal(name, row["value"]), row["version"]) if row else (None, "")
+
+    def read_tracker_snapshot(self):
+        """Reuse the decrypted tracker while its durable version is current."""
+        with self._tracker_lock:
+            cached = self._tracker_snapshot
+            if cached is not None:
+                row = self.db.account_data.find_one({"_id": self.owner + ":tracker"}, {"version": 1})
+                if cached[1] == (row["version"] if row else ""):
+                    return cached
+            self._tracker_snapshot = self.read("tracker")
+            return self._tracker_snapshot
 
     def write(self, name, value, expected=None, label=None):
         key = self.owner + ":" + name
