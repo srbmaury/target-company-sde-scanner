@@ -507,7 +507,7 @@ function wireLivePreview() {
   frame.addEventListener("wheel", (event) => {
     if (state.run?.dry_run) return;
     event.preventDefault();
-    const unit = event.deltaMode === 1 ? 24 : event.deltaMode === 2 ? frame.clientHeight : 1;
+    const unit = event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? frame.height : frame.height / frame.clientHeight;
     browserCommand("scroll", { ...coords(event), delta: Math.max(-1600, Math.min(1600, event.deltaY * unit)) });
   }, {passive: false});
   frame.addEventListener("keydown", (event) => {
@@ -725,13 +725,42 @@ function renderPrompt(p) {
     }
   }
   if (p.kind === "action") {
-    const audit = currentAudit();
-    const editable = audit ? audit.fields.filter((f) => ["text", "textarea", "select", "radio", "yesno"].includes(f.kind) && !/consent|agree|terms|certify|gender|race|ethnic|veteran|disability|signature|password/i.test(f.label)) : [];
-    if (editable.length) html += `<details class="prompt"><summary>Correct a field and re-check</summary>${editable.map((f, i) => `<div class="correction-row"><label>${esc(f.label)}${["select", "radio", "yesno"].includes(f.kind) ? `<select id="correction-${i}">${f.options.map((o) => `<option ${o === f.actual ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>` : `<input id="correction-${i}" type="text" value="${esc(f.actual)}">`}</label><button data-correct="${esc(f.id)}" data-input="correction-${i}" aria-label="Correct ${esc(f.label)}">Save and re-check</button></div>`).join("")}</details>`;
+    const fields = (currentAudit()?.fields || []).filter((f) =>
+      ["text", "textarea", "select", "radio", "yesno"].includes(f.kind) && f.label &&
+      !/consent|agree|terms|certify|gender|race|ethnic|veteran|disability|signature|password|verification code|security code|one.time|\botp\b/i.test(f.label));
+    const needsAttention = (f) => /needs revision|required, empty|question unclear/.test(f.status || "");
+    fields.sort((a, b) => Number(needsAttention(b)) - Number(needsAttention(a)));
+    if (fields.length) {
+      html += `<details class="prompt correction-panel">
+        <summary>Edit a field</summary>
+        <div class="correction-editor">
+          <label for="correction-field">Field</label>
+          <select id="correction-field">${fields.map((f, i) => `<option value="${i}">${esc(f.label)}${needsAttention(f) ? " · Needs review" : ""}</option>`).join("")}</select>
+          <label for="correction-value">Answer</label>
+          <div id="correction-control"></div>
+          <div class="actions"><button type="button" class="primary" data-correct>Save and re-check</button>
+            <span id="correction-status" role="status"></span></div>
+        </div>
+      </details>`;
+    }
+    state.correctionFields = fields;
   }
   box.innerHTML = html;
+  if ($("#correction-field", box)) renderCorrection();
   const input = $("#p-text", box);
   if (input) input.focus();
+}
+
+function renderCorrection() {
+  const field = state.correctionFields[Number($("#correction-field").value)];
+  const control = ["select", "radio", "yesno"].includes(field.kind)
+    ? `<select id="correction-value">${[...new Set([field.actual || "", ...(field.options || [])])].map((option) =>
+      `<option value="${esc(option)}">${esc(option || "Choose an answer")}</option>`).join("")}</select>`
+    : field.kind === "textarea"
+    ? `<textarea id="correction-value" rows="3">${esc(field.actual)}</textarea>`
+    : `<input id="correction-value" type="text" value="${esc(field.actual)}">`;
+  $("#correction-control").innerHTML = control;
+  $("#correction-status").textContent = "";
 }
 
 async function answerPrompt(raw) {
@@ -1379,7 +1408,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#sel-top-n").value = recall("topN") || 10;
   $("#sel-top").addEventListener("click", () => selectTop(Math.max(1, parseInt($("#sel-top-n").value, 10) || 10)));
   $("#sel-all-box").addEventListener("change", (ev) => selectAll(ev.target.checked));
-  $("#prompt").addEventListener("click", (ev) => {
+  $("#prompt").addEventListener("change", (ev) => {
+    if (ev.target.id === "correction-field") renderCorrection();
+  });
+  $("#prompt").addEventListener("click", async (ev) => {
     const review = ev.target.closest("[data-submit-review], [data-submit-back]");
     if (review) {
       const confirm = $("[data-submit-confirm]", $("#prompt"));
@@ -1391,9 +1423,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (b) answerPrompt(b.dataset.answer);
     const correction = ev.target.closest("button[data-correct]");
     if (correction) {
-      const p = state.run.prompt;
-      $$("#prompt button").forEach((b) => b.disabled = true);
-      api("apply/answer", {prompt_id:p.id, value:{action:"correct", field:correction.dataset.correct, value:$("#" + correction.dataset.input).value}}).then(loadRun).catch((e) => { correction.disabled=false; $("#prompt").insertAdjacentHTML("beforeend", `<p role="alert">${esc(e.message)}</p>`); });
+      const p = state.run?.prompt;
+      if (!p) return;
+      const picker = $("#correction-field");
+      const input = $("#correction-value");
+      const status = $("#correction-status");
+      const field = state.correctionFields[Number(picker.value)];
+      const controls = $$("#prompt button, #prompt select, #prompt input, #prompt textarea").filter((el) => !el.disabled);
+      controls.forEach((el) => { el.disabled = true; });
+      status.textContent = "Saving and re-checking…";
+      try {
+        await api("apply/answer", {prompt_id: p.id, value: {action: "correct", field: field.id, value: input.value}});
+        await loadRun();
+      } catch (error) {
+        status.textContent = error.message;
+        controls.forEach((el) => { el.disabled = false; });
+      }
     }
   });
   $("#run-stop").addEventListener("click", async () => { await api("apply/stop", {}); loadRun(); });

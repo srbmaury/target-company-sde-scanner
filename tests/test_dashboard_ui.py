@@ -56,7 +56,7 @@ class DashboardUITests(unittest.TestCase):
                   "dry_run": self.dry_run, "choices": ["submit", "quit"], "interactive": self.hosted}
         run = {"status": "waiting", "current": 0, "jobs": [JOB], "events": [], "results": {},
                "prompt": prompt, "dry_run": self.dry_run,
-               "audits": [{"job": JOB, "step": 1, "fields": [{"label": "Work location", "actual": "Bengaluru",
+               "audits": [{"job": JOB, "step": 1, "fields": [{"id": "location", "kind": "text", "label": "Work location", "actual": "Bengaluru",
                                                             "answer_source": "Profile"}]}]}
         fixtures = {
             "/api/summary": summary, "/api/jobs": [JOB], "/api/tasks": self.tasks,
@@ -138,6 +138,20 @@ class DashboardUITests(unittest.TestCase):
         self.page.get_by_role("button", name="Confirm submission").click()
         expect(self.page.locator("#run-title")).to_have_text("No runs yet")
         self.assertEqual(self.answers, [{"prompt_id": "example", "value": "submit"}])
+        self.assertEqual(self.errors, [])
+
+    def test_correction_editor_sends_only_the_selected_field(self):
+        self.active = True
+        self.open()
+        self.page.locator("#nav-apply").click()
+        self.page.get_by_text("Edit a field", exact=True).click()
+        expect(self.page.locator("#correction-field")).to_be_visible()
+        expect(self.page.locator("#correction-value")).to_have_value("Bengaluru")
+        self.page.locator("#correction-value").fill("Hyderabad")
+        self.page.get_by_role("button", name="Save and re-check").click()
+        expect(self.page.locator("#run-title")).to_have_text("No runs yet")
+        self.assertEqual(self.answers, [{"prompt_id": "example", "value": {
+            "action": "correct", "field": "location", "value": "Hyderabad"}}])
         self.assertEqual(self.errors, [])
 
     def test_dry_run_never_shows_submit(self):

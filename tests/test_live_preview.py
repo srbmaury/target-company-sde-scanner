@@ -67,6 +67,8 @@ class LivePreviewTests(unittest.TestCase):
         reply = run.control({**auth, "action": "scroll", "x": .5, "y": .25, "delta": 360})
         page.mouse.move.assert_called_once_with(500, 150)
         page.mouse.wheel.assert_called_once_with(0, 360)
+        page.wait_for_timeout.assert_called_once_with(32)
+        self.assertEqual(page.screenshot.call_args.kwargs["quality"], 40)
         auth["frame_id"] = reply["frame_id"]
         original = page.screenshot.side_effect
         page.screenshot.side_effect = RuntimeError("frame capture failed")
