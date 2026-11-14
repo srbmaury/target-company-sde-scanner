@@ -14,6 +14,10 @@
       "ats": "greenhouse",
       "id": "abnormalsecurity"
     },
+    "Acceldata": {
+      "ats": "lever",
+      "id": "acceldata"
+    },
     "Addepar": {
       "ats": "greenhouse",
       "id": "addepar1"
@@ -39,6 +43,10 @@
     "AI Squared": {
       "ats": "greenhouse",
       "id": "aisquared"
+    },
+    "AiPrise": {
+      "ats": "ashby",
+      "id": "aiprise"
     },
     "Airbnb": {
       "ats": "greenhouse",
@@ -76,6 +84,10 @@
     },
     "Amazon": {
       "ats": "amazon"
+    },
+    "Ambient.ai": {
+      "ats": "ashby",
+      "id": "ambient.ai"
     },
     "AMD": {
       "ats": "jibe",
@@ -274,6 +286,10 @@
     "CircleCI": {
       "ats": "greenhouse",
       "id": "circleci"
+    },
+    "Ciroos": {
+      "ats": "ashby",
+      "id": "ciroos"
     },
     "Cisco": {
       "ats": "workday",
@@ -590,6 +606,10 @@
       "ats": "greenhouse",
       "id": "groww"
     },
+    "Gushwork": {
+      "ats": "lever",
+      "id": "gushwork"
+    },
     "Gusto": {
       "ats": "greenhouse",
       "id": "gusto"
@@ -609,6 +629,10 @@
     "Harvey": {
       "ats": "ashby",
       "id": "harvey"
+    },
+    "Hevo Data": {
+      "ats": "lever",
+      "id": "hevodata"
     },
     "HighLevel": {
       "ats": "lever",
@@ -744,6 +768,10 @@
       ],
       "posted": "posted_date"
     },
+    "Level AI": {
+      "ats": "lever",
+      "id": "levelai"
+    },
     "Linear": {
       "ats": "ashby",
       "id": "linear"
@@ -763,6 +791,10 @@
     "Lokal": {
       "ats": "smartrecruiters",
       "id": "lokal"
+    },
+    "Loop AI": {
+      "ats": "lever",
+      "id": "Loop%20AI"
     },
     "Lovable": {
       "ats": "ashby",
@@ -1125,6 +1157,10 @@
       "tenant": "relx",
       "site": "relx"
     },
+    "Reo.Dev": {
+      "ats": "ashby",
+      "id": "reo-dev"
+    },
     "Replit": {
       "ats": "ashby",
       "id": "replit"
@@ -1161,6 +1197,10 @@
     "RunPod": {
       "ats": "ashby",
       "id": "runpod"
+    },
+    "Safe Security": {
+      "ats": "lever",
+      "id": "safe"
     },
     "Sakana AI": {
       "ats": "workable",
@@ -1225,6 +1265,10 @@
     "Shield AI": {
       "ats": "lever",
       "id": "shieldai"
+    },
+    "Sigmoid": {
+      "ats": "greenhouse",
+      "id": "sigmoid"
     },
     "Signzy": {
       "ats": "careers-page",
@@ -1319,6 +1363,10 @@
     "Swiggy": {
       "ats": "smartrecruiters",
       "id": "swiggy"
+    },
+    "Sycamore": {
+      "ats": "ashby",
+      "id": "sycamore"
     },
     "Sysdig": {
       "ats": "lever",
@@ -1486,6 +1534,10 @@
       "host": "visa.wd5.myworkdayjobs.com",
       "site": "Visa"
     },
+    "Warner Music Group": {
+      "ats": "lever",
+      "id": "wmg"
+    },
     "Wayfair": {
       "ats": "smartrecruiters",
       "id": "wayfair"
@@ -1519,6 +1571,10 @@
     "Wingify/VWO": {
       "ats": "keka",
       "id": "wingify"
+    },
+    "Wisdom AI": {
+      "ats": "ashby",
+      "id": "Wisdom-AI"
     },
     "Wise": {
       "ats": "careers-page",

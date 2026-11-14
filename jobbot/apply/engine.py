@@ -38,7 +38,7 @@ APPLY_RE = r"^(apply( now| online| here)?|apply (for|to) (this|the) (job|positio
 NEXT_RE = r"^(next|continue|save and continue|save & continue|proceed)$"
 CONFIRM_RE = re.compile(
     r"thank(s| you) for (applying|your (application|interest))|application (has been |was )?(submitted|received)|"
-    r"successfully (submitted|applied)|we.ve received your application|congratulations", re.I)
+    r"successfully (submitted|applied)|we.ve received your application", re.I)
 # Honeypot fields exist to catch bots; filling one gets the application flagged.
 TRAP_RE = re.compile(r"robots? only|for robots|do not (fill|enter)|leave (this )?(field )?(blank|empty)|honeypot", re.I)
 CODE_RE = email_verification.CODE_RE
@@ -241,7 +241,7 @@ class Session:
             self._decline_cookies(page)
             needs_account = self._needs_account(page)
             if getattr(self, "hosted", False) and needs_account:
-                self._wait_for_user(page, "The employer site requires sign-in. Take control to sign in.")
+                self._ensure_signed_in(page)
                 continue
             if reread:
                 # Read the employer's current values without overwriting the owner's edits.
@@ -325,6 +325,8 @@ class Session:
                 self._manual_records.clear()
                 step += 1
                 continue
+            if choice in ("next", "submit") and getattr(self, "should_stop", lambda: False)():
+                return None, "stopped before advancing"
             if choice == "submit" and not self.dry_run:
                 self._click(page, submit_re)
                 # Slow sites (Workday, careers pages) confirm several seconds later: keep looking, never resubmit.
@@ -348,8 +350,7 @@ class Session:
                     self.ui.info("The site emailed a security code; entering it and submitting again.")
                     continue
                 if getattr(self, "hosted", False):
-                    # A click may have succeeded even without a recognizable receipt. Never retry it blindly.
-                    return "applied", "Submit clicked; no confirmation text seen (check your email)"
+                    raise NeedsYou("Submission unconfirmed. Check the employer site or your email before trying again.")
                 if getattr(self, "auto_submit", False):
                     if not getattr(self, "_had_form", False):
                         # "Apply"/"Finish" on a page with no application fields (a posting page) is not a submission:

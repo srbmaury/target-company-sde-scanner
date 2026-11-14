@@ -81,6 +81,8 @@ class FormTests(unittest.TestCase):
         from jobbot.llm import LLM
         from jobbot.profile import Profile
         data = {**PROFILE, "resumes": {"backend": {"path": str(self.resume)}}, **(profile_extra or {})}
+        data["answers"] = [{"match": r"have you worked with debezium, peerdb", "answer": "No"},
+                           *data.get("answers", [])]
         prof = Profile(data, Path(self.tmp.name) / "profile.yaml")
         prof.resume_text = lambda key: "Backend services in Java and Spring Boot; Redis; GraphQL."
         try:
@@ -204,7 +206,7 @@ class FormTests(unittest.TestCase):
         self.assertEqual(shown("country"), "India")                          # react-select
         self.assertEqual(shown("hear"), "Company Website")                   # covered by an overlay; never "Employee Referral"
         self.assertEqual(shown("loc"), "Hyderabad, Telangana, India")        # type-ahead suggestion picked
-        self.assertEqual(page.eval_on_selector("#dbz", "el => el.value"), "No")   # label wraps the select; resume says no
+        self.assertEqual(page.eval_on_selector("#dbz", "el => el.value"), "No")   # explicit fixture profile answer
         self.assertEqual(page.eval_on_selector("#race", "el => el.value"), "Asian (Not Hispanic or Latino)")
         self.assertEqual(page.eval_on_selector("#gender", "el => el.value"), "Male")
         self.assertTrue(page.eval_on_selector("#terms", "el => el.checked"))  # hidden behind its label

@@ -60,6 +60,9 @@
             <span class="sel-state"><span id="sel-count" class="muted">None selected</span>
               <button class="link" id="sel-clear">Clear</button></span>
           </div>
+          <div class="toolbar run-options" id="hosted-run-options" hidden>
+            <label class="check"><input type="checkbox" id="hosted-auto-submit"> Auto-apply to selected roles</label>
+          </div>
           <div class="toolbar run-options" id="local-run-options">
             <label class="check" title="Never stop: jobs that need you are listed at the end, and each finished application waits for your Submit"><input type="checkbox" id="unattended"> Don't stop for me</label>
             <label class="check" title="Fill and check every page, but never submit"><input type="checkbox" id="validate-steps"> Validate every step (no submission)</label>
@@ -217,6 +220,14 @@
             <ul id="resume-list" class="resume-list"></ul>
           </div>
           <p id="resume-list-msg" role="status" hidden></p>
+        </section>
+        <section class="card" id="employer-auth" hidden>
+          <h2>Employer sign-in</h2>
+          <p id="employer-auth-state"></p>
+          <p>In live runs, Jobbot uses your profile email to try signup first, then sign-in.
+            Connect Gmail in Actions to let Jobbot look for verification codes.</p>
+          <p class="hint">Set <code>JOBBOT_EMPLOYER_PASSWORD</code> in the host settings or the repository’s private
+            <code>.env</code>, then restart the dashboard.</p>
         </section>
         <details id="profile-advanced" class="profile-advanced" open>
           <summary id="profile-editor-heading">Profile YAML</summary>
