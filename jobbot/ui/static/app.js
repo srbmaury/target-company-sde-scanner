@@ -521,12 +521,13 @@ function renderHistory() {
   }
 }
 
-const live = { prompt: null, control: null, frame: null, busy: false, timer: null, inputs: [] };
+const live = { prompt: null, control: null, frame: null, busy: false, timer: null, followUntil: 0, inputs: [] };
 
 function resetLivePreview() {
   clearTimeout(live.timer);
   live.prompt = live.control = live.frame = null;
   live.inputs.length = 0;
+  live.followUntil = 0;
   $("#live-image").removeAttribute("src");
   $("#live-input").value = "";
   $("#live-input").type = "text";
@@ -562,6 +563,10 @@ const browserActionLabels = {
 async function browserCommand(action, extra = {}, background = false) {
   if (!live.prompt) return false;
   if (live.busy) {
+    if (action === "click" || (action === "key" && extra.key === "Enter")) {
+      $("#live-message").textContent = "Wait for the employer view to update before clicking again.";
+      return false;
+    }
     if (action === "scroll" && live.inputs.at(-1)?.[0] === "scroll") {
       const previous = live.inputs.at(-1)[1];
       previous.delta = Math.max(-1600, Math.min(1600, previous.delta + extra.delta));
@@ -605,7 +610,12 @@ async function browserCommand(action, extra = {}, background = false) {
     image.width = reply.width;
     image.height = reply.height;
     live.frame = reply.frame_id;
-    if (!background) message.textContent = state.run.dry_run ? "Live view · read-only" : "You have control. Jobbot is paused.";
+    if (action === "click" || (action === "key" && extra.key === "Enter")) {
+      live.followUntil = performance.now() + 8000;
+      message.textContent = "Click sent. Checking the employer page for changes…";
+    } else if (!background) {
+      message.textContent = state.run.dry_run ? "Live view · read-only" : "You have control. Jobbot is paused.";
+    }
     renderLivePreview(state.run);
     if (action === "open") image.focus({preventScroll: true});
     return true;
@@ -615,6 +625,7 @@ async function browserCommand(action, extra = {}, background = false) {
       // Stop queued gestures after a failed command. The employer may have
       // received the input even when its updated frame could not be captured.
       live.inputs.length = 0;
+      live.followUntil = 0;
     }
     return false;
   } finally {
@@ -623,7 +634,18 @@ async function browserCommand(action, extra = {}, background = false) {
     $("#live-send").disabled = false;
     if (live.control && live.prompt === prompt) {
       if (live.inputs.length) browserCommand(...live.inputs.shift());
-      else if (state.tab === "apply" && state.run?.dry_run) live.timer = setTimeout(() => browserCommand("frame", {}, true), 2500);
+      else if (state.tab === "apply" && !document.hidden) {
+        if (performance.now() < live.followUntil) {
+          live.timer = setTimeout(() => browserCommand("frame", {}, true), 800);
+        } else if (state.run?.dry_run) {
+          live.timer = setTimeout(() => browserCommand("frame", {}, true), 2500);
+        } else if (live.followUntil && background) {
+          live.followUntil = 0;
+          if (message.textContent.startsWith("Click sent.")) {
+            message.textContent = "Employer view refreshed. If the step did not advance, check the form or use Refresh view.";
+          }
+        }
+      }
     }
   }
 }
