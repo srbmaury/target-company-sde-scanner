@@ -32,7 +32,6 @@ from pathlib import Path
 import yaml
 
 from .. import accounts, gmail, paths, profile as profile_mod, tracker
-from pymongo import timeout as mongo_timeout
 from pymongo.errors import PyMongoError
 from . import bridge
 
@@ -654,8 +653,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
         started = time.monotonic()
         try:
-            with mongo_timeout(25):
-                conn = tracker.connect(account=self.account)
+            conn = tracker.connect(account=self.account)
         except (PyMongoError, accounts.AccountError) as exc:
             LOGGER.warning("Tracker read failed after %.1fs (%s)", time.monotonic() - started, type(exc).__name__)
             message = (str(exc) if isinstance(exc, accounts.AccountError) else

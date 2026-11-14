@@ -14,16 +14,11 @@ async function api(path, body) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
-  opts.signal = AbortSignal.timeout(body === undefined ? 35000 : 30000);
   let res, data;
   try {
     res = await fetch("/api/" + path, opts);
     data = await res.json();
   } catch (e) {
-    if (e.name === "TimeoutError" || e.name === "AbortError") {
-      throw new Error(body === undefined ? "The dashboard request timed out." :
-        "Jobbot did not confirm the action. Check its status before retrying.");
-    }
     connection("Can't reach jobbot. Is <code>./jobbot.sh ui</code> still running?");
     throw e;
   }
