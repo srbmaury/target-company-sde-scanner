@@ -528,6 +528,8 @@ function resetLivePreview() {
   live.prompt = live.control = live.frame = null;
   live.inputs.length = 0;
   live.followUntil = 0;
+  $("#live-button-list").replaceChildren();
+  $("#live-buttons").hidden = true;
   $("#live-image").removeAttribute("src");
   $("#live-input").value = "";
   $("#live-input").type = "text";
@@ -556,14 +558,14 @@ function renderLivePreview(run) {
 }
 
 const browserActionLabels = {
-  open: "Opening browser…", frame: "Refreshing…", click: "Clicking…", scroll: "Scrolling…",
+  open: "Opening browser…", frame: "Refreshing…", click: "Clicking…", button: "Clicking employer button…", scroll: "Scrolling…",
   text: "Typing…", key: "Sending key…", release: "Returning control…",
 };
 
 async function browserCommand(action, extra = {}, background = false) {
   if (!live.prompt) return false;
   if (live.busy) {
-    if (action === "click" || (action === "key" && extra.key === "Enter")) {
+    if (["click", "button"].includes(action) || (action === "key" && extra.key === "Enter")) {
       $("#live-message").textContent = "Wait for the employer view to update before clicking again.";
       return false;
     }
@@ -610,7 +612,23 @@ async function browserCommand(action, extra = {}, background = false) {
     image.width = reply.width;
     image.height = reply.height;
     live.frame = reply.frame_id;
-    if (action === "click" || (action === "key" && extra.key === "Enter")) {
+    const buttons = state.run.dry_run ? [] : reply.buttons || [];
+    const list = $("#live-button-list");
+    if (list.children.length === buttons.length && buttons.every((entry, index) =>
+      list.children[index].textContent === entry.label && list.children[index].disabled === entry.disabled)) {
+      buttons.forEach((entry, index) => { list.children[index].dataset.employerButton = entry.target; });
+    } else {
+      list.replaceChildren(...buttons.map((entry) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = entry.label;
+        button.disabled = entry.disabled;
+        button.dataset.employerButton = entry.target;
+        return button;
+      }));
+    }
+    $("#live-buttons").hidden = !buttons.length;
+    if (["click", "button"].includes(action) || (action === "key" && extra.key === "Enter")) {
       live.followUntil = performance.now() + 8000;
       message.textContent = "Click sent. Checking the employer page for changes…";
     } else if (!background) {
@@ -651,6 +669,10 @@ async function browserCommand(action, extra = {}, background = false) {
 }
 
 function wireLivePreview() {
+  $("#live-button-list").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-employer-button]");
+    if (button) browserCommand("button", {target: button.dataset.employerButton});
+  });
   $("#live-mask").addEventListener("change", (event) => {
     $("#live-input").type = event.target.checked ? "password" : "text";
   });

@@ -5,6 +5,8 @@ import math
 import re
 import secrets
 
+from ..apply.fields import BUTTONS_JS
+
 
 KEYS = {"Tab", "Shift+Tab", "Enter", "Escape", "Backspace", "Delete", "Home", "End",
         "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "PageUp", "PageDown", "Space"}
@@ -28,6 +30,11 @@ def validate(body):
             if type(delta) not in (int, float) or not -1600 <= delta <= 1600:
                 raise ValueError("Invalid scroll amount.")
             out["delta"] = delta
+    elif action == "button":
+        target = body.get("target")
+        if not isinstance(target, str) or not re.fullmatch(r"\d+:b[a-z0-9]+", target):
+            raise ValueError("Invalid employer button.")
+        out["target"] = target
     elif action == "text":
         val = body.get("text")
         if not isinstance(val, str) or not 1 <= len(val) <= 4000:
@@ -55,6 +62,7 @@ class Viewport:
         self.page = page
         self.frame_id = None
         self.size = None
+        self.buttons = {}
 
     def perform(self, command):
         page = self.page
@@ -71,6 +79,12 @@ class Viewport:
                 else:
                     page.mouse.move(x, y)
                     page.mouse.wheel(0, command["delta"])
+            elif action == "button":
+                target = self.buttons.get(command["target"])
+                if not target or target[2]:
+                    raise ValueError("That employer button is unavailable. Refresh the view.")
+                frame, button_id, _ = target
+                frame.locator(f'[data-jobbot-btn="{button_id}"]').click(timeout=3500)
             elif action == "text":
                 page.keyboard.insert_text(command["text"])
             elif action == "key":
@@ -82,6 +96,16 @@ class Viewport:
         viewport = page.viewport_size
         self.size = (viewport["width"], viewport["height"]) if viewport else tuple(page.evaluate(
             "() => [window.innerWidth, window.innerHeight]"))
+        self.buttons = {}
+        buttons = []
+        for index, child in enumerate(page.frames):
+            if child != page.main_frame and not child.frame_element().is_visible():
+                continue
+            for hit in (child.evaluate(BUTTONS_JS, [".*", False, True]) or []):
+                target = f"{index}:{hit['id']}"
+                self.buttons[target] = (child, hit["id"], hit["disabled"])
+                buttons.append({"target": target, "label": hit["text"] or "Unlabelled button",
+                                "disabled": hit["disabled"]})
         self.frame_id = secrets.token_urlsafe(12)
         return {"image": base64.b64encode(frame).decode(), "frame_id": self.frame_id,
-                "width": self.size[0], "height": self.size[1]}
+                "width": self.size[0], "height": self.size[1], "buttons": buttons}
