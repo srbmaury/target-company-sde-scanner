@@ -453,11 +453,16 @@ class UnattendedTest(unittest.TestCase):
         self.assertEqual(ui.unanswered, ["Security clearance?"])
         self.assertFalse(ui.confirm("Tick consent boxes?"))
         self.assertEqual(ui.next_action(True, False, False, True, final_page=True), "hold")
-        self.assertEqual(ui.next_action(False, False, False, False, final_page=False), "quit")
+        self.assertEqual(ui.next_action(True, False, False, False, final_page=True, page=object()), "quit")
         with self.assertRaises(NeedsYou):
             ui.wait_for_user("Sign in, then press Enter")
         ui.info("passes through")
         self.assertEqual(ui.inner.last, "passes through")
+
+    def test_hosted_home_address_uses_configured_street_address(self):
+        profile = Profile({"personal": {"address_line1": "12 Example Street"}}, "profile.yaml")
+        resolver = Resolver(profile, profile_first=True)
+        self.assertEqual(resolver.resolve("Home Address*", required=True).value, "12 Example Street")
 
 
 class AnswerLogAndCapTest(unittest.TestCase):

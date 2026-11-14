@@ -431,7 +431,7 @@ class Resolver:
             (r"\bwebsite\b|portfolio|personal (site|url)|\bblog\b|other link", lambda: g("links.website")),
             (r"preferred (work |job )?location|locations? (are you|would you)",
              lambda: (g("preferences.preferred_work_locations") or []) + [g("personal.city")]),
-            (r"address line 1|street address", lambda: g("personal.address_line1") or None),
+            (r"address line 1|street address|\bhome address\b|\bresidential address\b", lambda: g("personal.address_line1") or None),
             (r"\bpostal|\bzip\b|pin ?code", lambda: g("personal.postal_code") or None),
             # the field, not the verb: "State/Province" yes, "please state the reason for each gap" no
             (r"^(your |current |home )?(state|province|region)\b(?!\s+(the|any|your|why|whether|if|how|what)\b)|"
