@@ -78,6 +78,12 @@ class DashboardUITests(unittest.TestCase):
         expect(self.page.locator("#workspace-mode")).to_have_text(
             "Hosted account" if self.hosted else "Local workspace")
 
+    def test_shared_html_helpers_initialize_without_script_errors(self):
+        self.open()
+        self.assertEqual(self.errors, [])
+        self.assertEqual(self.page.evaluate("JobbotHtml.safeHref('javascript:alert(1)')"), '#')
+        self.assertEqual(self.page.evaluate("JobbotHtml.esc('<img>')"), '&lt;img&gt;')
+
     def test_hosted_pages_and_keyboard_navigation(self):
         self.open()
         self.page.locator("[data-select]").check()
