@@ -118,7 +118,7 @@ def run_jobs(session, conn, profile, targets, ui, resume=None, dry_run=False, co
             if str(e).startswith("Submit clicked but confirmation"):
                 # Preserve the attempt for deduplication without claiming a confirmed submission.
                 ui.warn("Submit clicked but not confirmed. Verify in employer portal/email before retrying.")
-                status, note = "shortlisted", "Submission unverified: Submit clicked, confirmation not detected; verify before retrying."
+                status, note = "submission_unverified", "Submission unverified: Submit clicked, confirmation not detected; verify before retrying."
             else:
                 ui.warn(f"Needs you, moving on: {str(e)[:200]}")
                 status, note = "needs you", str(e)[:300]
