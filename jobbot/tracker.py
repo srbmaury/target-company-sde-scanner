@@ -380,7 +380,7 @@ def add_application(conn, company, title, url=None, location=None, status="appli
         "INSERT INTO applications (url, company, title, location, status, resume, source, applied_on, updated_on, notes)"
         " VALUES (?,?,?,?,?,?,?,?,?,?)",
         (url, company, title, location, status, resume, source,
-         applied_on or (today() if status not in ("shortlisted", "submission_unverified") else None), stamp, notes),
+         (None if status in ("shortlisted", "submission_unverified") else applied_on or today()), stamp, notes),
     )
     conn.execute("INSERT INTO events (application_id, at, status, note) VALUES (?,?,?,?)",
                  (cur.lastrowid, stamp, status, notes or f"added via {source}"))
