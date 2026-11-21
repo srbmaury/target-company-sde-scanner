@@ -146,7 +146,7 @@ def _new_jobs(conn):
 
 def summary_payload(conn):
     stats = tracker.stats(conn)
-    total = sum(stats.values())
+    total = sum(v for k, v in stats.items() if k not in ("shortlisted", "submission_unverified"))
     responded = sum(stats.get(k, 0) for k in ("assessment", "interview", "offer", "rejected"))
     return {
         "applications": stats, "total": total,
