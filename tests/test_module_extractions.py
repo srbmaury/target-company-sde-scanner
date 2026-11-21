@@ -2,9 +2,9 @@
 import unittest
 from unittest.mock import patch
 
-from jobbot import answer_options, answers, cli, cli_format
+from jobbot import answer_options, answers, cli, cli_format, scan, scan_registry
 from jobbot.apply import engine, text_length
-from jobbot.ui import docs_routes, job_views, server, summary
+from jobbot.ui import docs_routes, job_views, server, summary, tasks
 
 
 class ExtractionTests(unittest.TestCase):
@@ -35,6 +35,18 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(payload["response_rate"], 33)
         self.assertEqual(payload["interview_rate"], 33)
         self.assertEqual(payload["open_jobs"], 7)
+
+    def test_scanner_registry_helpers_preserve_public_behavior(self):
+        registry = {"Acme": {}, "Example": {}}
+        self.assertEqual(scan.resolve_names(registry, ["acme", "missing"]), (["Acme"], ["missing"]))
+        self.assertEqual(scan_registry.resolve_names(registry), (["Acme", "Example"], []))
+        self.assertEqual(scan.load_history(None), set())
+        self.assertEqual(scan.REGISTRY, scan_registry.REGISTRY)
+
+    def test_dashboard_tasks_are_shared_with_server(self):
+        self.assertIs(server.TASKS, tasks.TASKS)
+        with self.assertRaisesRegex(ValueError, "unknown task"):
+            server.start_task("not-a-task")
 
     def test_dashboard_view_api_is_preserved(self):
         self.assertIs(server.jobs_page, job_views.jobs_page)
