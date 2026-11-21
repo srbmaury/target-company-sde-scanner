@@ -9,7 +9,8 @@ REGISTRY = os.path.join(os.path.dirname(__file__), "..", "references", "ats-regi
 def load_history(path):
     if not path or not os.path.exists(path):
         return set()
-    return set(re.findall(r"https?://[^\s|)>\]]+", open(path, encoding="utf-8").read()))
+    with open(path, encoding="utf-8") as source:
+        return set(re.findall(r"https?://[^\s|)>\]]+", source.read()))
 
 
 def load_registry():
