@@ -1,5 +1,6 @@
 "use strict";
 // Centralize HTML escaping and URL-scheme validation for rendered links.
+(() => {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safeHref = (value) => {
   try {
@@ -8,3 +9,4 @@ const safeHref = (value) => {
   } catch { return "#"; }
 };
 window.JobbotHtml = Object.freeze({ esc, safeHref });
+})();
