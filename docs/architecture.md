@@ -11,7 +11,7 @@ Run `python scripts/architecture_audit.py --check` to enforce source-file ceilin
 | File | Finding | Refactor boundary |
 | --- | --- | --- |
 | `jobbot/apply/engine.py` | Session manages navigation, form filling, review, and submission | Extracted `apply/text_length.py`; remaining browser orchestration needs browser-level coverage |
-| `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Extracted `ui/docs_routes.py`; remaining request validation, account/profile services, and route dispatch |
+| `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Extracted `ui/docs_routes.py` and pure `ui/job_views.py`; remaining request validation, account/profile services, and route dispatch |
 | `jobbot/ui/static/app.js` | Networking, state, rendering, and interaction logic share a large global module | Extracted `static/html_utils.js`; remaining API client and independent views must retain CSP compatibility |
 | `jobbot/answers.py` | Rule matching, model fallback, caching, and prompting in one resolver | Extracted `answer_options.py`; remaining rule predicates and model integration |
 | `jobbot/scan.py` | ATS adapters, filtering, experience extraction, and CLI orchestration | Extracted `scan_experience.py`; later group adapters by provider |
@@ -35,3 +35,7 @@ Run full Python matrix and Playwright tests after each extraction. Hosted OAuth,
 ## Dead-code review
 
 The Python CI linter catches unused imports and undefined names. During these extractions, unused compatibility imports were removed rather than suppressing warnings. No functions were deleted based solely on a heuristic: reflective references, tests, and externally imported helpers can make apparently unused symbols part of the public API. Additional dead-code removal requires call-site analysis and tests.
+
+## Readability and naming inventory
+
+The audit now emits **non-blocking** findings for functions longer than 100 lines and unconventional Python function names. These are review prompts rather than automatic defects: public API naming, overrides, generated code, and framework hooks can justify exceptions. Duplicate definitions and file-size ceilings remain blocking. Reassess the long-function threshold after reducing legacy modules; do not split a cohesive algorithm merely to satisfy a metric.
