@@ -11,10 +11,10 @@ Run `python scripts/architecture_audit.py --check` to enforce source-file ceilin
 | File | Finding | Refactor boundary |
 | --- | --- | --- |
 | `jobbot/apply/engine.py` | Session manages navigation, form filling, review, and submission | Extracted `apply/text_length.py`; remaining browser orchestration needs browser-level coverage |
-| `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Extracted `ui/docs_routes.py`, `ui/job_views.py`, and `ui/summary.py`; remaining request validation, account/profile services, and route dispatch |
+| `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Extracted `ui/docs_routes.py`, `ui/job_views.py`, `ui/summary.py`, and `ui/tasks.py`; remaining request validation, account/profile services, and route dispatch |
 | `jobbot/ui/static/app.js` | Networking, state, rendering, and interaction logic share a large global module | Extracted `static/html_utils.js` and `static/network.js`; independent views still need splitting while retaining CSP compatibility |
 | `jobbot/answers.py` | Rule matching, model fallback, caching, and prompting in one resolver | Extracted `answer_options.py` including experience-bucket matching; remaining rule predicates and model integration |
-| `jobbot/scan.py` | ATS adapters, filtering, experience extraction, and CLI orchestration | Extracted `scan_experience.py`; later group adapters by provider |
+| `jobbot/scan.py` | ATS adapters, filtering, experience extraction, and CLI orchestration | Extracted `scan_experience.py` and `scan_registry.py`; later group adapters by provider |
 | `jobbot/cli.py` | Parser registration and command execution mixed | Split commands by domain without changing public commands |
 | `jobbot/tracker.py` | SQLite operations and hosted persistence in same module | Separate storage adapter only after concurrency/CAS tests |
 
@@ -55,3 +55,7 @@ Commit `36fe382` passed the configured Python matrix after fixing the extracted 
 ## Documentation pruning
 
 Only the root `README.md` and Markdown pages served by the dashboard (`docs/`) remain. The standalone assistant skill, company-tier reference, supplemental platform list, and contributing guide were intentionally removed at the user's request. The ATS registry remains the scanner's structured source configuration. The documentation viewer still indexes `docs/README.md` and the linked pages.
+
+## Cohesive extraction batch
+
+The dashboard task service now owns subprocess execution, in-memory task state, and concurrency exclusion; the HTTP server delegates to it. The scanner registry module owns registry loading, name resolution, and history URL parsing, while `scan.py` retains compatibility wrappers. Regression tests cover these boundaries. The next larger effort is splitting ATS provider adapters and browser form orchestration, both of which require integration fixtures and compatibility checks.
