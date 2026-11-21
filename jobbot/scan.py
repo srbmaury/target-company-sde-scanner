@@ -43,7 +43,7 @@ def stated_years(text):
     return scan_experience.stated_years(text)
 
 
-from .scan_transport import SiteMaintenance as SiteMaintenance
+SiteMaintenance = scan_transport.SiteMaintenance
 
 
 def http_json(url, data=None, timeout=25):
