@@ -10,11 +10,11 @@ Run `python scripts/architecture_audit.py --check` to enforce source-file ceilin
 
 | File | Finding | Refactor boundary |
 | --- | --- | --- |
-| `jobbot/apply/engine.py` | Session manages navigation, form filling, review, and submission | Extract cohesive helpers only with browser-level regression coverage |
-| `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Separate request validation, account/profile services, and route dispatch |
-| `jobbot/ui/static/app.js` | Networking, state, rendering, and interaction logic share a large global module | Extract API client and independent views while retaining CSP compatibility |
-| `jobbot/answers.py` | Rule matching, model fallback, caching, and prompting in one resolver | Extract pure rule predicates and answer normalization |
-| `jobbot/scan.py` | ATS adapters, filtering, experience extraction, and CLI orchestration | First extraction: `scan_experience.py`; later group adapters by provider |
+| `jobbot/apply/engine.py` | Session manages navigation, form filling, review, and submission | Extracted `apply/text_length.py`; remaining browser orchestration needs browser-level coverage |
+| `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Extracted `ui/docs_routes.py`; remaining request validation, account/profile services, and route dispatch |
+| `jobbot/ui/static/app.js` | Networking, state, rendering, and interaction logic share a large global module | Extracted `static/html_utils.js`; remaining API client and independent views must retain CSP compatibility |
+| `jobbot/answers.py` | Rule matching, model fallback, caching, and prompting in one resolver | Extracted `answer_options.py`; remaining rule predicates and model integration |
+| `jobbot/scan.py` | ATS adapters, filtering, experience extraction, and CLI orchestration | Extracted `scan_experience.py`; later group adapters by provider |
 | `jobbot/cli.py` | Parser registration and command execution mixed | Split commands by domain without changing public commands |
 | `jobbot/tracker.py` | SQLite operations and hosted persistence in same module | Separate storage adapter only after concurrency/CAS tests |
 
@@ -31,3 +31,7 @@ Run `python scripts/architecture_audit.py --check` to enforce source-file ceilin
 ## Follow-up validation
 
 Run full Python matrix and Playwright tests after each extraction. Hosted OAuth, browser isolation, and credential redaction require separate runtime/security validation; static inspection cannot certify them. Avoid a single sweeping folder rename or deletion pass.
+
+## Dead-code review
+
+The Python CI linter catches unused imports and undefined names. During these extractions, unused compatibility imports were removed rather than suppressing warnings. No functions were deleted based solely on a heuristic: reflective references, tests, and externally imported helpers can make apparently unused symbols part of the public API. Additional dead-code removal requires call-site analysis and tests.
