@@ -83,6 +83,7 @@ class DashboardUITests(unittest.TestCase):
         self.assertEqual(self.errors, [])
         self.assertEqual(self.page.evaluate("JobbotHtml.safeHref('javascript:alert(1)')"), '#')
         self.assertEqual(self.page.evaluate("JobbotHtml.esc('<img>')"), '&lt;img&gt;')
+        self.assertTrue(self.page.evaluate("typeof JobbotNetwork.api === 'function'"))
 
     def test_hosted_pages_and_keyboard_navigation(self):
         self.open()
