@@ -60,3 +60,35 @@ def pick(answer, options):
             return neg[0]
     return None
 
+
+def yes_no(flag):
+    return "Yes" if flag else "No"
+
+
+def bucket(years, options):
+    """Index of the range option containing `years`: "2 years to less than 3 years", "1-3 years", "5+ years",
+    "Less than 1 year", "None". None when the options are not year ranges."""
+    def bounds(text):
+        t = text.lower().replace("–", "-")
+        bare = bool(re.fullmatch(r"\s*(?:<|>|less than |more than )?\d+(?:\.\d+)?\s*(?:-\s*\d+(?:\.\d+)?|\+)?\s*(?:yrs?)?\s*", t))
+        if "year" not in t and not bare and not re.search(r"\bnone\b|no experience|fresher", t):
+            return None
+        if re.search(r"\bnone\b|no experience|fresher|^0 years?$|^0$", t):
+            return (0, 0.01)
+        nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", t)]
+        if re.search(r"less than|under|below|<", t) and len(nums) == 1:
+            return (0, nums[0])
+        if re.search(r"\+|or more|more than|over|above|at least", t) and len(nums) == 1:
+            return (nums[0], 99)
+        if len(nums) >= 2:
+            upper_open = bool(re.search(r"less than|to under|-\s*<|up to but", t))
+            return (nums[0], nums[1] if upper_open else nums[1] + 1)
+        if len(nums) == 1:
+            return (nums[0], nums[0] + 1)
+        return None
+    for i, o in enumerate(options):
+        b = bounds(o)
+        if b and b[0] <= years < b[1]:
+            return i
+    return None
+
