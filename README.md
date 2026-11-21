@@ -176,26 +176,17 @@ Run `./jobbot.sh gmail logout` to disconnect the CLI. See [Gmail tracking](docs/
 
 ## Documentation
 
-| Guide | Covers |
-| --- | --- |
-| [Finding and ranking jobs](docs/finding-jobs.md) | Sources, filters, ranking, choosing roles |
-| [Applying](docs/apply.md) | Form filling, review checks, dry runs, supported sites |
-| [Dashboard](docs/dashboard.md) | Jobs, Runs, Applications, Actions, Profile |
-| [Hosted accounts](docs/accounts.md) | MongoDB, Google sign-in, deployment |
-| [Candidate profile](docs/profile.md) | Resume variants, rules, preferences, learned answers |
-| [Tracking and Gmail](docs/tracking.md) | Status history, duplicates, email imports |
-| [Command reference](docs/commands.md) | CLI commands and options |
-| [Privacy and safety](docs/privacy.md) | Local storage, model data, browser behavior |
-| [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
+See the [documentation index](docs/README.md) for the user guides. Run `./jobbot.sh --help` to list commands, or `./jobbot.sh apply --help` for a command’s options.
 
 ## Contributing
 
-The CLI and tracker live in `jobbot/`, browser automation in `jobbot/apply/`, and the dashboard in `jobbot/ui/`. Job source configuration lives in [the ATS registry](references/ats-registry.json).
+The CLI and tracker live in `jobbot/`, scanner helpers in `jobbot/_scanning/`, answer resolution helpers in `jobbot/_answering/`, browser automation in `jobbot/apply/`, and the dashboard in `jobbot/ui/`. Job source configuration lives in [the ATS registry](references/ats-registry.json).
 
 ```bash
 .venv/bin/python -m pip install pyflakes mongomock
 .venv/bin/python -m playwright install chromium
 .venv/bin/python -m pyflakes jobbot tests
+.venv/bin/python scripts/architecture_audit.py --check
 .venv/bin/python -m unittest discover -s tests -v
 ```
 

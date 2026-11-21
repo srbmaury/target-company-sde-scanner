@@ -38,6 +38,17 @@ roles, or `--all`. It skips roles you have already applied to or dismissed. Befo
 than 3 roles it lists them and asks you to confirm (`-y` skips this list; it never skips the "you may have
 applied already" check). See the next section.
 
+## Running only the scanner
+
+Use Python 3 to query ATS job-board APIs without installing dependencies. To scan company careers pages as well, install Playwright and Chrome or Playwright Chromium and omit `--no-careers-pages`.
+
+```bash
+python3 scripts/ats_scan.py --companies "Stripe,MongoDB,Adobe" --no-careers-pages
+python3 scripts/ats_scan.py --all --min-yoe 4 --max-yoe 7 --json --no-careers-pages
+```
+
+The standalone scanner defaults to 1–3 years of experience. Use `./jobbot.sh scan` to apply your saved profile preferences. Run either command with `--help` to see all options.
+
 ---
 
 [← Docs index](README.md) · [Project README](../README.md)

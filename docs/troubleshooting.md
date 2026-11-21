@@ -9,7 +9,7 @@
 | A job seems stuck | Check `./jobbot.sh logs` for the last page and round. If a field keeps failing, jobbot lists it for you instead of retrying; fix it in the browser and press `r`. |
 | `Ollama is not running` | `brew services start ollama`, or pass `--llm none`; for hosted inference use `JOBBOT_LLM_PROVIDER=openai` and `OPENAI_API_KEY` |
 | A question gets a wrong or missing answer | Add a rule under `answers:` in your profile (see [Your profile](profile.md)) |
-| The scanner errors on one company | That board moved or was retired. The rest of the scan continues; see [Contributing](../CONTRIBUTING.md) to fix the registry entry. |
+| The scanner errors on one company | That board moved or was retired. The rest of the scan continues; see [Contributing](../README.md#contributing) to fix the registry entry. |
 | `bad interpreter` after moving the folder | Recreate the virtualenv: `rm -rf .venv && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` |
 
 ---
