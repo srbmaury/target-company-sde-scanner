@@ -29,7 +29,7 @@ import yaml
 
 from .. import accounts, gmail, paths, profile as profile_mod, tracker
 from pymongo.errors import PyMongoError
-from . import bridge, job_queries, summary as summary_metrics, tasks as task_service, workspace
+from . import bridge, job_queries, logs, summary as summary_metrics, tasks as task_service, workspace
 
 LOGGER = logging.getLogger(__name__)
 
@@ -68,10 +68,7 @@ def workspace_payload(account):
 from .docs_routes import docs_index as docs_index, doc_page as doc_page
 
 def log_dates():
-    logdir = paths.HOME / "logs"
-    if not logdir.exists():
-        return []
-    return sorted((p.stem for p in logdir.glob("*.log")), reverse=True)
+    return logs.log_dates()
 
 
 def start_task(name):
