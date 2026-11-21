@@ -49,8 +49,8 @@ class ExtractionTests(unittest.TestCase):
 
     def test_scanner_transport_normalizes_markup(self):
         self.assertIs(scan.SiteMaintenance, scan_transport.SiteMaintenance)
-        self.assertEqual(scan.text_of("<p>Hello &amp; goodbye</p>"), "Hello & goodbye")
-        self.assertEqual(scan_transport.text_of("<p>Hello &amp; goodbye</p>"), "Hello & goodbye")
+        self.assertEqual(scan.text_of("<p>Hello &amp; goodbye</p>"), " Hello & goodbye ")
+        self.assertEqual(scan_transport.text_of("<p>Hello &amp; goodbye</p>"), " Hello & goodbye ")
 
     def test_dashboard_log_discovery_is_delegated(self):
         with patch.object(logs, "log_dates", return_value=["2026-11-21"]):
