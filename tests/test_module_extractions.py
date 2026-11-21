@@ -1,9 +1,10 @@
 """Regression checks for extracted pure helpers and public compatibility imports."""
 import unittest
+from unittest.mock import patch
 
 from jobbot import answer_options, answers, cli, cli_format
 from jobbot.apply import engine, text_length
-from jobbot.ui import docs_routes, job_views, server
+from jobbot.ui import docs_routes, job_views, server, summary
 
 
 class ExtractionTests(unittest.TestCase):
@@ -25,6 +26,15 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(cli.expand_job_keys(['3-1', '7,9', 'https://example.org/a,b']),
                          ['1', '2', '3', '7', '9', 'https://example.org/a,b'])
         self.assertIs(cli._short, cli_format._short)
+
+    def test_dashboard_summary_excludes_unverified_submissions(self):
+        counts = {"applied": 2, "interview": 1, "submission_unverified": 3, "shortlisted": 4}
+        with patch.object(summary.tracker, "stats", return_value=counts):
+            payload = summary.summary_payload(None, open_jobs=7)
+        self.assertEqual(payload["total"], 3)
+        self.assertEqual(payload["response_rate"], 33)
+        self.assertEqual(payload["interview_rate"], 33)
+        self.assertEqual(payload["open_jobs"], 7)
 
     def test_dashboard_view_api_is_preserved(self):
         self.assertIs(server.jobs_page, job_views.jobs_page)
