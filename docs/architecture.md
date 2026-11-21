@@ -11,7 +11,7 @@ Run `python scripts/architecture_audit.py --check` to enforce source-file ceilin
 | File | Finding | Refactor boundary |
 | --- | --- | --- |
 | `jobbot/apply/engine.py` | Session manages navigation, form filling, review, and submission | Extracted `apply/text_length.py`; remaining browser orchestration needs browser-level coverage |
-| `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Extracted `ui/docs_routes.py` and pure `ui/job_views.py`; remaining request validation, account/profile services, and route dispatch |
+| `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Extracted `ui/docs_routes.py`, `ui/job_views.py`, and `ui/summary.py`; remaining request validation, account/profile services, and route dispatch |
 | `jobbot/ui/static/app.js` | Networking, state, rendering, and interaction logic share a large global module | Extracted `static/html_utils.js` and `static/network.js`; independent views still need splitting while retaining CSP compatibility |
 | `jobbot/answers.py` | Rule matching, model fallback, caching, and prompting in one resolver | Extracted `answer_options.py` including experience-bucket matching; remaining rule predicates and model integration |
 | `jobbot/scan.py` | ATS adapters, filtering, experience extraction, and CLI orchestration | Extracted `scan_experience.py`; later group adapters by provider |
@@ -51,3 +51,7 @@ Commit `36fe382` passed the configured Python matrix after fixing the extracted 
 ## CLI boundary
 
 `cli_format.py` now contains pure job-range expansion and display truncation. The CLI retains its existing public helper names for compatibility. The larger `build_parser` command registration remains in `cli.py` pending a command-registry design and focused parser integration tests; splitting it without that coverage would add indirection without a proven readability benefit.
+
+## Documentation pruning
+
+Only the root `README.md` and Markdown pages served by the dashboard (`docs/`) remain. The standalone assistant skill, company-tier reference, supplemental platform list, and contributing guide were intentionally removed at the user's request. The ATS registry remains the scanner's structured source configuration. The documentation viewer still indexes `docs/README.md` and the linked pages.
