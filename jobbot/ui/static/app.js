@@ -5,6 +5,12 @@ const TOKEN = document.querySelector('meta[name="jobbot-token"]').content;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const safeHref = (value) => {
+  try {
+    const url = new URL(String(value), location.origin);
+    return ["http:", "https:"].includes(url.protocol) ? esc(url.href) : "#";
+  } catch { return "#"; }
+};
 const state = { manuallyApplied: new Set(), selected: new Set(), run: null, runPoll: null, tab: "jobs", jobs: [], apps: [], summary: null, jobSort: ["fit_score", -1], appSort: ["applied_on", -1], polling: null };
 
 async function api(path, body) {
@@ -299,7 +305,7 @@ function renderJobs() {
       <td class="num">${j.n}</td>
       <td><span class="fit ${fitClass(j.fit_score)}">${j.fit_score ?? "–"}</span></td>
       <td>${esc(j.company)}</td>
-      <td class="role"><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a> ${applied}${excl}
+      <td class="role"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a> ${applied}${excl}
         ${j.fit_reason ? `<div class="reason">${esc(j.fit_reason)}</div>` : ""}${dup}</td>
       <td>${esc(j.location)}</td>
       <td class="num" title="${esc(j.evidence)}">${esc(j.experience)}</td>
@@ -810,7 +816,7 @@ function renderNeeds(run, active) {
       ${active ? "" : `<button class="link" data-retry-all="${esc(g.jobs.map((j) => j.n || j.url).join("\n"))}">Retry ${g.jobs.length > 1 ? "these " + g.jobs.length : "it"}</button>`}</summary>
       <p class="hint">${esc(g.hint)}</p>
       <ul>${g.jobs.map((j) => `<li><b>${esc(j.company)}</b> — ${esc(j.title)}<div class="reason">${esc((results[j.url].note || "").replace(/\s*Screenshot:\s+\S+\.png/gi, ""))}</div>
-        <a href="${esc(j.url)}" target="_blank" rel="noopener">Open posting</a>
+        <a href="${safeHref(j.url)}" target="_blank" rel="noopener">Open posting</a>
         ${active ? "" : `<button class="link" data-retry="${esc(String(j.n || j.url))}">Retry</button>`}</li>`).join("")}</ul></details>`).join("")
     + (active || needs.length < 2 ? "" : `<button data-retry-all="${esc(needs.map((j) => j.n || j.url).join("\n"))}">Retry all ${needs.length}</button>`)
     + `</div>`;
@@ -1002,7 +1008,7 @@ function renderApps() {
   $("#apps-count").textContent = state.appsPage?.next_offset != null ? `${rows.length} of ${state.appsPage.total} applications` : `${rows.length} application${rows.length === 1 ? "" : "s"}`;
   $("#apps-table tbody").innerHTML = rows.length ? rows.map((a) => `<tr class="clickable" data-app="${a.id}">
       <td class="num">${a.id}</td><td>${esc(a.company)}</td>
-      <td class="role">${a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>` : esc(a.title)}
+      <td class="role">${a.url ? `<a href="${safeHref(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>` : esc(a.title)}
         ${a.notes ? `<div class="reason">${esc(a.notes).slice(0, 140)}</div>` : ""}</td>
       <td><span class="pill ${esc(a.status)}">${esc(a.status)}</span></td>
        <td>${a.resume ? esc(a.resume) : `<span class="muted" title="No resume recorded for this application">Not recorded</span>`}</td>
@@ -1017,7 +1023,7 @@ async function openApp(id) {
   const history = a.events.map((e) => `<li>${esc(e.at.replace("T", " "))} · <b>${esc(e.status)}</b> ${esc(e.note || "")}</li>`).join("");
   openDialog(`<h2>${esc(a.company)} — ${esc(a.title)}</h2>
     <div class="muted">${esc(a.location || "")} ${a.applied_on ? "· applied " + esc(a.applied_on) : ""} · via ${esc(a.source || "?")}</div>
-    ${a.url ? `<p><a href="${esc(a.url)}" target="_blank" rel="noopener">Open posting</a></p>` : ""}
+    ${a.url ? `<p><a href="${safeHref(a.url)}" target="_blank" rel="noopener">Open posting</a></p>` : ""}
     <div class="row"><label>Resume used</label><span>${a.resume ? esc(a.resume) : `<span class="muted">Not recorded</span>`}</span></div>
      <div class="row"><label>Company</label><input type="text" name="company" value="${esc(a.company)}"></div>
     <div class="row"><label>Role${a.title.startsWith("(role not stated") ? " — naming it stops this application matching every role at the company" : ""}</label>
