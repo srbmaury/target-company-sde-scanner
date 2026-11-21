@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from jobbot import answer_options, answers, cli, cli_format, scan, scan_registry
 from jobbot.apply import engine, text_length
-from jobbot.ui import docs_routes, job_views, server, summary, tasks
+from jobbot.ui import docs_routes, job_queries, job_views, server, summary, tasks, workspace
 
 
 class ExtractionTests(unittest.TestCase):
@@ -42,6 +42,16 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(scan_registry.resolve_names(registry), (["Acme", "Example"], []))
         self.assertEqual(scan.load_history(None), set())
         self.assertEqual(scan.REGISTRY, scan_registry.REGISTRY)
+
+    def test_dashboard_job_query_api_is_preserved(self):
+        self.assertTrue(callable(job_queries.jobs_payload))
+        self.assertTrue(callable(job_queries._new_jobs))
+        self.assertTrue(callable(server.jobs_payload))
+        self.assertTrue(callable(server._new_jobs))
+
+    def test_dashboard_workspace_api_is_preserved(self):
+        self.assertTrue(callable(workspace.workspace_payload))
+        self.assertTrue(callable(server.workspace_payload))
 
     def test_dashboard_tasks_are_shared_with_server(self):
         self.assertIs(server.TASKS, tasks.TASKS)
