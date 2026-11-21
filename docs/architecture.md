@@ -13,7 +13,7 @@ Run `python scripts/architecture_audit.py --check` to enforce source-file ceilin
 | `jobbot/apply/engine.py` | Session manages navigation, form filling, review, and submission | Extracted `apply/text_length.py`; remaining browser orchestration needs browser-level coverage |
 | `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Extracted `ui/docs_routes.py` and pure `ui/job_views.py`; remaining request validation, account/profile services, and route dispatch |
 | `jobbot/ui/static/app.js` | Networking, state, rendering, and interaction logic share a large global module | Extracted `static/html_utils.js` and `static/network.js`; independent views still need splitting while retaining CSP compatibility |
-| `jobbot/answers.py` | Rule matching, model fallback, caching, and prompting in one resolver | Extracted `answer_options.py`; remaining rule predicates and model integration |
+| `jobbot/answers.py` | Rule matching, model fallback, caching, and prompting in one resolver | Extracted `answer_options.py` including experience-bucket matching; remaining rule predicates and model integration |
 | `jobbot/scan.py` | ATS adapters, filtering, experience extraction, and CLI orchestration | Extracted `scan_experience.py`; later group adapters by provider |
 | `jobbot/cli.py` | Parser registration and command execution mixed | Split commands by domain without changing public commands |
 | `jobbot/tracker.py` | SQLite operations and hosted persistence in same module | Separate storage adapter only after concurrency/CAS tests |
@@ -47,3 +47,7 @@ The first frontend helper extraction placed top-level `const` bindings in two cl
 ## CI validation milestone
 
 Commit `36fe382` passed the configured Python matrix after fixing the extracted HTML helper's global scope and the architecture test. A subsequent extraction moves dashboard API transport and connection status into `static/network.js`; it has a Chromium startup assertion and must pass the full matrix before merging. The remaining large view renderers and browser automation workflow are intentionally not mechanically split without integration coverage.
+
+## CLI boundary
+
+`cli_format.py` now contains pure job-range expansion and display truncation. The CLI retains its existing public helper names for compatibility. The larger `build_parser` command registration remains in `cli.py` pending a command-registry design and focused parser integration tests; splitting it without that coverage would add indirection without a proven readability benefit.
