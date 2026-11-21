@@ -371,9 +371,10 @@ def add_application(conn, company, title, url=None, location=None, status="appli
     stamp = now()
     existing = find_application(conn, url) if url else None
     if existing:
-        if status in ("applied", "shortlisted", "submission_unverified") and existing["status"] not in ("applied", "shortlisted", "submission_unverified"):
-            return existing  # do not regress an application that already progressed
-            return existing   # already further along (assessment, interview, offer, rejected...): keep it
+        if status in ("shortlisted", "submission_unverified") and existing["status"] not in ("shortlisted", "submission_unverified"):
+            return existing  # never regress a confirmed application to an unverified state
+        if status == "applied" and existing["status"] not in ("shortlisted", "submission_unverified", "applied"):
+            return existing  # preserve later assessment/interview/offer/rejection states
         return update_status(conn, existing["id"], status, notes)
     cur = conn.execute(
         "INSERT INTO applications (url, company, title, location, status, resume, source, applied_on, updated_on, notes)"
