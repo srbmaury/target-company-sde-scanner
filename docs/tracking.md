@@ -16,8 +16,14 @@ tracker stays complete:
 ./jobbot.sh track import-gmail emails.json           # or build rows from an exported JSON of emails
 ```
 
-Statuses: `shortlisted`, `applied`, `assessment`, `interview`, `offer`, `rejected`, `withdrawn`,
+Statuses: `shortlisted`, `submission_unverified`, `applied`, `assessment`, `interview`, `offer`, `rejected`, `withdrawn`,
 `ghosted`.
+
+**Unverified submissions:** If jobbot clicks Submit but cannot recognize a confirmation, it records
+`submission_unverified` instead of claiming the application succeeded. Check the employer portal
+or confirmation email, then change the status to `applied` if confirmed. Do not retry the form
+until you have verified whether it went through: the tracker deliberately blocks duplicates.
+An unverified attempt counts against the daily automation limit.
 
 **How jobbot knows you already applied.** Applications imported from email often have no job link,
 so jobbot also matches on company and title. It ignores suffixes ("Sarvam AI" = "Sarvam"), job IDs,
