@@ -406,9 +406,13 @@ def update_status(conn, key, status, note=None):
 
 def submitted_today(conn):
     """Applications jobbot submitted today (for automation.max_applications_per_day)."""
-    return conn.execute("""SELECT COUNT(*) FROM applications
-                           WHERE source = 'jobbot' AND
-                           (applied_on = ? OR (status = 'submission_unverified' AND substr(updated_on, 1, 10) = ?))""",
+    # An unverified attempt still counts if the user later changes its status.
+    # Count distinct applications, so verification on the same day never counts twice.
+    return conn.execute("""SELECT COUNT(*) FROM applications a
+                           WHERE a.source = 'jobbot' AND
+                           (a.applied_on = ? OR EXISTS (
+                               SELECT 1 FROM events e WHERE e.application_id = a.id
+                               AND e.status = 'submission_unverified' AND substr(e.at, 1, 10) = ?))""",
                         (today(), today())).fetchone()[0]
 
 
