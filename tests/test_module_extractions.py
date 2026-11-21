@@ -3,7 +3,7 @@ import unittest
 
 from jobbot import answer_options, answers
 from jobbot.apply import engine, text_length
-from jobbot.ui import docs_routes, server
+from jobbot.ui import docs_routes, job_views, server
 
 
 class ExtractionTests(unittest.TestCase):
@@ -16,6 +16,13 @@ class ExtractionTests(unittest.TestCase):
         self.assertIs(engine.fit_length, text_length.fit_length)
         self.assertIs(engine.refit_if_cut, text_length.refit_if_cut)
         self.assertEqual(text_length._trim("hello world goodbye", 11), "hello")
+
+    def test_dashboard_view_api_is_preserved(self):
+        self.assertIs(server.jobs_page, job_views.jobs_page)
+        self.assertIs(server.table_page, job_views.table_page)
+        rows = [{"n": 2}, {"n": 1}]
+        self.assertEqual(job_views.table_page(rows, {"sort": "n", "direction": "asc"}, {"n"}, "n")["rows"],
+                         [{"n": 1}, {"n": 2}])
 
     def test_dashboard_docs_api_is_preserved(self):
         self.assertIs(server.docs_index, docs_routes.docs_index)
