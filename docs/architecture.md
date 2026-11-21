@@ -2,6 +2,17 @@
 
 The audit is intentionally incremental: preserve stable CLI, scanner, and dashboard interfaces while reducing coupling.
 
+## Source layout
+
+| Path | Responsibility |
+| --- | --- |
+| `jobbot/cli.py` | Command-line entry point and command dispatch |
+| `jobbot/scan.py`, `jobbot/_scanning/` | Scanner entry point and ATS adapters, with helpers for filtering, experience parsing, registry loading, and HTTP transport |
+| `jobbot/answers.py`, `jobbot/_answering/` | Answer resolver and helpers for options, question patterns, and answer logging |
+| `jobbot/apply/` | Browser application workflow |
+| `jobbot/ui/` | Dashboard server and static assets |
+| `references/`, `scripts/`, `tests/` | ATS registry data, standalone tools, and regression tests |
+
 ## Automated checks
 
 Run `python scripts/architecture_audit.py --check` to enforce source-file ceilings, Python syntax, and duplicate definitions in the same scope. The CI workflow also runs `pyflakes`, the unit/browser suite, coverage reporting, and `pip-audit`. Existing large files have explicit ceilings; those are **temporary debt budgets**, not preferred file sizes. Reduce ceilings when modules shrink.
@@ -13,8 +24,8 @@ Run `python scripts/architecture_audit.py --check` to enforce source-file ceilin
 | `jobbot/apply/engine.py` | Session manages navigation, form filling, review, and submission | Extracted `apply/text_length.py`; remaining browser orchestration needs browser-level coverage |
 | `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Extracted `ui/docs_routes.py`, `ui/job_views.py`, `ui/summary.py`, `ui/tasks.py`, `ui/job_queries.py`, and `ui/workspace.py`; remaining request validation, account/profile services, and route dispatch |
 | `jobbot/ui/static/app.js` | Networking, state, rendering, and interaction logic share a large global module | Extracted `static/html_utils.js` and `static/network.js`; independent views still need splitting while retaining CSP compatibility |
-| `jobbot/answers.py` | Rule matching, model fallback, caching, and prompting in one resolver | Extracted `answer_options.py` including experience-bucket matching; remaining rule predicates and model integration |
-| `jobbot/scan.py` | ATS adapters, filtering, experience extraction, and CLI orchestration | Extracted `scan_experience.py`, `scan_registry.py`, and `scan_filters.py`; later group adapters by provider |
+| `jobbot/answers.py` | Rule matching, model fallback, caching, and prompting in one resolver | Extracted `jobbot/_answering/options.py` including experience-bucket matching; remaining rule predicates and model integration |
+| `jobbot/scan.py` | ATS adapters, filtering, experience extraction, and CLI orchestration | Extracted `jobbot/_scanning/experience.py`, `jobbot/_scanning/registry.py`, and `jobbot/_scanning/filters.py`; later group adapters by provider |
 | `jobbot/cli.py` | Parser registration and command execution mixed | Split commands by domain without changing public commands |
 | `jobbot/tracker.py` | SQLite operations and hosted persistence in same module | Separate storage adapter only after concurrency/CAS tests |
 
@@ -23,7 +34,7 @@ Run `python scripts/architecture_audit.py --check` to enforce source-file ceilin
 1. **SRP:** keep parsing and scoring pure; move transport, storage, and UI out of business logic when practical.
 2. **OCP:** new ATS providers should register an adapter instead of changing unrelated scanners.
 3. **LSP/ISP:** introduce protocols only where multiple real implementations need the same contract; avoid speculative abstraction.
-4. **DIP:** ranking should depend on experience parsing, not import the full scanner (addressed by `scan_experience.py`).
+4. **DIP:** ranking should depend on experience parsing, not import the full scanner (addressed by `jobbot/_scanning/experience.py`).
 5. **Naming:** snake_case Python modules/functions, PascalCase classes, uppercase constants, and domain-oriented names.
 6. **Dead code:** use references and tests before deleting; broad exception handlers require a documented failure boundary.
 7. **Compatibility:** preserve public imports until callers and tests migrate; refactor in reviewable commits.
@@ -64,9 +75,9 @@ The dashboard's job filtering, job eligibility, and workspace integration metada
 
 ## Four-module refactor batch
 
-- `answer_patterns.py` owns question-intent and sensitive-fact patterns used by `answers.py`.
+- `jobbot/_answering/patterns.py` owns question-intent and sensitive-fact patterns used by `answers.py`.
 - `apply/policy.py` owns browser-flow limits, consent/honeypot patterns, and navigation intents used by `apply/engine.py`.
-- `scan_transport.py` owns JSON HTTP retries, maintenance detection, and HTML text normalization; `scan.py` retains provider-specific adapters and orchestration.
+- `jobbot/_scanning/transport.py` owns JSON HTTP retries, maintenance detection, and HTML text normalization; `scan.py` retains provider-specific adapters and orchestration.
 - `ui/logs.py` owns dashboard log discovery independently of HTTP handling.
 
 Regression tests cover the extracted behavior. The larger form-fill state machine, ATS provider adapter implementations, and frontend feature state remain outstanding and must not be described as completed.

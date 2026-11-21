@@ -467,7 +467,8 @@ class UnattendedTest(unittest.TestCase):
 
 class AnswerLogAndCapTest(unittest.TestCase):
     def test_model_answers_logged_and_reviewed(self):
-        from jobbot import answerlog, paths
+        from jobbot import paths
+        from jobbot._answering import log as answerlog
         with tempfile.TemporaryDirectory() as d:
             old = paths.HOME
             paths.HOME = Path(d)

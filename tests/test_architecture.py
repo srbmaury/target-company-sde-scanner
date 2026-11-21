@@ -2,7 +2,8 @@
 import ast
 import unittest
 
-from jobbot import scan, scan_experience
+from jobbot import scan
+from jobbot._scanning import experience
 
 
 class ArchitectureAuditTests(unittest.TestCase):
@@ -22,9 +23,9 @@ class ArchitectureAuditTests(unittest.TestCase):
         self.assertEqual(duplicate_definitions(tree), [])
 
     def test_scan_experience_public_api_remains_available(self):
-        self.assertIs(scan.YEARS, scan_experience.YEARS)
-        self.assertIs(scan.experience_bounds, scan_experience.experience_bounds)
-        self.assertIs(scan.stated_experience, scan_experience.stated_experience)
+        self.assertIs(scan.YEARS, experience.YEARS)
+        self.assertIs(scan.experience_bounds, experience.experience_bounds)
+        self.assertIs(scan.stated_experience, experience.stated_experience)
         self.assertEqual(scan.stated_years("Minimum 3 years of professional experience")[0], 3.0)
 
 

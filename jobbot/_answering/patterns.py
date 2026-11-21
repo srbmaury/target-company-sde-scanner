@@ -2,7 +2,7 @@
 
 import re
 
-from .tracker import same_company
+from ..tracker import same_company
 
 HEAR_RE = re.compile(r"how did you (hear|learn|find|come across)|where did you (hear|find|learn)|source of (application|referral)|"
                      r"how (did you|were you) (referred|introduced)", re.I)

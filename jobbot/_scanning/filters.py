@@ -2,7 +2,7 @@
 
 import re
 
-from .scan_experience import YEARS, experience_bounds, stated_experience
+from .experience import YEARS, experience_bounds, stated_experience
 
 DEFAULT_MIN_YOE = 1
 DEFAULT_MAX_YOE = 3

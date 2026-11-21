@@ -364,7 +364,7 @@ def sync_gmail(conn, args):
 
 
 def cmd_answers(args):
-    from . import answerlog
+    from ._answering import log as answerlog
     from .memory import Memory
 
     rows = answerlog.load()

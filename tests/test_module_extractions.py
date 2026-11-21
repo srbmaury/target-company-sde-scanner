@@ -3,17 +3,19 @@ import re
 import unittest
 from unittest.mock import patch
 
-from jobbot import answer_options, answer_patterns, answers, cli, cli_format, scan, scan_filters, scan_registry, scan_transport
+from jobbot import answers, cli, cli_format, scan
+from jobbot._answering import options, patterns
+from jobbot._scanning import filters, registry as registry_module, transport
 from jobbot.apply import engine, policy, text_length
 from jobbot.ui import docs_routes, job_queries, job_views, logs, server, summary, tasks, workspace
 
 
 class ExtractionTests(unittest.TestCase):
     def test_answer_public_api_is_preserved(self):
-        self.assertIs(answers.Answer, answer_options.Answer)
-        self.assertIs(answers.pick, answer_options.pick)
-        self.assertIs(answers.bucket, answer_options.bucket)
-        self.assertIs(answers.yes_no, answer_options.yes_no)
+        self.assertIs(answers.Answer, options.Answer)
+        self.assertIs(answers.pick, options.pick)
+        self.assertIs(answers.bucket, options.bucket)
+        self.assertIs(answers.yes_no, options.yes_no)
         self.assertEqual(answers.bucket(2, ['0-1 years', '2-3 years']), 1)
         self.assertEqual(answers.pick("No", ["Yes", "No"]), 1)
 
@@ -38,9 +40,9 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(payload["open_jobs"], 7)
 
     def test_question_patterns_are_shared_with_resolver(self):
-        self.assertIs(answers.FACT_ONLY_RE, answer_patterns.FACT_ONLY_RE)
-        self.assertTrue(answer_patterns.FACT_ONLY_RE.search("visa sponsorship"))
-        self.assertTrue(answer_patterns.SIGN_RE.search("type your legal name to sign"))
+        self.assertIs(answers.FACT_ONLY_RE, patterns.FACT_ONLY_RE)
+        self.assertTrue(patterns.FACT_ONLY_RE.search("visa sponsorship"))
+        self.assertTrue(patterns.SIGN_RE.search("type your legal name to sign"))
 
     def test_application_policy_is_shared_with_engine(self):
         self.assertIs(engine.TRAP_RE, policy.TRAP_RE)
@@ -48,9 +50,9 @@ class ExtractionTests(unittest.TestCase):
         self.assertTrue(policy.TRAP_RE.search("leave this field blank"))
 
     def test_scanner_transport_normalizes_markup(self):
-        self.assertIs(scan.SiteMaintenance, scan_transport.SiteMaintenance)
+        self.assertIs(scan.SiteMaintenance, transport.SiteMaintenance)
         self.assertEqual(scan.text_of("<p>Hello &amp; goodbye</p>"), " Hello & goodbye ")
-        self.assertEqual(scan_transport.text_of("<p>Hello &amp; goodbye</p>"), " Hello & goodbye ")
+        self.assertEqual(transport.text_of("<p>Hello &amp; goodbye</p>"), " Hello & goodbye ")
 
     def test_dashboard_log_discovery_is_delegated(self):
         with patch.object(logs, "log_dates", return_value=["2026-11-21"]):
@@ -59,16 +61,16 @@ class ExtractionTests(unittest.TestCase):
     def test_scanner_classification_filter(self):
         india = re.compile("India", re.I)
         role = {"title": "Software Engineer", "location": "India", "text": "2 years experience"}
-        self.assertEqual(scan.classify(role, india, 3), scan_filters.classify(role, india, 3))
-        self.assertIsNone(scan_filters.classify({**role, "title": "Sales Engineer"}, india, 3))
-        self.assertIsNone(scan_filters.classify({**role, "location": "Canada"}, india, 3))
+        self.assertEqual(scan.classify(role, india, 3), filters.classify(role, india, 3))
+        self.assertIsNone(filters.classify({**role, "title": "Sales Engineer"}, india, 3))
+        self.assertIsNone(filters.classify({**role, "location": "Canada"}, india, 3))
 
     def test_scanner_registry_helpers_preserve_public_behavior(self):
         registry = {"Acme": {}, "Example": {}}
         self.assertEqual(scan.resolve_names(registry, ["acme", "missing"]), (["Acme"], ["missing"]))
-        self.assertEqual(scan_registry.resolve_names(registry), (["Acme", "Example"], []))
+        self.assertEqual(registry_module.resolve_names(registry), (["Acme", "Example"], []))
         self.assertEqual(scan.load_history(None), set())
-        self.assertEqual(scan.REGISTRY, scan_registry.REGISTRY)
+        self.assertEqual(scan.REGISTRY, registry_module.REGISTRY)
 
     def test_dashboard_job_query_api_is_preserved(self):
         self.assertTrue(callable(job_queries.jobs_payload))

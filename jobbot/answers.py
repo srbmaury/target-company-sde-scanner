@@ -14,12 +14,12 @@ Every answer carries a `source` so the review summary shows where it came from.
 
 import re
 
-from . import answerlog
+from ._answering import log as answerlog
 
-from .answer_options import (Answer as Answer, bucket as bucket, norm as norm,
+from ._answering.options import (Answer as Answer, bucket as bucket, norm as norm,
                              pick as pick, real_options as real_options, yes_no as yes_no)
 
-from .answer_patterns import (
+from ._answering.patterns import (
     HEAR_RE, HEAR_PREFERENCES, HEAR_WHOLE_ONLY, HEAR_EVENT, EMPLOYMENT_RE, OTHER_PERSON_RE, EEO_RE, FACT_ONLY_RE, OPEN_EXTRA_RE, SIGN_RE, COUNTRIES, INDIA_CITIES, GENDER_SYNONYMS, CONDITIONAL_RE, MODEL_FAILED, SOCIAL_RE, SOCIAL_KEYS, RESUME_FACT_RE, same_employer
 )
 
