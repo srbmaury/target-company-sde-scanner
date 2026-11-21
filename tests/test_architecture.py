@@ -11,6 +11,11 @@ class ArchitectureAuditTests(unittest.TestCase):
         tree = ast.parse("def a(): pass\ndef a(): pass\nclass B:\n def c(self): pass\n def c(self): pass")
         self.assertEqual(len(duplicate_definitions(tree)), 2)
 
+    def test_readability_advisories_are_nonblocking(self):
+        from scripts.architecture_audit import readability_findings
+        tree = ast.parse("def BadName():\\n    pass")
+        self.assertTrue(any("unconventional" in item for item in readability_findings(tree, "sample.py")))
+
     def test_unrelated_methods_are_not_reported(self):
         from scripts.architecture_audit import duplicate_definitions
         tree = ast.parse("class A:\n def run(self): pass\nclass B:\n def run(self): pass")
