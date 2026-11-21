@@ -61,3 +61,12 @@ Only the root `README.md` and Markdown pages served by the dashboard (`docs/`) r
 The dashboard task service now owns subprocess execution, in-memory task state, and concurrency exclusion; the HTTP server delegates to it. The scanner registry module owns registry loading, name resolution, and history URL parsing, while `scan.py` retains compatibility wrappers. Regression tests cover these boundaries. The next larger effort is splitting ATS provider adapters and browser form orchestration, both of which require integration fixtures and compatibility checks.
 
 The dashboard's job filtering, job eligibility, and workspace integration metadata now reside in focused query/service modules. `server.py` retains transport and account/form routes; these remain high-priority decomposition targets. This is an architectural improvement, not a claim that browser-level behavior has been fully revalidated.
+
+## Four-module refactor batch
+
+- `answer_patterns.py` owns question-intent and sensitive-fact patterns used by `answers.py`.
+- `apply/policy.py` owns browser-flow limits, consent/honeypot patterns, and navigation intents used by `apply/engine.py`.
+- `scan_transport.py` owns JSON HTTP retries, maintenance detection, and HTML text normalization; `scan.py` retains provider-specific adapters and orchestration.
+- `ui/logs.py` owns dashboard log discovery independently of HTTP handling.
+
+Regression tests cover the extracted behavior. The larger form-fill state machine, ATS provider adapter implementations, and frontend feature state remain outstanding and must not be described as completed.
