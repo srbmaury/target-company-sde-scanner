@@ -15,7 +15,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install -r requirements.txt pyflakes mongomock
+      - run: pip install -r requirements.txt pyflakes mongomock coverage pip-audit
       - run: python -m playwright install --with-deps chromium   # for tests/test_forms.py
       - run: python -m pyflakes jobbot tests
-      - run: python -m unittest discover -s tests -v
+      - run: python -m coverage run --source=jobbot -m unittest discover -s tests -v
+      - run: python -m coverage report --show-missing
+      - run: python -m pip_audit -r requirements.txt
