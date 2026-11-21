@@ -22,7 +22,7 @@ def keyword_rank(job, resumes, experience_years=None):
         if overlap > best:
             best_key, best = key, overlap
     score = max(0, min(100, int(best * 140)))
-    from .scan import YEARS, experience_bounds
+    from .scan_experience import YEARS, experience_bounds
 
     match = YEARS.match(job.get("experience") or "")
     if match and type(experience_years) in (int, float):
