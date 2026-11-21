@@ -95,7 +95,7 @@ def http_json(url, data=None, timeout=25):
             if e.code not in (429, 500, 502, 503, 504) or attempt == 3:
                 raise
             wait = e.headers.get("Retry-After")
-            time.sleep(float(wait) if wait and wait.isdigit() else 2 ** (attempt + 1))
+            time.sleep(min(30, int(wait)) if wait and wait.isdigit() else 2 ** (attempt + 1))
 
 
 def text_of(markup):
