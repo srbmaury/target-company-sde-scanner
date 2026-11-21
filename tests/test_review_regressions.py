@@ -32,6 +32,18 @@ class SubmissionStateTests(unittest.TestCase):
         self.assertEqual(confirmed["applied_on"], tracker.today())
         self.assertEqual(tracker.submitted_today(self.conn), 1)
 
+    def test_attempt_still_counts_after_manual_status_change(self):
+        app = tracker.add_application(self.conn, "Acme", "Engineer", url="https://example.com/4",
+                                      status="submission_unverified", source="jobbot")
+        tracker.update_status(self.conn, app["id"], "shortlisted")
+        self.assertEqual(tracker.submitted_today(self.conn), 1)
+
+    def test_confirmation_after_unverified_does_not_double_count(self):
+        app = tracker.add_application(self.conn, "Acme", "Engineer", url="https://example.com/5",
+                                      status="submission_unverified", source="jobbot")
+        tracker.update_status(self.conn, app["id"], "applied")
+        self.assertEqual(tracker.submitted_today(self.conn), 1)
+
     def test_unverified_does_not_overwrite_confirmed(self):
         original = tracker.add_application(self.conn, "Acme", "Engineer", url="https://example.com/3",
                                            status="applied")
