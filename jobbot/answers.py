@@ -17,8 +17,8 @@ import re
 from . import answerlog
 from .tracker import same_company
 
-from .answer_options import (Answer as Answer, norm as norm, pick as pick,
-                             real_options as real_options)
+from .answer_options import (Answer as Answer, bucket as bucket, norm as norm,
+                             pick as pick, real_options as real_options, yes_no as yes_no)
 
 HEAR_RE = re.compile(r"how did you (hear|learn|find|come across)|where did you (hear|find|learn)|source of (application|referral)|"
                      r"how (did you|were you) (referred|introduced)", re.I)
@@ -70,36 +70,6 @@ CONDITIONAL_RE = re.compile(r"^\s*(if (yes|so|no|applicable|you (answered|select
 MODEL_FAILED = object()
 
 
-def yes_no(flag):
-    return "Yes" if flag else "No"
-
-
-def bucket(years, options):
-    """Index of the range option containing `years`: "2 years to less than 3 years", "1-3 years", "5+ years",
-    "Less than 1 year", "None". None when the options are not year ranges."""
-    def bounds(text):
-        t = text.lower().replace("–", "-")
-        bare = bool(re.fullmatch(r"\s*(?:<|>|less than |more than )?\d+(?:\.\d+)?\s*(?:-\s*\d+(?:\.\d+)?|\+)?\s*(?:yrs?)?\s*", t))
-        if "year" not in t and not bare and not re.search(r"\bnone\b|no experience|fresher", t):
-            return None
-        if re.search(r"\bnone\b|no experience|fresher|^0 years?$|^0$", t):
-            return (0, 0.01)
-        nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", t)]
-        if re.search(r"less than|under|below|<", t) and len(nums) == 1:
-            return (0, nums[0])
-        if re.search(r"\+|or more|more than|over|above|at least", t) and len(nums) == 1:
-            return (nums[0], 99)
-        if len(nums) >= 2:
-            upper_open = bool(re.search(r"less than|to under|-\s*<|up to but", t))
-            return (nums[0], nums[1] if upper_open else nums[1] + 1)
-        if len(nums) == 1:
-            return (nums[0], nums[0] + 1)
-        return None
-    for i, o in enumerate(options):
-        b = bounds(o)
-        if b and b[0] <= years < b[1]:
-            return i
-    return None
 
 
 SOCIAL_RE = re.compile(r"^\s*(facebook|twitter|x|instagram|threads|tiktok|youtube|github|gitlab|linkedin|website|portfolio|"
