@@ -1013,7 +1013,7 @@ function renderApps() {
 
 async function openApp(id) {
   const a = await api("applications/" + id);
-  const statuses = (state.summary?.statuses || ["shortlisted", "applied", "assessment", "interview", "offer", "rejected", "withdrawn", "ghosted"]).map((s) => `<option ${s === a.status ? "selected" : ""}>${esc(s)}</option>`).join("");
+  const statuses = (state.summary?.statuses || ["shortlisted", "submission_unverified", "applied", "assessment", "interview", "offer", "rejected", "withdrawn", "ghosted"]).map((s) => `<option ${s === a.status ? "selected" : ""}>${esc(s)}</option>`).join("");
   const history = a.events.map((e) => `<li>${esc(e.at.replace("T", " "))} · <b>${esc(e.status)}</b> ${esc(e.note || "")}</li>`).join("");
   openDialog(`<h2>${esc(a.company)} — ${esc(a.title)}</h2>
     <div class="muted">${esc(a.location || "")} ${a.applied_on ? "· applied " + esc(a.applied_on) : ""} · via ${esc(a.source || "?")}</div>
