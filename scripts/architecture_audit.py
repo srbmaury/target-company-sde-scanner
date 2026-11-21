@@ -16,11 +16,11 @@ SOURCE = ROOT / "jobbot"
 EXTENSIONS = {".py", ".js", ".css", ".html"}
 # Legacy modules: reduce these ceilings as responsibilities are extracted.
 MAX_LINES = {
-    "jobbot/ui/static/app.js": 1850,
+    "jobbot/ui/static/app.js": 1650,
     "jobbot/apply/engine.py": 1150,
     "jobbot/answers.py": 925,
     "jobbot/ui/server.py": 925,
-    "jobbot/scan.py": 825,
+    "jobbot/scan.py": 650,
     "jobbot/cli.py": 675,
 }
 DEFAULT_MAX_LINES = 600

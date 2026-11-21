@@ -9,6 +9,16 @@ Jobbot finds software engineering roles across 300+ target companies, ranks them
 | [Local CLI](#local-cli-quick-start) | Scan, rank, track, and fill applications in a browser on your machine | Local profile, PDFs, tracker, and browser session |
 | [Hosted dashboard](#hosted-dashboard) | Run the same workflow from a browser with one private Google account per deployment | Encrypted account data in MongoDB. Chromium runs on the host |
 
+## Scan only
+
+From the repository root, run this with Python 3. No profile, browser, or dependency installation is needed for this mode.
+
+```bash
+python3 scripts/ats_scan.py --all --no-careers-pages
+```
+
+Add `--companies "Stripe,MongoDB,Adobe"` in place of `--all` to try a few boards first. See the [job-finding guide](docs/finding-jobs.md) for experience and location filters.
+
 ## Local CLI quick start
 
 You need **Python 3.11+** and **Git**. Scanning job-board APIs and tracking applications work without Gmail or an LLM.
@@ -75,39 +85,9 @@ See [the application workflow and supported sites](docs/apply.md).
 
 ## Hosted dashboard
 
-Use a **Render Web Service** or **GitHub Codespace**. The dashboard requires a hosted account. Follow the [hosted account guide](docs/accounts.md) for platform setup, storage limits, and secrets.
+Follow the [hosted account guide](docs/accounts.md) to deploy to Render or GitHub Codespaces. You’ll need MongoDB, a Google OAuth web client, and an account encryption key. Use [`.env.example`](.env.example) as the configuration template.
 
-**1. Prepare the host and database.** Install Jobbot's dependencies on the host. Provision MongoDB with TLS and network access for the host. Give the database user write and index permissions on the Jobbot database.
-
-**2. Set up Google sign-in.** Create a Google OAuth **Web application** client. Register `https://YOUR-DASHBOARD-HOST/auth/google/callback` using the exact dashboard URL. Jobbot gets the HTTPS URL from the hosting platform.
-
-**3. Configure the dashboard.** Set the variables below using host settings or the repo's Git-ignored `.env` in Codespaces. Start from [`.env.example`](.env.example).
-
-| Variable | Value |
-| --- | --- |
-| `JOBBOT_MONGODB_URI` | MongoDB connection string |
-| `JOBBOT_MONGODB_DB` | Optional database name. Defaults to `jobbot` |
-| `JOBBOT_DATA_KEY` | Fernet key used to encrypt account data |
-| `JOBBOT_ACCOUNT_EMAIL` | Google email allowed to sign in and connect Gmail |
-| `JOBBOT_GOOGLE_CLIENT_ID` | Web application OAuth client ID |
-| `JOBBOT_GOOGLE_CLIENT_SECRET` | Web application OAuth client secret |
-| `JOBBOT_BIND` | Use `0.0.0.0` behind the host's HTTPS proxy |
-| `PORT` | Host-provided port, or `8765` by default |
-
-Generate the Fernet key once with `.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`. Back it up securely and keep the same key and owner email when redeploying. The proxy must preserve the public Host header.
-
-**4. Start the dashboard.** Install Chromium on the host if you want browser filling, then start the dashboard.
-
-```bash
-.venv/bin/python -m playwright install --with-deps chromium
-./jobbot.sh ui
-```
-
-The launcher loads the repository's `.env` when present, and file assignments take precedence. On deployments configured through host settings, leave the file absent. If startup still reports a MongoDB error, check the connection URI and database user's permissions in the [account guide](docs/accounts.md).
-
-**5. Sign in and set up your profile.** Open the printed HTTPS URL and choose **Continue with Google**. Open **Profile** to enter your details and scan preferences. Save a resume key for each variant, then upload its PDF under that key. Hosted mode reads the uploaded PDFs.
-
-In **Jobs**, try **Dry run** first. **Fill for review** asks for approval to submit. Enable **Auto-apply to selected roles** for verified submissions with a configured model. In **Runs**, choose **Take control** when a live run pauses, then **Return control and recheck** to resume review. You can handle employer sign-in or CAPTCHA on that same page if the site supports the hosted browser. Dry-run previews are read-only. See the [dashboard guide](docs/dashboard.md).
+Once the dashboard is running, sign in with the configured Google account. In **Profile**, add your details, scan preferences, and resume PDFs. In **Jobs**, start with **Dry run** or choose **Fill for review** to approve submissions manually. The [dashboard guide](docs/dashboard.md) covers assisted runs and browser handoff.
 
 ## Optional model setup
 

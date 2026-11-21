@@ -25,7 +25,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from ._scanning import experience, filters, registry as _registry, transport
+from ._scanning import ats_adapters, experience, filters, registry as _registry, transport
 from ._scanning.experience import validate_experience_range as validate_experience_range
 from ._scanning.filters import ENGINEERING, NOT_ENGINEERING
 
@@ -66,29 +66,11 @@ INCOMPLETE = {"_incomplete": True}
 
 
 def greenhouse(entry):
-    d = http_json(f"https://boards-api.greenhouse.io/v1/boards/{entry['id']}/jobs?content=true")
-    for j in d.get("jobs", []):
-        yield {
-            "title": j.get("title", ""),
-            "location": (j.get("location") or {}).get("name", ""),
-            "url": j.get("absolute_url", ""),
-            "text": text_of(j.get("content")),
-            "posted": (j.get("updated_at") or "")[:10],
-        }
+    yield from ats_adapters.greenhouse(entry, http_json=http_json, text_of=text_of)
 
 
 def lever(entry, host="api.lever.co"):
-    d = http_json(f"https://{host}/v0/postings/{entry['id']}?mode=json")
-    for j in d:
-        lists = " ".join(text_of(x.get("content")) for x in j.get("lists", []))
-        yield {
-            "title": j.get("text", ""),
-            "location": (j.get("categories") or {}).get("location", "")
-            or ", ".join((j.get("categories") or {}).get("allLocations", [])),
-            "url": j.get("hostedUrl", ""),
-            "text": (j.get("descriptionPlain") or "") + " " + lists,
-            "posted": "",
-        }
+    yield from ats_adapters.lever(entry, host, http_json=http_json, text_of=text_of)
 
 
 def clean_location(location):
@@ -98,21 +80,7 @@ def clean_location(location):
 
 
 def ashby(entry):
-    d = http_json(f"https://api.ashbyhq.com/posting-api/job-board/{entry['id']}")
-    for j in d.get("jobs", []):
-        locs = [j.get("location") or ""] + [
-            (s.get("location") or "") for s in j.get("secondaryLocations", []) or []
-        ]
-        department = (j.get("department") or "").strip()
-        if department:
-            locs = [re.sub(r"\s+[–—-]\s+" + re.escape(department) + r"$", "", loc, flags=re.I) for loc in locs]
-        yield {
-            "title": j.get("title", ""),
-            "location": "; ".join(x for x in locs if x),
-            "url": j.get("jobUrl", ""),
-            "text": j.get("descriptionPlain", ""),
-            "posted": (j.get("publishedAt") or "")[:10],
-        }
+    yield from ats_adapters.ashby(entry, http_json=http_json)
 
 
 WORKDAY_MAX = 400   # results read per search term (20 per page)

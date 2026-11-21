@@ -61,12 +61,15 @@ class DashboardUITests(unittest.TestCase):
         fixtures = {
             "/api/summary": summary, "/api/workspace": summary, "/api/jobs": [JOB], "/api/tasks": self.tasks,
             "/api/apply": run if self.active else {"status": "idle"}, "/api/apply/answer": {},
-            "/api/runs": [], "/api/applications": [], "/api/logs": {"dates": [], "lines": []},
+            "/api/runs": [], "/api/applications": [],
+            "/api/logs": {"dates": ["2026-11-20"], "date": "2026-11-20",
+                          "lines": ["Scan finished", "Profile updated"]},
             "/api/profile": {"path": "Account profile", "text": "personal: {}", "mtime": "1",
                              **({"resume_keys": ["backend"]} if self.hosted else {})},
             "/api/account/resumes": {"keys": ["backend"], "resumes": [{"key": "backend", "name": "Backend"}]},
             "/api/docs": [{"name": "README", "title": "Docs index"}],
-            "/api/docs/README": {"text": "# Getting started"},
+            "/api/docs/README": {"text": "# Getting started\n\n[Finding jobs](finding-jobs.md#scan)"},
+            "/api/docs/finding-jobs": {"text": "# Finding jobs\n\n## Scan"},
         }
         if path not in fixtures:
             route.fulfill(status=404, json={"error": "Unexpected route"})
@@ -84,6 +87,20 @@ class DashboardUITests(unittest.TestCase):
         self.assertEqual(self.page.evaluate("JobbotHtml.safeHref('javascript:alert(1)')"), '#')
         self.assertEqual(self.page.evaluate("JobbotHtml.esc('<img>')"), '&lt;img&gt;')
         self.assertTrue(self.page.evaluate("typeof JobbotNetwork.api === 'function'"))
+
+    def test_docs_navigation_and_log_filter(self):
+        self.open()
+        self.page.locator("#nav-docs").click()
+        self.page.get_by_role("link", name="Finding jobs").click()
+        expect(self.page.locator("#docs-page h1")).to_have_text("Finding jobs")
+        expect(self.page.locator("#docs-page #scan")).to_have_text("Scan")
+
+        self.page.locator("#nav-logs").click()
+        expect(self.page.locator("#logs")).to_contain_text("Scan finished")
+        expect(self.page.locator("#logs-date")).to_have_value("2026-11-20")
+        self.page.locator("#logs-q").fill("profile")
+        expect(self.page.locator("#logs")).to_have_text("Profile updated")
+        self.assertEqual(self.errors, [])
 
     def test_hosted_pages_and_keyboard_navigation(self):
         self.open()
