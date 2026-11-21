@@ -1202,7 +1202,7 @@ class ValidationPromptTest(unittest.TestCase):
         conn = tracker.connect(Path(tempfile.mkdtemp()) / "t.db")
         prof = Mock(); prof.resumes.return_value = {"r": {}}; prof.get.return_value = 0
         job = {"company": "Acme", "title": "Engineer", "url": "https://acme.example/jobs/1"}
-        for raised, want in (("Submit clicked but confirmation was not detected; check the site.", "applied"),
+        for raised, want in (("Submit clicked but confirmation was not detected; check the site.", "submission_unverified"),
                              ("A Submit-like button was clicked on a page with no application fields; nothing was submitted.",
                               "needs you")):
             session = Mock(); session.apply.side_effect = NeedsYou(raised)
