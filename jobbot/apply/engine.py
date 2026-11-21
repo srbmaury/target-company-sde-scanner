@@ -45,7 +45,7 @@ CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i con
                         r"^i understand\b|^i have (read|reviewed|marked)\b", re.I)
 
 
-from .text_length import fit_length as fit_length, refit_if_cut as refit_if_cut, _trim as _trim
+from .text_length import fit_length as fit_length, refit_if_cut as refit_if_cut
 
 class Session:
     def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True, unattended=False, browser_dir=None, hosted=False):
