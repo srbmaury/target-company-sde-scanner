@@ -11,7 +11,7 @@ Run `python scripts/architecture_audit.py --check` to enforce source-file ceilin
 | File | Finding | Refactor boundary |
 | --- | --- | --- |
 | `jobbot/apply/engine.py` | Session manages navigation, form filling, review, and submission | Extracted `apply/text_length.py`; remaining browser orchestration needs browser-level coverage |
-| `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Extracted `ui/docs_routes.py`, `ui/job_views.py`, `ui/summary.py`, and `ui/tasks.py`; remaining request validation, account/profile services, and route dispatch |
+| `jobbot/ui/server.py` | HTTP transport, account management, profile editing, tasks, and tracking routes coexist | Extracted `ui/docs_routes.py`, `ui/job_views.py`, `ui/summary.py`, `ui/tasks.py`, `ui/job_queries.py`, and `ui/workspace.py`; remaining request validation, account/profile services, and route dispatch |
 | `jobbot/ui/static/app.js` | Networking, state, rendering, and interaction logic share a large global module | Extracted `static/html_utils.js` and `static/network.js`; independent views still need splitting while retaining CSP compatibility |
 | `jobbot/answers.py` | Rule matching, model fallback, caching, and prompting in one resolver | Extracted `answer_options.py` including experience-bucket matching; remaining rule predicates and model integration |
 | `jobbot/scan.py` | ATS adapters, filtering, experience extraction, and CLI orchestration | Extracted `scan_experience.py` and `scan_registry.py`; later group adapters by provider |
@@ -59,3 +59,5 @@ Only the root `README.md` and Markdown pages served by the dashboard (`docs/`) r
 ## Cohesive extraction batch
 
 The dashboard task service now owns subprocess execution, in-memory task state, and concurrency exclusion; the HTTP server delegates to it. The scanner registry module owns registry loading, name resolution, and history URL parsing, while `scan.py` retains compatibility wrappers. Regression tests cover these boundaries. The next larger effort is splitting ATS provider adapters and browser form orchestration, both of which require integration fixtures and compatibility checks.
+
+The dashboard's job filtering, job eligibility, and workspace integration metadata now reside in focused query/service modules. `server.py` retains transport and account/form routes; these remain high-priority decomposition targets. This is an architectural improvement, not a claim that browser-level behavior has been fully revalidated.
