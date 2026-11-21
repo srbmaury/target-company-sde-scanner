@@ -35,10 +35,8 @@ DEFAULT_QUERIES = "software engineer,backend engineer,full stack engineer,develo
 UA = {"User-Agent": "Mozilla/5.0 (target-company-sde-scanner)"}
 
 DEFAULT_LOCATIONS = r"india|bengaluru|bangalore|hyderabad|noida|gurugram|gurgaon|delhi|pune|chennai|mumbai"
-from .scan_filters import (ENGINEERING, NOT_ENGINEERING, SENIOR, ENTRY_LEVEL, MID_LEVEL)
-from .scan_experience import (YEARS as YEARS, experience_bounds as experience_bounds,
-                              stated_experience as stated_experience,
-                              validate_experience_range as validate_experience_range)
+from .scan_filters import ENGINEERING, NOT_ENGINEERING
+from .scan_experience import validate_experience_range as validate_experience_range
 from . import scan_experience, scan_registry, scan_filters
 
 
