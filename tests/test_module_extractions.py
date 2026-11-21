@@ -10,6 +10,9 @@ class ExtractionTests(unittest.TestCase):
     def test_answer_public_api_is_preserved(self):
         self.assertIs(answers.Answer, answer_options.Answer)
         self.assertIs(answers.pick, answer_options.pick)
+        self.assertIs(answers.bucket, answer_options.bucket)
+        self.assertIs(answers.yes_no, answer_options.yes_no)
+        self.assertEqual(answers.bucket(2, ['0-1 years', '2-3 years']), 1)
         self.assertEqual(answers.pick("No", ["Yes", "No"]), 1)
 
     def test_engine_text_length_api_is_preserved(self):
