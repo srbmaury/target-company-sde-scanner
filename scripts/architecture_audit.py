@@ -61,7 +61,7 @@ def readability_findings(tree, path):
 
 
 def audit():
-    rows, violations = [], []
+    rows, violations, advisories = [], [], []
     for path in sorted(SOURCE.rglob("*")):
         if not path.is_file() or path.suffix not in EXTENSIONS:
             continue
@@ -77,21 +77,25 @@ def audit():
             except SyntaxError as exc:
                 violations.append(f"{rel}: syntax error at line {exc.lineno}: {exc.msg}")
                 continue
+            advisories.extend(readability_findings(tree, rel))
             for name in duplicate_definitions(tree):
                 violations.append(f"{rel}: duplicate definition {name}")
-    return rows, violations
+    return rows, violations, advisories
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Fail if guardrails are violated")
     args = parser.parse_args()
-    rows, violations = audit()
+    rows, violations, advisories = audit()
     for path, lines, limit in sorted(rows, key=lambda row: -row[1]):
         print(f"{lines:5d} / {limit:5d}  {path}")
     print(f"\nAudited {len(rows)} source files; {len(violations)} guardrail violations.")
     for issue in violations:
         print(f"  ERROR: {issue}")
+    print(f"\n{len(advisories)} advisory readability findings (non-blocking):")
+    for finding in advisories:
+        print(f"  REVIEW: {finding}")
     return int(bool(args.check and violations))
 
 
