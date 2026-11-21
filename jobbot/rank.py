@@ -12,20 +12,25 @@ def _terms(text):
 
 def keyword_rank(job, resumes, experience_years=None):
     """Fallback ranking without a model: term overlap plus an experience bonus."""
-    jd = _terms(f"{job['title']} {job['description']}")
+    title_terms = _terms(job.get("title", ""))
+    jd = _terms(job.get("description", "")) | title_terms
     best_key, best = None, -1.0
     for key, text in resumes.items():
-        overlap = len(jd & _terms(text)) / max(1, min(len(jd), 120))
+        resume_terms = _terms(text)
+        overlap = (len(jd & resume_terms) + 2 * len(title_terms & resume_terms)) / max(
+            1, min(len(jd), 120) + 2 * len(title_terms))
         if overlap > best:
             best_key, best = key, overlap
     score = max(0, min(100, int(best * 140)))
-    from .scan import YEARS, experience_bounds
+    from .scan_experience import YEARS, experience_bounds
 
     match = YEARS.match(job.get("experience") or "")
     if match and type(experience_years) in (int, float):
         low, high = experience_bounds(match)
         if low <= experience_years <= high:
             score = min(100, score + 10)
+        elif experience_years < low:
+            score = max(0, score - min(35, int((low - experience_years) * 10)))
     shared = sorted(jd & _terms(resumes.get(best_key, "")))[:8] if best_key else []
     return score, best_key, f"keyword overlap: {', '.join(shared)}" if shared else "low keyword overlap"
 

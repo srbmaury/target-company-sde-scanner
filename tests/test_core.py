@@ -526,12 +526,12 @@ class AnswerLogAndCapTest(unittest.TestCase):
     def test_excluded_companies_leave_new_roles(self):
         # Apply skips excluded companies; the page marks them instead of letting you pick them.
         from unittest.mock import patch
-        from jobbot.ui import server
+        from jobbot.ui import job_queries, server
         with tempfile.TemporaryDirectory() as d:
             conn = tracker.connect(os.path.join(d, "t.db"))
             tracker.upsert_jobs(conn, [{"url": u, "company": c, "title": "SDE II", "location": "", "experience": "", "evidence": ""}
                                        for u, c in (("u1", "Amazon"), ("u2", "Socure"))])
-            with patch.object(server, "_excluded_companies", return_value=["amazon"]):
+            with patch.object(job_queries, "_excluded_companies", return_value=["amazon"]):
                 flags = {j["company"]: j["excluded"] for j in server.jobs_payload(conn, {})}
                 self.assertEqual(flags, {"Amazon": True, "Socure": False})
                 self.assertEqual(server._new_jobs(conn), 1)
@@ -1202,7 +1202,7 @@ class ValidationPromptTest(unittest.TestCase):
         conn = tracker.connect(Path(tempfile.mkdtemp()) / "t.db")
         prof = Mock(); prof.resumes.return_value = {"r": {}}; prof.get.return_value = 0
         job = {"company": "Acme", "title": "Engineer", "url": "https://acme.example/jobs/1"}
-        for raised, want in (("Submit clicked but confirmation was not detected; check the site.", "applied"),
+        for raised, want in (("Submit clicked but confirmation was not detected; check the site.", "submission_unverified"),
                              ("A Submit-like button was clicked on a page with no application fields; nothing was submitted.",
                               "needs you")):
             session = Mock(); session.apply.side_effect = NeedsYou(raised)

@@ -116,10 +116,9 @@ def run_jobs(session, conn, profile, targets, ui, resume=None, dry_run=False, co
             status, note = session.apply(job, resume_key)
         except NeedsYou as e:
             if str(e).startswith("Submit clicked but confirmation"):
-                # Every check passed and Submit was clicked: in practice it went through (the confirmation text
-                # was just unfamiliar). Record it, so a retry can never submit the same application twice.
-                ui.warn("Submit clicked; the site showed no confirmation text. Recorded as applied: check your email.")
-                status, note = "applied", "Submit clicked; no confirmation text seen (check your email)"
+                # Preserve the attempt for deduplication without claiming a confirmed submission.
+                ui.warn("Submit clicked but not confirmed. Verify in employer portal/email before retrying.")
+                status, note = "submission_unverified", "Submission unverified: Submit clicked, confirmation not detected; verify before retrying."
             else:
                 ui.warn(f"Needs you, moving on: {str(e)[:200]}")
                 status, note = "needs you", str(e)[:300]

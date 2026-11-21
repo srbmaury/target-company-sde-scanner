@@ -7,7 +7,7 @@ roles in the requested locations, pulls the stated experience requirement from t
 posting body, and prints a Markdown table (or JSON).
 
 This is a discovery pass. Every row is a candidate that must still be opened and
-verified before it is reported as an opening (see SKILL.md).
+verified before it is reported as an opening.
 
 Standard library only. Run it as `python3 scripts/ats_scan.py ...`, or call
 `run_scan()` from Python (jobbot does).
@@ -23,7 +23,6 @@ import re
 import sys
 import threading
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -35,102 +34,29 @@ DEFAULT_QUERIES = "software engineer,backend engineer,full stack engineer,develo
 UA = {"User-Agent": "Mozilla/5.0 (target-company-sde-scanner)"}
 
 DEFAULT_LOCATIONS = r"india|bengaluru|bangalore|hyderabad|noida|gurugram|gurgaon|delhi|pune|chennai|mumbai"
-ENGINEERING = re.compile(
-    r"engineer|developer|\bsde\b|software|programmer|member of technical staff|\bmts\b|computer scientist",
-    re.I,
-)
-NOT_ENGINEERING = re.compile(
-    r"sales|solutions? engineer|customer|support|account|recruit|partner|field|"
-    r"technical program|program manager|product manager|designer|marketing|consultant|"
-    r"\bqa\b|quality|\btest|sdet|verification|asic|silicon|analyst|advocate|writer|security engineer|"
-    r"network engineer|\bnoc\b|it service|\bit engineer|technical publication",
-    re.I,
-)
-SENIOR = re.compile(
-    r"\bsenior\b|\bsr\.?\b|(?<!technical )\bstaff\b|\bprincipal\b|\blead\b|"
-    r"\bmanager\b|\bdirector\b|head of|\barchitect\b|\bdistinguished\b|\bfellow\b",
-    re.I,
-)
-ENTRY_LEVEL = re.compile(r"\bintern(?:ship)?\b|\bapprentice\b|\bnew grad(?:uate)?\b|"
-                         r"\bgraduate\b|\bcampus\b|\btrainee\b", re.I)
-MID_LEVEL = re.compile(r"\bii\b|\b2\b|sde\s*-?\s*2|mid[- ]level|engineer\s*2|\bl[34]\b|\bmts\b", re.I)
-YEARS = re.compile(
-    r"(?<![\d.])(?P<low>\d+(?:\.\d+)?)"
-    r"(?:\s*(?P<open>\+|plus)|\s*(?:-|–|—|to)\s*(?P<high>\d+(?:\.\d+)?)(?P<high_open>\s*\+)?)?"
-    r"\s*(?:years?|yrs?)\b",
-    re.I,
-)
+from .scan_filters import ENGINEERING, NOT_ENGINEERING
+from . import scan_experience, scan_registry, scan_filters, scan_transport
+from .scan_experience import validate_experience_range as validate_experience_range
 
-
-def validate_experience_range(min_yoe, max_yoe):
-    if any(type(value) is not int or value < 0 for value in (min_yoe, max_yoe)) or min_yoe > max_yoe:
-        raise ValueError("Set min_yoe and max_yoe to non-negative whole numbers with min_yoe <= max_yoe.")
-
-
-def experience_bounds(match):
-    low = float(match["low"])
-    if match["open"] or match["high_open"] or not match["high"]:
-        return low, float("inf")
-    return low, float(match["high"])
-
-
-class SiteMaintenance(Exception):
-    """The job board redirected to a maintenance page: the board is down, not empty."""
-
-
-def http_json(url, data=None, timeout=25):
-    body = json.dumps(data).encode() if data is not None else None
-    headers = dict(UA)
-    if body is not None:
-        headers["Content-Type"] = "application/json"
-    for attempt in range(4):
-        req = urllib.request.Request(url, data=body, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if "maintenance" in resp.geturl().lower():   # e.g. Workday redirects every call while it is down
-                    raise SiteMaintenance(resp.geturl())
-                return json.load(resp)
-        except urllib.error.HTTPError as e:
-            # Back off on rate limits and transient server errors; fail fast otherwise.
-            if e.code not in (429, 500, 502, 503, 504) or attempt == 3:
-                raise
-            wait = e.headers.get("Retry-After")
-            time.sleep(float(wait) if wait and wait.isdigit() else 2 ** (attempt + 1))
-
-
-def text_of(markup):
-    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", html.unescape(markup or ""))))
-
-
-REQUIRED_RE = re.compile(r"minimum|at least|required|must have|must possess|requirement|qualifications?:", re.I)
-PREFERRED_RE = re.compile(r"preferred|nice to have|bonus|plus|ideally|desired", re.I)
-
-
-def stated_experience(text):
-    """Return ((min_years, max_years), snippet) for the posting's experience requirement. "5+ years preferred ... 2+ years
-    required" is 2: a stated requirement wins over a preference, and among several the lowest counts."""
-    found = []
-    for m in YEARS.finditer(text or ""):
-        low, high = experience_bounds(m)
-        if high < low:
-            continue
-        # Keep neighboring sentences from lending their qualification markers to this match.
-        left = re.split(r"[.!?;]\s+|\n", text[max(0, m.start() - 60):m.start()])[-1]
-        right = re.split(r"[.!?;](?:\s+|$)|\n", text[m.end():m.end() + 50])[0]
-        context = left + m.group() + right
-        if re.search(r"experience|exp\b|expertise|professional|industry|hands-on|relevant|engineering|building|working|develop", context, re.I):
-            near = left[-40:] + m.group() + right[:40]
-            rank = 0 if REQUIRED_RE.search(near) else (2 if PREFERRED_RE.search(near) else 1)
-            found.append((rank, low, high, context.strip()))
-    if not found:
-        return None, ""
-    _, low, high, context = min(found)
-    return (low, high), context
+# Public scanner API retained for existing callers and architecture tests.
+YEARS = scan_experience.YEARS
+experience_bounds = scan_experience.experience_bounds
+stated_experience = scan_experience.stated_experience
 
 
 def stated_years(text):
-    bounds, snippet = stated_experience(text)
-    return (bounds[0] if bounds else None), snippet
+    return scan_experience.stated_years(text)
+
+
+SiteMaintenance = scan_transport.SiteMaintenance
+
+
+def http_json(url, data=None, timeout=25):
+    return scan_transport.http_json(url, data, timeout)
+
+
+def text_of(markup):
+    return scan_transport.text_of(markup)
 
 
 # --- Adapters: each yields dicts with title, location, url, text, posted ---------
@@ -596,51 +522,19 @@ def fetch(name, entry, queries, location_re):
 
 
 def classify(job, location_re, max_yoe, min_yoe=DEFAULT_MIN_YOE):
-    title, loc = job["title"] or "", job["location"] or ""
-    if not ENGINEERING.search(title) or NOT_ENGINEERING.search(title) or not location_re.search(loc):
-        return None
-    if (max_yoe <= DEFAULT_MAX_YOE and SENIOR.search(title)) or (min_yoe > 0 and ENTRY_LEVEL.search(title)):
-        return None
-    in_title = YEARS.search(title)
-    if in_title:
-        bounds, snippet, source = experience_bounds(in_title), title, "in title"
-    else:
-        bounds, snippet = stated_experience(job.get("text"))
-        source = "stated"
-    if bounds:
-        low, high = bounds
-        if high < low or low > max_yoe or high < min_yoe:
-            return None
-        years = f"{low:g}+" if high == float("inf") else f"{low:g}–{high:g}"
-        return f"{years} yrs {source}", snippet
-    if MID_LEVEL.search(title) and min_yoe <= DEFAULT_MAX_YOE and max_yoe >= DEFAULT_MIN_YOE:
-        return "implied by title", ""
-    return "not stated", ""
+    return scan_filters.classify(job, location_re, max_yoe, min_yoe)
 
 
 def load_history(path):
-    if not path or not os.path.exists(path):
-        return set()
-    return set(re.findall(r"https?://[^\s|)>\]]+", open(path, encoding="utf-8").read()))
+    return scan_registry.load_history(path)
 
 
 def load_registry():
-    with open(REGISTRY, encoding="utf-8") as fh:
-        return json.load(fh)["companies"]
+    return scan_registry.load_registry()
 
 
 def resolve_names(registry, companies=None):
-    """Map user-supplied names to registry keys. Returns (names, missing)."""
-    if not companies:
-        return list(registry), []
-    lookup = {k.lower(): k for k in registry}
-    names, missing = [], []
-    for raw in companies:
-        if not raw.strip():
-            continue
-        key = lookup.get(raw.strip().lower())
-        (names.append(key) if key else missing.append(raw.strip()))
-    return names, missing
+    return scan_registry.resolve_names(registry, companies)
 
 
 def run_scan(companies=None, exclude=(), locations=DEFAULT_LOCATIONS, max_yoe=DEFAULT_MAX_YOE, include_unstated=False,

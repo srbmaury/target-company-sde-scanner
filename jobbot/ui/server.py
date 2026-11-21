@@ -11,7 +11,6 @@ page polls their output.
 
 import base64
 import binascii
-import datetime as dt
 import errno
 import json
 import logging
@@ -20,9 +19,6 @@ import os
 import re
 import secrets
 import shutil
-import subprocess
-import sys
-import threading
 import time
 import urllib.parse
 from http.cookies import CookieError, SimpleCookie
@@ -33,22 +29,12 @@ import yaml
 
 from .. import accounts, gmail, paths, profile as profile_mod, tracker
 from pymongo.errors import PyMongoError
-from . import bridge
+from . import bridge, job_queries, logs, summary as summary_metrics, tasks as task_service, workspace
 
 LOGGER = logging.getLogger(__name__)
 
 STATIC = Path(__file__).resolve().parent / "static"
-TASKS = {}            # id -> {"cmd", "status", "lines", "started", "ended"}
-TASK_LOCK = threading.Lock()
-ALLOWED_TASKS = {     # name -> commands run one after another; a failure stops the rest
-    "scan": [["scan", "--show-all"]],
-    "rank": [["rank"]],
-    "refresh": [["track", "sync-gmail", "--if-connected"], ["scan"], ["rank"]],
-    "resumes": [["resumes"]],
-    "sync-gmail": [["track", "sync-gmail"]],
-    "gmail-login": [["gmail", "login"]],
-}
-JOB_TASKS = {"scan", "rank", "refresh"}   # these write the jobs table, so only one runs at a time
+TASKS = task_service.TASKS
 
 
 # --- data helpers ---------------------------------------------------------------
@@ -58,196 +44,36 @@ def _row(r):
 
 
 def _excluded_companies():
-    """preferences.exclude_companies, so the page can show which roles apply will skip."""
-    try:
-        return list(profile_mod.load().get("preferences.exclude_companies") or [])
-    except Exception:   # missing or invalid profile: nothing is excluded
-        return []
+    return job_queries._excluded_companies()
 
 
 def jobs_payload(conn, params):
-    from ..apply.runner import excluded
-    exclude = _excluded_companies()
-    include_applied = params.get("include_applied") == "1"
-    include_dismissed = params.get("include_dismissed") == "1"
-    rows = tracker.list_jobs(conn, include_applied=True, include_dismissed=include_dismissed, include_gone=True)
-    match = tracker.job_matcher(conn)
-    q = (params.get("q") or "").lower()
-    min_fit = int(params["min_fit"]) if params.get("min_fit", "").isdigit() else None
-    out = []
-    for r in rows:
-        if q and q not in f"{r['company']} {r['title']} {r['location']} {r['ats'] or ''}".lower():
-            continue
-        if min_fit is not None and (r["fit_score"] or 0) < min_fit:
-            continue
-        level, app = match(r)
-        if level in ("exact", "likely") and not include_applied:
-            continue
-        item = {k: r[k] for k in ("n", "url", "company", "title", "location", "ats", "experience", "evidence",
-                                  "posted", "first_seen", "fit_score", "fit_resume", "fit_reason", "dismissed",
-                                  "not_duplicate")}
-        item["applied"] = level
-        item["excluded"] = excluded(r["company"], exclude)
-        item["gone"] = bool(r["gone"])
-        item["applied_note"] = (f"#{app['id']} {app['title']} ({app['status']}, {app['applied_on'] or 'date unknown'})"
-                                if app else "")
-        out.append(item)
-    return out
+    return job_queries.jobs_payload(conn, params)
 
 
-def table_page(rows, params, columns, default_sort):
-    """Bound the response after sorting the full filtered result."""
-    column = params.get("sort", default_sort)
-    if column not in columns:
-        raise ValueError("Invalid sort column.")
-    descending = params.get("direction", "desc") == "desc"
-    def sort_key(row):
-        value = row[column]
-        return (value is not None, value or 0) if column in ("n", "id", "fit_score") else str(value or "").casefold()
-    rows.sort(key=sort_key, reverse=descending)
-    offset = max(0, int(params.get("offset", "0")))
-    end = offset + 50
-    return {"rows": rows[offset:end], "total": len(rows),
-            "next_offset": end if end < len(rows) else None}
-
-
-def jobs_page(rows, params):
-    def view(job):
-        if job["dismissed"]:
-            return "dismissed"
-        if job["applied"] in ("exact", "likely"):
-            return "applied"
-        if job["excluded"] and not job["gone"]:
-            return "excluded"
-        if job["applied"] == "possible":
-            return "possible" if not job["gone"] else None
-        return "gone" if job["gone"] else "new"
-
-    counts = {"all": len(rows)}
-    selected = params["view"]
-    matching = []
-    for job in rows:
-        bucket = view(job)
-        if bucket:
-            counts[bucket] = counts.get(bucket, 0) + 1
-        if selected == "all" or selected == bucket:
-            matching.append(job)
-    return {**table_page(matching, params, {"n", "fit_score", "company", "title", "location", "experience"},
-                         "fit_score"), "counts": counts}
-
+from .job_views import jobs_page as jobs_page, table_page as table_page
 
 def _new_jobs(conn):
-    """Roles you can apply to: not dismissed, not applied, not possibly applied, not at an excluded company."""
-    from ..apply.runner import excluded
-    match, exclude = tracker.job_matcher(conn), _excluded_companies()
-    return sum(1 for r in tracker.list_jobs(conn, include_applied=True)
-               if not excluded(r["company"], exclude) and match(r)[0] is None)
+    return job_queries._new_jobs(conn)
 
 
 def summary_payload(conn):
-    stats = tracker.stats(conn)
-    total = sum(stats.values())
-    responded = sum(stats.get(k, 0) for k in ("assessment", "interview", "offer", "rejected"))
-    return {
-        "applications": stats, "total": total,
-        "response_rate": round(100 * responded / total) if total else 0,
-        "interview_rate": round(100 * (stats.get("interview", 0) + stats.get("offer", 0)) / total) if total else 0,
-        "open_jobs": _new_jobs(conn),
-    }
-
+    """Application metrics with the current eligible-job count."""
+    return summary_metrics.summary_payload(conn, open_jobs=_new_jobs(conn))
 
 def workspace_payload(account):
-    from .. import llm
-
-    try:
-        connected = account.get_json("gmail") is not None if account else gmail.is_connected()
-    except (PyMongoError, accounts.AccountError, ValueError):
-        connected = None
-    return {
-        "gmail": connected,
-        "account": account is not None,
-        "employer_password_configured": bool(os.getenv("JOBBOT_EMPLOYER_PASSWORD")),
-        "llm_provider": llm.DEFAULT_PROVIDER,
-        "llm_model": llm.OPENAI_MODEL if llm.DEFAULT_PROVIDER == "openai" else llm.DEFAULT_MODEL,
-        "llm_available": llm.LLM.available(),
-        "profile": str(paths.PROFILE),
-        "statuses": list(tracker.STATUSES),
-    }
+    return workspace.workspace_payload(account)
 
 
-DOCS = paths.REPO / "docs"
-
-
-def docs_index():
-    """Pages in docs/, in the order the docs index lists them."""
-    order = re.findall(r"\]\(([\w-]+)\.md\)", (DOCS / "README.md").read_text(encoding="utf-8")) if (DOCS / "README.md").exists() else []
-    names = order + sorted(p.stem for p in DOCS.glob("*.md") if p.stem not in order and p.stem != "README")
-    pages = []
-    for name in ["README"] + names:
-        f = DOCS / f"{name}.md"
-        if f.exists():
-            title = re.search(r"^# (.+)$", f.read_text(encoding="utf-8"), re.M)
-            text = title.group(1).replace("`", "") if title else name
-            pages.append({"name": name, "title": "Overview" if name == "README" else text})
-    return pages
-
-
-def doc_page(name):
-    """One docs page's Markdown. Only plain names of files directly in docs/ (no paths)."""
-    if not re.fullmatch(r"[\w-]{1,40}", name or ""):
-        return None
-    f = (DOCS / f"{name}.md").resolve()
-    if f.parent != DOCS.resolve() or not f.is_file():
-        return None
-    return {"name": name, "text": f.read_text(encoding="utf-8")}
-
+from .docs_routes import docs_index as docs_index, doc_page as doc_page
 
 def log_dates():
-    logdir = paths.HOME / "logs"
-    if not logdir.exists():
-        return []
-    return sorted((p.stem for p in logdir.glob("*.log")), reverse=True)
+    return logs.log_dates()
 
 
 def start_task(name):
-    if name not in ALLOWED_TASKS:
-        raise ValueError("unknown task")
-    with TASK_LOCK:
-        for t in TASKS.values():
-            if t["status"] == "running" and (t["name"] == name or {t["name"], name} <= JOB_TASKS
-                                             or {t["name"], name} == {"refresh", "sync-gmail"}):
-                raise ValueError(f"{t['name']} is already running")
-        task_id = secrets.token_hex(4)
-        TASKS[task_id] = {"id": task_id, "activity": {}, "name": name, "status": "running", "lines": [],
-                          "step": None, "started": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "ended": None}
-
-    def run():
-        task = TASKS[task_id]
-        try:
-            for args in ALLOWED_TASKS[name]:
-                task["step"] = args[0]
-                task["lines"].append(f"$ jobbot {' '.join(args)}")
-                proc = subprocess.Popen([sys.executable, "-m", "jobbot", *args], cwd=paths.REPO,
-                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                        text=True, bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1", "JOBBOT_ACTIVITY": "1"})
-                for line in proc.stdout:
-                    if line.startswith("JOBBOT_ACTIVITY "):
-                        task["activity"] = {**task["activity"], args[0]: json.loads(line.removeprefix("JOBBOT_ACTIVITY "))}
-                        continue
-                    task["lines"].append(line.rstrip("\n"))
-                    del task["lines"][:-500]
-                if proc.wait() != 0:
-                    task["status"] = "failed"
-                    break
-            else:
-                task["status"] = "done"
-        except Exception as e:  # report instead of dying silently
-            task["lines"].append(f"error: {e}")
-            task["status"] = "failed"
-        task["ended"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-
-    threading.Thread(target=run, daemon=True).start()
-    return TASKS[task_id]
+    """Start an allowed background command; retain the dashboard API."""
+    return task_service.start_task(name)
 
 
 # --- HTTP -------------------------------------------------------------------------

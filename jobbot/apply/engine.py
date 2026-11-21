@@ -25,57 +25,12 @@ REVIEW_BATCH = review.REVIEW_BATCH
 from .unattended import NeedsYou, UnattendedUI
 from .verify import HEAR_MINE_RE, HEAR_OPTION_RE, READBACK_JS, check_page, matches, record_matches
 
-MAX_ROUNDS = 5           # review rounds per page before asking you
-TRUSTED = ("profile", "rule", "remembered")   # sources allowed to overwrite a value the site pre-filled
-
-MAX_PAGES = 15
-MAX_ATTEMPTS = 3           # unattended: tries at the same page before moving on to the next application
-MAX_APPLY_SECONDS = 600    # unattended: time limit for one application
-
-SUBMIT_RE = r"^(submit( (my )?application)?|send application|apply|finish|complete application)$"
-WORKDAY_SUBMIT_RE = r"^submit$"   # Workday keeps "Apply" buttons around; only Review has "Submit"
-APPLY_RE = r"^(apply( now| online| here)?|apply (for|to) (this|the) (job|position|role)|start (your )?application|i.?m interested|submit (your )?(resume|cv))$"
-NEXT_RE = r"^(next|continue|save and continue|save & continue|proceed)$"
-CONFIRM_RE = re.compile(
-    r"thank(s| you) for (applying|your (application|interest))|application (has been |was )?(submitted|received)|"
-    r"successfully (submitted|applied)|we.ve received your application", re.I)
-# Honeypot fields exist to catch bots; filling one gets the application flagged.
-TRAP_RE = re.compile(r"robots? only|for robots|do not (fill|enter)|leave (this )?(field )?(blank|empty)|honeypot", re.I)
-CONSENT_RE = re.compile(r"consent|privacy|acknowledge|agree|terms|certify|^i confirm|confirm the statement|declare|"
-                        r"^i understand\b|^i have (read|reviewed|marked)\b", re.I)
+from .policy import (
+    MAX_ROUNDS, TRUSTED, MAX_PAGES, MAX_ATTEMPTS, MAX_APPLY_SECONDS, SUBMIT_RE, WORKDAY_SUBMIT_RE, APPLY_RE, NEXT_RE, CONFIRM_RE, TRAP_RE, CONSENT_RE
+)
 
 
-def fit_length(value, loc):
-    """Shorten text to the field's maxlength at a sentence end (else a word end), so the site does not
-    cut it mid-word and the read-back still matches."""
-    try:
-        limit = int(loc.evaluate("el => el.maxLength") or -1)
-    except Exception:
-        return value
-    if limit <= 0 or len(value) <= limit:
-        return value
-    return _trim(value, limit)
-
-
-def refit_if_cut(value, loc):
-    """A site that caps length by script (no maxlength) keeps only the start of the text: retype it
-    shortened to that length at a sentence end, so it reads complete and the read-back matches."""
-    try:
-        kept = loc.input_value()
-    except Exception:
-        return value
-    if len(value) > 40 and 20 < len(kept) < len(value) and value.startswith(kept):
-        short = _trim(value, len(kept))
-        loc.fill(short)
-        return short
-    return value
-
-
-def _trim(value, limit):
-    cut = value[:limit]
-    end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "), cut.rfind(".") if cut.endswith(".") else -1)
-    return cut[:end + 1].strip() if end >= limit // 3 else cut.rsplit(" ", 1)[0].rstrip(",;:- ")
-
+from .text_length import fit_length as fit_length, refit_if_cut as refit_if_cut
 
 class Session:
     def __init__(self, profile, llm, ui, dry_run=False, upload=True, auto_next=True, unattended=False, browser_dir=None, hosted=False):
