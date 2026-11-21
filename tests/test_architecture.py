@@ -13,7 +13,7 @@ class ArchitectureAuditTests(unittest.TestCase):
 
     def test_readability_advisories_are_nonblocking(self):
         from scripts.architecture_audit import readability_findings
-        tree = ast.parse("def BadName():\\n    pass")
+        tree = ast.parse("def BadName():\n    pass")
         self.assertTrue(any("unconventional" in item for item in readability_findings(tree, "sample.py")))
 
     def test_unrelated_methods_are_not_reported(self):
