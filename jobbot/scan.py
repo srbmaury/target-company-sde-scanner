@@ -18,7 +18,6 @@ import concurrent.futures as cf
 import datetime as dt
 import html
 import json
-import os
 import re
 import sys
 import threading
@@ -26,37 +25,37 @@ import time
 import urllib.parse
 import urllib.request
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-REGISTRY = os.path.join(HERE, "..", "references", "ats-registry.json")
+from ._scanning import ats_adapters, experience, filters, registry as _registry, transport
+from ._scanning.experience import validate_experience_range as validate_experience_range
+from ._scanning.filters import ENGINEERING, NOT_ENGINEERING
+
+REGISTRY = _registry.REGISTRY
 DEFAULT_MIN_YOE = 1
 DEFAULT_MAX_YOE = 3
 DEFAULT_QUERIES = "software engineer,backend engineer,full stack engineer,developer"
 UA = {"User-Agent": "Mozilla/5.0 (target-company-sde-scanner)"}
 
 DEFAULT_LOCATIONS = r"india|bengaluru|bangalore|hyderabad|noida|gurugram|gurgaon|delhi|pune|chennai|mumbai"
-from .scan_filters import ENGINEERING, NOT_ENGINEERING
-from . import scan_experience, scan_registry, scan_filters, scan_transport
-from .scan_experience import validate_experience_range as validate_experience_range
 
 # Public scanner API retained for existing callers and architecture tests.
-YEARS = scan_experience.YEARS
-experience_bounds = scan_experience.experience_bounds
-stated_experience = scan_experience.stated_experience
+YEARS = experience.YEARS
+experience_bounds = experience.experience_bounds
+stated_experience = experience.stated_experience
 
 
 def stated_years(text):
-    return scan_experience.stated_years(text)
+    return experience.stated_years(text)
 
 
-SiteMaintenance = scan_transport.SiteMaintenance
+SiteMaintenance = transport.SiteMaintenance
 
 
 def http_json(url, data=None, timeout=25):
-    return scan_transport.http_json(url, data, timeout)
+    return transport.http_json(url, data, timeout)
 
 
 def text_of(markup):
-    return scan_transport.text_of(markup)
+    return transport.text_of(markup)
 
 
 # --- Adapters: each yields dicts with title, location, url, text, posted ---------
@@ -67,29 +66,11 @@ INCOMPLETE = {"_incomplete": True}
 
 
 def greenhouse(entry):
-    d = http_json(f"https://boards-api.greenhouse.io/v1/boards/{entry['id']}/jobs?content=true")
-    for j in d.get("jobs", []):
-        yield {
-            "title": j.get("title", ""),
-            "location": (j.get("location") or {}).get("name", ""),
-            "url": j.get("absolute_url", ""),
-            "text": text_of(j.get("content")),
-            "posted": (j.get("updated_at") or "")[:10],
-        }
+    yield from ats_adapters.greenhouse(entry, http_json=http_json, text_of=text_of)
 
 
 def lever(entry, host="api.lever.co"):
-    d = http_json(f"https://{host}/v0/postings/{entry['id']}?mode=json")
-    for j in d:
-        lists = " ".join(text_of(x.get("content")) for x in j.get("lists", []))
-        yield {
-            "title": j.get("text", ""),
-            "location": (j.get("categories") or {}).get("location", "")
-            or ", ".join((j.get("categories") or {}).get("allLocations", [])),
-            "url": j.get("hostedUrl", ""),
-            "text": (j.get("descriptionPlain") or "") + " " + lists,
-            "posted": "",
-        }
+    yield from ats_adapters.lever(entry, host, http_json=http_json, text_of=text_of)
 
 
 def clean_location(location):
@@ -99,21 +80,7 @@ def clean_location(location):
 
 
 def ashby(entry):
-    d = http_json(f"https://api.ashbyhq.com/posting-api/job-board/{entry['id']}")
-    for j in d.get("jobs", []):
-        locs = [j.get("location") or ""] + [
-            (s.get("location") or "") for s in j.get("secondaryLocations", []) or []
-        ]
-        department = (j.get("department") or "").strip()
-        if department:
-            locs = [re.sub(r"\s+[–—-]\s+" + re.escape(department) + r"$", "", loc, flags=re.I) for loc in locs]
-        yield {
-            "title": j.get("title", ""),
-            "location": "; ".join(x for x in locs if x),
-            "url": j.get("jobUrl", ""),
-            "text": j.get("descriptionPlain", ""),
-            "posted": (j.get("publishedAt") or "")[:10],
-        }
+    yield from ats_adapters.ashby(entry, http_json=http_json)
 
 
 WORKDAY_MAX = 400   # results read per search term (20 per page)
@@ -522,19 +489,19 @@ def fetch(name, entry, queries, location_re):
 
 
 def classify(job, location_re, max_yoe, min_yoe=DEFAULT_MIN_YOE):
-    return scan_filters.classify(job, location_re, max_yoe, min_yoe)
+    return filters.classify(job, location_re, max_yoe, min_yoe)
 
 
 def load_history(path):
-    return scan_registry.load_history(path)
+    return _registry.load_history(path)
 
 
 def load_registry():
-    return scan_registry.load_registry()
+    return _registry.load_registry()
 
 
 def resolve_names(registry, companies=None):
-    return scan_registry.resolve_names(registry, companies)
+    return _registry.resolve_names(registry, companies)
 
 
 def run_scan(companies=None, exclude=(), locations=DEFAULT_LOCATIONS, max_yoe=DEFAULT_MAX_YOE, include_unstated=False,

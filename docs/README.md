@@ -8,7 +8,5 @@
 | [Hosted accounts](accounts.md) | Private Google sign-in, MongoDB storage, and Gmail |
 | [Your profile](profile.md) | Every section of `profile.yaml`, learned answers, your own rules |
 | [Tracking applications](tracking.md) | The tracker, duplicate detection, Gmail sync setup |
-| [Command reference](commands.md) | Every command and option; running only the scanner |
 | [Privacy and safety](privacy.md) | What stays local, what jobbot never does |
 | [Troubleshooting](troubleshooting.md) | Common problems and fixes |
-| [AI-assistant skill](skill.md) | Using the repo as a Codex or Claude Code skill |

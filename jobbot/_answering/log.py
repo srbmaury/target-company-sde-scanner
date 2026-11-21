@@ -8,7 +8,7 @@ same question gets your answer from then on).
 import datetime as dt
 import json
 
-from . import paths
+from .. import paths
 
 
 def _path():

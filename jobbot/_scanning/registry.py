@@ -3,8 +3,9 @@
 import json
 import os
 import re
+from pathlib import Path
 
-REGISTRY = os.path.join(os.path.dirname(__file__), "..", "references", "ats-registry.json")
+REGISTRY = str(Path(__file__).resolve().parents[2] / "references" / "ats-registry.json")
 
 def load_history(path):
     if not path or not os.path.exists(path):
