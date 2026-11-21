@@ -35,13 +35,13 @@ UA = {"User-Agent": "Mozilla/5.0 (target-company-sde-scanner)"}
 
 DEFAULT_LOCATIONS = r"india|bengaluru|bangalore|hyderabad|noida|gurugram|gurgaon|delhi|pune|chennai|mumbai"
 from .scan_filters import ENGINEERING, NOT_ENGINEERING
+from . import scan_experience, scan_registry, scan_filters, scan_transport
 from .scan_experience import validate_experience_range as validate_experience_range
 
 # Public scanner API retained for existing callers and architecture tests.
 YEARS = scan_experience.YEARS
 experience_bounds = scan_experience.experience_bounds
 stated_experience = scan_experience.stated_experience
-from . import scan_experience, scan_registry, scan_filters, scan_transport
 
 
 def stated_years(text):
