@@ -18,7 +18,6 @@ EXTENSIONS = {".py", ".js", ".css", ".html"}
 MAX_LINES = {
     "jobbot/ui/static/app.js": 1650,
     "jobbot/apply/engine.py": 1150,
-    "jobbot/answers.py": 925,
     "jobbot/ui/server.py": 925,
     "jobbot/scan.py": 650,
     "jobbot/cli.py": 675,
