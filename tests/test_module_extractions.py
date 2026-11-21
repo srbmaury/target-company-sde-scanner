@@ -1,7 +1,7 @@
 """Regression checks for extracted pure helpers and public compatibility imports."""
 import unittest
 
-from jobbot import answer_options, answers
+from jobbot import answer_options, answers, cli, cli_format
 from jobbot.apply import engine, text_length
 from jobbot.ui import docs_routes, job_views, server
 
@@ -19,6 +19,12 @@ class ExtractionTests(unittest.TestCase):
         self.assertIs(engine.fit_length, text_length.fit_length)
         self.assertIs(engine.refit_if_cut, text_length.refit_if_cut)
         self.assertEqual(text_length._trim("hello world goodbye", 11), "hello")
+
+    def test_cli_formatting_api_is_preserved(self):
+        self.assertIs(cli.expand_job_keys, cli_format.expand_job_keys)
+        self.assertEqual(cli.expand_job_keys(['3-1', '7,9', 'https://example.org/a,b']),
+                         ['1', '2', '3', '7', '9', 'https://example.org/a,b'])
+        self.assertIs(cli._short, cli_format._short)
 
     def test_dashboard_view_api_is_preserved(self):
         self.assertIs(server.jobs_page, job_views.jobs_page)
