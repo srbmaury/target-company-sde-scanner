@@ -23,7 +23,15 @@ import textwrap
 from . import llm as llm_mod
 from . import paths, profile as profile_mod, tracker
 from .scan import DEFAULT_LOCATIONS, run_scan
-from .cli_format import expand_job_keys as expand_job_keys, _short as _short
+from . import cli_format
+
+
+def expand_job_keys(keys):
+    """Expand CLI job selectors; retained for existing integrations."""
+    return cli_format.expand_job_keys(keys)
+
+
+_short = cli_format._short
 
 
 def _profile():
