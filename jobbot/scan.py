@@ -57,6 +57,12 @@ MID_LEVEL = re.compile(r"\bii\b|\b2\b|sde\s*-?\s*2|mid[- ]level|engineer\s*2|\bl
 from .scan_experience import (YEARS as YEARS, experience_bounds as experience_bounds,
                               stated_experience as stated_experience,
                               validate_experience_range as validate_experience_range)
+from . import scan_experience
+
+
+def stated_years(text):
+    return scan_experience.stated_years(text)
+
 
 class SiteMaintenance(Exception):
     """The job board redirected to a maintenance page: the board is down, not empty."""
