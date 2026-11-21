@@ -4,13 +4,7 @@
 const TOKEN = document.querySelector('meta[name="jobbot-token"]').content;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const safeHref = (value) => {
-  try {
-    const url = new URL(String(value), location.origin);
-    return ["http:", "https:"].includes(url.protocol) ? esc(url.href) : "#";
-  } catch { return "#"; }
-};
+const { esc, safeHref } = window.JobbotHtml;
 const state = { manuallyApplied: new Set(), selected: new Set(), run: null, runPoll: null, tab: "jobs", jobs: [], apps: [], summary: null, jobSort: ["fit_score", -1], appSort: ["applied_on", -1], polling: null };
 
 async function api(path, body) {
