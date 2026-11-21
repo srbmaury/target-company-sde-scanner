@@ -7,7 +7,7 @@ roles in the requested locations, pulls the stated experience requirement from t
 posting body, and prints a Markdown table (or JSON).
 
 This is a discovery pass. Every row is a candidate that must still be opened and
-verified before it is reported as an opening (see SKILL.md).
+verified before it is reported as an opening.
 
 Standard library only. Run it as `python3 scripts/ats_scan.py ...`, or call
 `run_scan()` from Python (jobbot does).
