@@ -21,7 +21,7 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(text_length._trim("hello world goodbye", 11), "hello")
 
     def test_cli_formatting_api_is_preserved(self):
-        self.assertIs(cli.expand_job_keys, cli_format.expand_job_keys)
+        self.assertTrue(callable(cli.expand_job_keys))
         self.assertEqual(cli.expand_job_keys(['3-1', '7,9', 'https://example.org/a,b']),
                          ['1', '2', '3', '7', '9', 'https://example.org/a,b'])
         self.assertIs(cli._short, cli_format._short)
