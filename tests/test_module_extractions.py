@@ -1,8 +1,9 @@
 """Regression checks for extracted pure helpers and public compatibility imports."""
+import re
 import unittest
 from unittest.mock import patch
 
-from jobbot import answer_options, answers, cli, cli_format, scan, scan_registry
+from jobbot import answer_options, answers, cli, cli_format, scan, scan_filters, scan_registry
 from jobbot.apply import engine, text_length
 from jobbot.ui import docs_routes, job_queries, job_views, server, summary, tasks, workspace
 
@@ -35,6 +36,13 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(payload["response_rate"], 33)
         self.assertEqual(payload["interview_rate"], 33)
         self.assertEqual(payload["open_jobs"], 7)
+
+    def test_scanner_classification_filter(self):
+        india = re.compile("India", re.I)
+        role = {"title": "Software Engineer", "location": "India", "text": "2 years experience"}
+        self.assertEqual(scan.classify(role, india, 3), scan_filters.classify(role, india, 3))
+        self.assertIsNone(scan_filters.classify({**role, "title": "Sales Engineer"}, india, 3))
+        self.assertIsNone(scan_filters.classify({**role, "location": "Canada"}, india, 3))
 
     def test_scanner_registry_helpers_preserve_public_behavior(self):
         registry = {"Acme": {}, "Example": {}}
