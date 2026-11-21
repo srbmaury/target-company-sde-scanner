@@ -37,41 +37,22 @@ UA = {"User-Agent": "Mozilla/5.0 (target-company-sde-scanner)"}
 DEFAULT_LOCATIONS = r"india|bengaluru|bangalore|hyderabad|noida|gurugram|gurgaon|delhi|pune|chennai|mumbai"
 from .scan_filters import ENGINEERING, NOT_ENGINEERING
 from .scan_experience import validate_experience_range as validate_experience_range
-from . import scan_experience, scan_registry, scan_filters
+from . import scan_experience, scan_registry, scan_filters, scan_transport
 
 
 def stated_years(text):
     return scan_experience.stated_years(text)
 
 
-class SiteMaintenance(Exception):
-    """The job board redirected to a maintenance page: the board is down, not empty."""
+from .scan_transport import SiteMaintenance as SiteMaintenance
 
 
 def http_json(url, data=None, timeout=25):
-    body = json.dumps(data).encode() if data is not None else None
-    headers = dict(UA)
-    if body is not None:
-        headers["Content-Type"] = "application/json"
-    for attempt in range(4):
-        req = urllib.request.Request(url, data=body, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if "maintenance" in resp.geturl().lower():   # e.g. Workday redirects every call while it is down
-                    raise SiteMaintenance(resp.geturl())
-                return json.load(resp)
-        except urllib.error.HTTPError as e:
-            # Back off on rate limits and transient server errors; fail fast otherwise.
-            if e.code not in (429, 500, 502, 503, 504) or attempt == 3:
-                raise
-            wait = e.headers.get("Retry-After")
-            time.sleep(min(30, int(wait)) if wait and wait.isdigit() else 2 ** (attempt + 1))
+    return scan_transport.http_json(url, data, timeout)
 
 
 def text_of(markup):
-    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", html.unescape(markup or ""))))
-
-
+    return scan_transport.text_of(markup)
 
 
 # --- Adapters: each yields dicts with title, location, url, text, posted ---------
