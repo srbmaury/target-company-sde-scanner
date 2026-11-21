@@ -17,8 +17,8 @@ import re
 from . import answerlog
 from .tracker import same_company
 
-from .answer_options import (Answer as Answer, DECLINE as DECLINE, PLACEHOLDER as PLACEHOLDER,
-                             norm as norm, pick as pick, real_options as real_options)
+from .answer_options import (Answer as Answer, norm as norm, pick as pick,
+                             real_options as real_options)
 
 HEAR_RE = re.compile(r"how did you (hear|learn|find|come across)|where did you (hear|find|learn)|source of (application|referral)|"
                      r"how (did you|were you) (referred|introduced)", re.I)
