@@ -39,3 +39,7 @@ The Python CI linter catches unused imports and undefined names. During these ex
 ## Readability and naming inventory
 
 The audit now emits **non-blocking** findings for functions longer than 100 lines and unconventional Python function names. These are review prompts rather than automatic defects: public API naming, overrides, generated code, and framework hooks can justify exceptions. Duplicate definitions and file-size ceilings remain blocking. Reassess the long-function threshold after reducing legacy modules; do not split a cohesive algorithm merely to satisfy a metric.
+
+## Regression found during extraction
+
+The first frontend helper extraction placed top-level `const` bindings in two classic scripts, preventing dashboard initialization. The helper is now wrapped in an IIFE so only the explicit `window.JobbotHtml` API is exported. A browser regression test verifies startup, HTML escaping, and rejection of `javascript:` links. An architecture test also had an incorrectly escaped newline and has been corrected. These illustrate why browser coverage is required for module boundaries.
