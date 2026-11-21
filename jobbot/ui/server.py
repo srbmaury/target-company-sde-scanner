@@ -29,7 +29,7 @@ import yaml
 
 from .. import accounts, gmail, paths, profile as profile_mod, tracker
 from pymongo.errors import PyMongoError
-from . import bridge, job_queries, summary as summary_metrics, tasks as task_service
+from . import bridge, job_queries, summary as summary_metrics, tasks as task_service, workspace
 
 LOGGER = logging.getLogger(__name__)
 
@@ -62,22 +62,7 @@ def summary_payload(conn):
     return summary_metrics.summary_payload(conn, open_jobs=_new_jobs(conn))
 
 def workspace_payload(account):
-    from .. import llm
-
-    try:
-        connected = account.get_json("gmail") is not None if account else gmail.is_connected()
-    except (PyMongoError, accounts.AccountError, ValueError):
-        connected = None
-    return {
-        "gmail": connected,
-        "account": account is not None,
-        "employer_password_configured": bool(os.getenv("JOBBOT_EMPLOYER_PASSWORD")),
-        "llm_provider": llm.DEFAULT_PROVIDER,
-        "llm_model": llm.OPENAI_MODEL if llm.DEFAULT_PROVIDER == "openai" else llm.DEFAULT_MODEL,
-        "llm_available": llm.LLM.available(),
-        "profile": str(paths.PROFILE),
-        "statuses": list(tracker.STATUSES),
-    }
+    return workspace.workspace_payload(account)
 
 
 from .docs_routes import docs_index as docs_index, doc_page as doc_page
