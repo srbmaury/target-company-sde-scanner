@@ -54,8 +54,9 @@ SENIOR = re.compile(
 ENTRY_LEVEL = re.compile(r"\bintern(?:ship)?\b|\bapprentice\b|\bnew grad(?:uate)?\b|"
                          r"\bgraduate\b|\bcampus\b|\btrainee\b", re.I)
 MID_LEVEL = re.compile(r"\bii\b|\b2\b|sde\s*-?\s*2|mid[- ]level|engineer\s*2|\bl[34]\b|\bmts\b", re.I)
-from .scan_experience import (YEARS, experience_bounds, stated_experience, stated_years,
-                              validate_experience_range)
+from .scan_experience import (YEARS as YEARS, experience_bounds as experience_bounds,
+                              stated_experience as stated_experience, stated_years as stated_years,
+                              validate_experience_range as validate_experience_range)
 
 class SiteMaintenance(Exception):
     """The job board redirected to a maintenance page: the board is down, not empty."""
