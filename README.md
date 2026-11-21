@@ -8,7 +8,6 @@ Jobbot finds software engineering roles across 300+ target companies, ranks them
 | --- | --- | --- |
 | [Local CLI](#local-cli-quick-start) | Scan, rank, track, and fill applications in a browser on your machine | Local profile, PDFs, tracker, and browser session |
 | [Hosted dashboard](#hosted-dashboard) | Run the same workflow from a browser with one private Google account per deployment | Encrypted account data in MongoDB. Chromium runs on the host |
-| [AI-assistant skill](docs/skill.md) | Search for and verify openings with Codex or Claude Code | See the skill's setup and workflow |
 
 ## Local CLI quick start
 
@@ -188,11 +187,10 @@ Run `./jobbot.sh gmail logout` to disconnect the CLI. See [Gmail tracking](docs/
 | [Command reference](docs/commands.md) | CLI commands and options |
 | [Privacy and safety](docs/privacy.md) | Local storage, model data, browser behavior |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
-| [AI-assistant skill](docs/skill.md) | Using the repository with Codex or Claude Code |
 
 ## Contributing
 
-The CLI and tracker live in `jobbot/`, browser automation in `jobbot/apply/`, and the dashboard in `jobbot/ui/`. Job sources live in [the ATS registry](references/ats-registry.json) and [the target company list](target-companies.md). Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing the registry or form-filling code.
+The CLI and tracker live in `jobbot/`, browser automation in `jobbot/apply/`, and the dashboard in `jobbot/ui/`. Job source configuration lives in [the ATS registry](references/ats-registry.json).
 
 ```bash
 .venv/bin/python -m pip install pyflakes mongomock
