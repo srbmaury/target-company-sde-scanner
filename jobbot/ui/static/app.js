@@ -9,8 +9,9 @@ const state = { manuallyApplied: new Set(), selected: new Set(), run: null, runP
 const { api, connection } = window.JobbotNetwork;
 const { loadDocs, wireDocs } = window.JobbotDocs;
 
-function loadLogs(date) {
-  return window.JobbotLogs.loadLogs(date, state.summary?.account);
+async function loadLogs(date) {
+  await window.JobbotLogs.loadLogs(date);
+  renderLogs();
 }
 
 function renderLogs() {

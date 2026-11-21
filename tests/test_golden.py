@@ -4,15 +4,16 @@ A rule change that alters any of these answers fails here. `None` means "leave i
 to you", which is right for questions the profile can't settle.
 """
 
-import os
-import tempfile
-
-# Never touch your real ~/.jobbot from tests (tracker, logs, answer log, browser profile).
-os.environ["JOBBOT_HOME"] = tempfile.mkdtemp(prefix="jobbot-test-")
 import unittest
 
 from jobbot.answers import Resolver
 from jobbot.profile import Profile
+
+from core_fixtures import set_up_workspace
+
+
+def setUpModule():
+    set_up_workspace()
 
 PROFILE = {
     "personal": {"first_name": "Asha", "last_name": "Example", "email": "asha@example.com", "phone": "9876543210",

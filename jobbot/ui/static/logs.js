@@ -6,12 +6,11 @@
 
   let logLines = [];
 
-  async function loadLogs(date, hosted) {
+  async function loadLogs(date) {
     const data = await api("logs?" + new URLSearchParams({ date: date || $("#logs-date").value || "" }));
     const sel = $("#logs-date");
     sel.innerHTML = data.dates.map((d) => `<option ${d === data.date ? "selected" : ""}>${esc(d)}</option>`).join("") || "<option value=''>No logs yet</option>";
     logLines = data.lines || [];
-    renderLogs(hosted);
   }
 
   function renderLogs(hosted) {

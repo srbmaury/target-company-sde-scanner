@@ -102,6 +102,21 @@ class DashboardUITests(unittest.TestCase):
         expect(self.page.locator("#logs")).to_have_text("Profile updated")
         self.assertEqual(self.errors, [])
 
+    def test_restored_logs_uses_hosted_mode_after_workspace_loads(self):
+        pending_logs = []
+        self.page.route("**/api/logs?*", lambda route: pending_logs.append(route))
+        self.page.add_init_script("localStorage.setItem('jobbot.tab', 'logs')")
+        with self.page.expect_request("**/api/logs?*"):
+            self.open()
+        expect(self.page.locator("#nav-logs")).to_have_attribute("aria-selected", "true")
+
+        pending_logs[0].fulfill(json={"dates": ["2026-11-20"], "date": "2026-11-20", "lines": []})
+        expect(self.page.locator("#logs-date")).to_have_value("2026-11-20")
+        expect(self.page.locator("#logs")).to_have_text(
+            "Open Runs for hosted browser activity, or Actions for background task output."
+        )
+        self.assertEqual(self.errors, [])
+
     def test_hosted_pages_and_keyboard_navigation(self):
         self.open()
         self.page.locator("[data-select]").check()
