@@ -8,6 +8,7 @@ are reported but cannot grow without a conscious baseline review.
 """
 import argparse
 import ast
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +44,20 @@ def duplicate_definitions(tree):
 
     visit(tree, "module")
     return problems
+
+
+def readability_findings(tree, path):
+    """Advisory function-length and naming findings; not deletion instructions."""
+    findings = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            length = (node.end_lineno or node.lineno) - node.lineno + 1
+            if length > 100:
+                findings.append(f"{path}:{node.lineno} {node.name}: {length}-line function")
+            if not re.fullmatch(r"_?[a-z][a-z0-9_]*", node.name) and not (
+                    node.name.startswith("__") and node.name.endswith("__")):
+                findings.append(f"{path}:{node.lineno} unconventional function name: {node.name}")
+    return findings
 
 
 def audit():
