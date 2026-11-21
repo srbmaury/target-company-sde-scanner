@@ -33,7 +33,7 @@ import yaml
 
 from .. import accounts, gmail, paths, profile as profile_mod, tracker
 from pymongo.errors import PyMongoError
-from . import bridge
+from . import bridge, summary as summary_metrics
 
 LOGGER = logging.getLogger(__name__)
 
@@ -106,16 +106,8 @@ def _new_jobs(conn):
 
 
 def summary_payload(conn):
-    stats = tracker.stats(conn)
-    total = sum(v for k, v in stats.items() if k not in ("shortlisted", "submission_unverified"))
-    responded = sum(stats.get(k, 0) for k in ("assessment", "interview", "offer", "rejected"))
-    return {
-        "applications": stats, "total": total,
-        "response_rate": round(100 * responded / total) if total else 0,
-        "interview_rate": round(100 * (stats.get("interview", 0) + stats.get("offer", 0)) / total) if total else 0,
-        "open_jobs": _new_jobs(conn),
-    }
-
+    """Application metrics with the current eligible-job count."""
+    return summary_metrics.summary_payload(conn, open_jobs=_new_jobs(conn))
 
 def workspace_payload(account):
     from .. import llm
