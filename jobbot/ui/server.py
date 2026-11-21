@@ -11,7 +11,6 @@ page polls their output.
 
 import base64
 import binascii
-import datetime as dt
 import errno
 import json
 import logging
@@ -20,9 +19,6 @@ import os
 import re
 import secrets
 import shutil
-import subprocess
-import sys
-import threading
 import time
 import urllib.parse
 from http.cookies import CookieError, SimpleCookie
