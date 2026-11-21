@@ -3,9 +3,9 @@ import re
 import unittest
 from unittest.mock import patch
 
-from jobbot import answer_options, answers, cli, cli_format, scan, scan_filters, scan_registry
-from jobbot.apply import engine, text_length
-from jobbot.ui import docs_routes, job_queries, job_views, server, summary, tasks, workspace
+from jobbot import answer_options, answer_patterns, answers, cli, cli_format, scan, scan_filters, scan_registry, scan_transport
+from jobbot.apply import engine, policy, text_length
+from jobbot.ui import docs_routes, job_queries, job_views, logs, server, summary, tasks, workspace
 
 
 class ExtractionTests(unittest.TestCase):
@@ -36,6 +36,25 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(payload["response_rate"], 33)
         self.assertEqual(payload["interview_rate"], 33)
         self.assertEqual(payload["open_jobs"], 7)
+
+    def test_question_patterns_are_shared_with_resolver(self):
+        self.assertIs(answers.FACT_ONLY_RE, answer_patterns.FACT_ONLY_RE)
+        self.assertTrue(answer_patterns.FACT_ONLY_RE.search("visa sponsorship"))
+        self.assertTrue(answer_patterns.SIGN_RE.search("type your legal name to sign"))
+
+    def test_application_policy_is_shared_with_engine(self):
+        self.assertIs(engine.TRAP_RE, policy.TRAP_RE)
+        self.assertEqual(engine.MAX_APPLY_SECONDS, policy.MAX_APPLY_SECONDS)
+        self.assertTrue(policy.TRAP_RE.search("leave this field blank"))
+
+    def test_scanner_transport_normalizes_markup(self):
+        self.assertIs(scan.SiteMaintenance, scan_transport.SiteMaintenance)
+        self.assertEqual(scan.text_of("<p>Hello &amp; goodbye</p>"), "Hello & goodbye")
+        self.assertEqual(scan_transport.text_of("<p>Hello &amp; goodbye</p>"), "Hello & goodbye")
+
+    def test_dashboard_log_discovery_is_delegated(self):
+        with patch.object(logs, "log_dates", return_value=["2026-11-21"]):
+            self.assertEqual(server.log_dates(), ["2026-11-21"])
 
     def test_scanner_classification_filter(self):
         india = re.compile("India", re.I)
