@@ -57,7 +57,7 @@ MID_LEVEL = re.compile(r"\bii\b|\b2\b|sde\s*-?\s*2|mid[- ]level|engineer\s*2|\bl
 from .scan_experience import (YEARS as YEARS, experience_bounds as experience_bounds,
                               stated_experience as stated_experience,
                               validate_experience_range as validate_experience_range)
-from . import scan_experience
+from . import scan_experience, scan_registry
 
 
 def stated_years(text):
@@ -580,28 +580,15 @@ def classify(job, location_re, max_yoe, min_yoe=DEFAULT_MIN_YOE):
 
 
 def load_history(path):
-    if not path or not os.path.exists(path):
-        return set()
-    return set(re.findall(r"https?://[^\s|)>\]]+", open(path, encoding="utf-8").read()))
+    return scan_registry.load_history(path)
 
 
 def load_registry():
-    with open(REGISTRY, encoding="utf-8") as fh:
-        return json.load(fh)["companies"]
+    return scan_registry.load_registry()
 
 
 def resolve_names(registry, companies=None):
-    """Map user-supplied names to registry keys. Returns (names, missing)."""
-    if not companies:
-        return list(registry), []
-    lookup = {k.lower(): k for k in registry}
-    names, missing = [], []
-    for raw in companies:
-        if not raw.strip():
-            continue
-        key = lookup.get(raw.strip().lower())
-        (names.append(key) if key else missing.append(raw.strip()))
-    return names, missing
+    return scan_registry.resolve_names(registry, companies)
 
 
 def run_scan(companies=None, exclude=(), locations=DEFAULT_LOCATIONS, max_yoe=DEFAULT_MAX_YOE, include_unstated=False,
