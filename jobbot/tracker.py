@@ -14,7 +14,7 @@ from functools import lru_cache
 
 from . import paths
 
-STATUSES = ("shortlisted", "applied", "assessment", "interview", "offer", "rejected", "withdrawn", "ghosted")
+STATUSES = ("shortlisted", "submission_unverified", "applied", "assessment", "interview", "offer", "rejected", "withdrawn", "ghosted")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -371,14 +371,15 @@ def add_application(conn, company, title, url=None, location=None, status="appli
     stamp = now()
     existing = find_application(conn, url) if url else None
     if existing:
-        if status in ("applied", "shortlisted") and existing["status"] not in ("applied", "shortlisted"):
+        if status in ("applied", "shortlisted", "submission_unverified") and existing["status"] not in ("applied", "shortlisted", "submission_unverified"):
+            return existing  # do not regress an application that already progressed
             return existing   # already further along (assessment, interview, offer, rejected...): keep it
         return update_status(conn, existing["id"], status, notes)
     cur = conn.execute(
         "INSERT INTO applications (url, company, title, location, status, resume, source, applied_on, updated_on, notes)"
         " VALUES (?,?,?,?,?,?,?,?,?,?)",
         (url, company, title, location, status, resume, source,
-         applied_on or (today() if status != "shortlisted" else None), stamp, notes),
+         applied_on or (today() if status not in ("shortlisted", "submission_unverified") else None), stamp, notes),
     )
     conn.execute("INSERT INTO events (application_id, at, status, note) VALUES (?,?,?,?)",
                  (cur.lastrowid, stamp, status, notes or f"added via {source}"))
@@ -404,8 +405,10 @@ def update_status(conn, key, status, note=None):
 
 def submitted_today(conn):
     """Applications jobbot submitted today (for automation.max_applications_per_day)."""
-    return conn.execute("SELECT COUNT(*) FROM applications WHERE source = 'jobbot' AND applied_on = ?",
-                        (today(),)).fetchone()[0]
+    return conn.execute("""SELECT COUNT(*) FROM applications
+                           WHERE source = 'jobbot' AND
+                           (applied_on = ? OR (status = 'submission_unverified' AND substr(updated_on, 1, 10) = ?))""",
+                        (today(), today())).fetchone()[0]
 
 
 def edit_application(conn, key, company=None, title=None, url=None):
